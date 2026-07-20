@@ -101,8 +101,8 @@ func _init() -> void:
 	await process_frame
 	_assert_true(not _node_visible(overlay, "PostMatchStatsPanel"), "Crucible must reject the standard stats component")
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatsHeader"), "Wax Wager", "crucible header")
-	_assert_eq(_label_text(overlay, "Panel/VBox/StatMaxHivePower"), "Wax: start 50.000 Wax | after escrow 49.000 Wax | finish 51.000 Wax", "crucible balance status")
-	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsKilled"), "Stake 1.000 Wax | Winner payout 2.000 Wax | Burn 0.000 Wax | Net +1.000 Wax", "crucible stake status")
+	_assert_eq(_label_text(overlay, "Panel/VBox/StatMaxHivePower"), "Wax: start 50.000 Wax | after escrow 49.000 Wax | finish 50.800 Wax", "crucible balance status")
+	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsKilled"), "Stake 1.000 Wax | Winner payout 1.800 Wax | Award reserve 0.200 Wax | Net +0.800 Wax", "crucible stake status")
 	_assert_eq(_label_text(overlay, "Panel/VBox/StatUnitsLanded"), "Crucible settlement: Settled. You won this Wax match.", "crucible settlement status")
 	_assert_true(_font_size(overlay, "Panel/VBox/StatUnitsKilled") >= 40, "essential Wax status must meet the enlarged in-game body floor")
 	_assert_content_fits(overlay, "944x2048 Crucible result")
@@ -368,11 +368,12 @@ func _set_crucible_tree_meta() -> void:
 	set_meta("vs_crucible", true)
 	set_meta("crucible_local_balance_start_millis", 50000)
 	set_meta("crucible_local_balance_after_escrow_millis", 49000)
-	set_meta("crucible_local_balance_finish_millis", 51000)
+	set_meta("crucible_local_balance_finish_millis", 50800)
 	set_meta("crucible_stake_each_millis", 1000)
-	set_meta("crucible_winner_payout_millis", 2000)
+	set_meta("crucible_winner_payout_millis", 1800)
 	set_meta("crucible_burn_millis", 0)
-	set_meta("crucible_balance_delta_millis", 1000)
+	set_meta("crucible_award_reserve_millis", 200)
+	set_meta("crucible_balance_delta_millis", 800)
 	set_meta("crucible_settlement_status", "SETTLED")
 
 func _clear_crucible_tree_meta() -> void:
@@ -384,6 +385,7 @@ func _clear_crucible_tree_meta() -> void:
 		"crucible_stake_each_millis",
 		"crucible_winner_payout_millis",
 		"crucible_burn_millis",
+		"crucible_award_reserve_millis",
 		"crucible_balance_delta_millis",
 		"crucible_settlement_status"
 	]:

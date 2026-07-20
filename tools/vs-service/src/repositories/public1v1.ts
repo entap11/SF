@@ -16,13 +16,13 @@ export type Public1v1Player = {
   publicEntapId?: string;
 };
 
-export type PublicDuelQueueMode = "STANDARD_1V1" | "CTF_1V1" | "HCTF_1V1";
+export type PublicDuelQueueMode = "STANDARD_1V1" | "CTF_1V1" | "HCTF_1V1" | "CRUCIBLE_1V1";
 export type PublicDuelContractMode = PublicDuelQueueMode | "CTF_BOT" | "HCTF_BOT";
 
 export type Public1v1Policy = {
   modeId: PublicDuelQueueMode;
   clientMode: "1V1" | "CAPTURE_FLAG" | "HIDDEN_CAPTURE_FLAG";
-  vsRuleset: "STANDARD" | "CAPTURE_FLAG" | "HIDDEN_CAPTURE_FLAG";
+  vsRuleset: "STANDARD" | "CAPTURE_FLAG" | "HIDDEN_CAPTURE_FLAG" | "CRUCIBLE";
   minimumClientBuild: string;
   simBuildId: string;
   rulesetId: string;
@@ -133,7 +133,7 @@ export function validatePublic1v1Enqueue(input: EnqueuePublic1v1Input): void {
     || !/^[0-9a-f]{64}$/.test(input.policy.rulesetHash) || !/^[0-9a-f]{64}$/.test(input.policy.mapHash)
     || !input.policy.minimumClientBuild.trim() || !input.policy.simBuildId.trim()
     || !input.policy.rulesetId.trim() || !input.policy.mapId.trim()
-    || !["STANDARD_1V1", "CTF_1V1", "HCTF_1V1"].includes(input.policy.modeId)) {
+    || !["STANDARD_1V1", "CTF_1V1", "HCTF_1V1", "CRUCIBLE_1V1"].includes(input.policy.modeId)) {
     throw new DurableCoreError("durable_1v1_contract_not_configured");
   }
   if (input.clientBuild.localeCompare(input.policy.minimumClientBuild) < 0) {
@@ -204,6 +204,12 @@ export function publicSessionView(contract: DurableContract, rosterOverride?: Ro
       paid_entry: false,
       ranked: rankPolicy.enabled === true,
       economic,
+      vs_crucible: contract.modeId === "CRUCIBLE_1V1",
+      crucible_match_id: contract.modeId === "CRUCIBLE_1V1" ? contract.matchId : null,
+      crucible_stake_each_millis: contract.modeId === "CRUCIBLE_1V1" ? Number(economyPolicy.stake_each_millis ?? 1000) : null,
+      crucible_pot_millis: contract.modeId === "CRUCIBLE_1V1" ? 2000 : null,
+      crucible_winner_payout_millis: contract.modeId === "CRUCIBLE_1V1" ? Number(economyPolicy.winner_payout_millis ?? 1800) : null,
+      crucible_award_reserve_millis: contract.modeId === "CRUCIBLE_1V1" ? Number(economyPolicy.award_reserve_millis ?? 200) : null,
       practice,
       bot_fill: practicePolicy.bot_fill === true,
       authority_tier: contract.authorityTier,
@@ -217,7 +223,7 @@ export function publicSessionView(contract: DurableContract, rosterOverride?: Ro
 
 function presentationForMode(modeId: string): {
   clientMode: "1V1" | "CAPTURE_FLAG" | "HIDDEN_CAPTURE_FLAG";
-  vsRuleset: "STANDARD" | "CAPTURE_FLAG" | "HIDDEN_CAPTURE_FLAG";
+  vsRuleset: "STANDARD" | "CAPTURE_FLAG" | "HIDDEN_CAPTURE_FLAG" | "CRUCIBLE";
 } {
   if (["CTF_1V1", "CTF_BOT"].includes(modeId)) {
     return { clientMode: "CAPTURE_FLAG", vsRuleset: "CAPTURE_FLAG" };
@@ -225,6 +231,7 @@ function presentationForMode(modeId: string): {
   if (["HCTF_1V1", "HCTF_BOT"].includes(modeId)) {
     return { clientMode: "HIDDEN_CAPTURE_FLAG", vsRuleset: "HIDDEN_CAPTURE_FLAG" };
   }
+  if (modeId === "CRUCIBLE_1V1") return { clientMode: "1V1", vsRuleset: "CRUCIBLE" };
   return { clientMode: "1V1", vsRuleset: "STANDARD" };
 }
 

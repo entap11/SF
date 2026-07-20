@@ -45,7 +45,7 @@ func config_hash() -> String:
 	var parts: Array[String] = [
 		"v:%d" % config_version,
 		"stake:%d" % stake_bps,
-		"burn:%d" % burn_bps,
+		"reserve:200",
 		"min:%d" % minimum_stake_millis,
 		"round:%s" % rounding_mode.strip_edges().to_upper(),
 		"wager:%s" % str(wagering_enabled)

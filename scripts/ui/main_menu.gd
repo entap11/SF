@@ -12395,11 +12395,11 @@ func _open_crucible_confirmation() -> void:
 		return
 	var facts: Label = Label.new()
 	facts.name = "CrucibleConfirmationFacts"
-	facts.text = "Current Wax: %s\nRequired stake: %s\nWinner payout after burn: %s\nBurn amount: %s" % [
+	facts.text = "Current Wax: %s\nRequired stake: %s\nWinner payout: %s\nAward reserve: %s" % [
 		_format_crucible_wax_millis(int(entry_status.get("balance_millis", 0))),
 		_format_crucible_wax_millis(int(stake_preview.get("stake_each", 0))),
 		_format_crucible_wax_millis(int(stake_preview.get("winner_payout", 0))),
-		_format_crucible_wax_millis(int(stake_preview.get("burn", 0)))
+		_format_crucible_wax_millis(int(stake_preview.get("award_reserve", 0)))
 	]
 	facts.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	facts.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART

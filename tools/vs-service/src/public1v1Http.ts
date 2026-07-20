@@ -1,7 +1,7 @@
 import type { Request, Response } from "express";
 import { config } from "./config.js";
 import { DurableCoreError, type JsonRecord } from "./repositories/durableCore.js";
-import { getPublic1v1Repository } from "./repositories/durableCoreRuntime.js";
+import { getCrucibleSettlementRepository, getPublic1v1Repository } from "./repositories/durableCoreRuntime.js";
 import type { Public1v1Policy, Public1v1QueueResult, PublicDuelQueueMode } from "./repositories/public1v1.js";
 import { bearerPlayerToken, PlayerAuthError, verifyPlayerToken } from "./playerAuth.js";
 
@@ -35,7 +35,14 @@ export async function handleDurablePublic1v1Action(
     switch (action) {
       case "enqueue_public_1v1": {
         const requestId = requestKey(req);
-        const policy = policyForMode(publicMode(req.body?.mode_id));
+        const modeId = publicMode(req.body?.mode_id);
+        const policy = policyForMode(modeId);
+        if (modeId === "CRUCIBLE_1V1") {
+          if (!config.enableCrucibleWaxSettlement) throw new DurableCoreError("crucible_wax_settlement_disabled");
+          if (await getCrucibleSettlementRepository().balance(authenticated.playerId) < 1000) {
+            throw new DurableCoreError("insufficient_wax");
+          }
+        }
         const result = await repository.enqueue({
           requestId,
           player: {
@@ -48,6 +55,10 @@ export async function handleDurablePublic1v1Action(
           nowIso,
           policy
         });
+        if (modeId === "CRUCIBLE_1V1" && result.ticket.matchId) {
+          await getCrucibleSettlementRepository().openEscrow(result.ticket.matchId,
+            `match:${result.ticket.matchId}:open`, nowIso);
+        }
         respondQueue(res, result);
         return true;
       }
@@ -223,13 +234,14 @@ function statusFor(code: string): number {
     "bot_fallback_not_eligible"].includes(code)) return 409;
   if (["durable_1v1_contract_not_configured", "command_stream_missing", "public_1v1_disabled",
     "public_ctf_disabled", "public_hctf_disabled", "human_hctf_secrecy_not_certified",
-    "ctf_bot_fallback_disabled"].includes(code)) return 503;
+    "ctf_bot_fallback_disabled", "public_crucible_disabled", "crucible_wax_settlement_disabled"].includes(code)) return 503;
+  if (code === "insufficient_wax") return 402;
   return 400;
 }
 
 function publicMode(value: unknown): PublicDuelQueueMode {
   const mode = text(value).toUpperCase() || "STANDARD_1V1";
-  if (mode === "STANDARD_1V1" || mode === "CTF_1V1" || mode === "HCTF_1V1") return mode;
+  if (mode === "STANDARD_1V1" || mode === "CTF_1V1" || mode === "HCTF_1V1" || mode === "CRUCIBLE_1V1") return mode;
   throw new DurableCoreError("public_duel_mode_unsupported");
 }
 
@@ -256,6 +268,14 @@ function policyForMode(modeId: PublicDuelQueueMode): Public1v1Policy {
       ...shared, modeId, clientMode: "CAPTURE_FLAG", vsRuleset: "CAPTURE_FLAG",
       rulesetId: config.publicCtfRulesetId, rulesetHash: config.publicCtfRulesetHash,
       mapId: config.publicCtfMapId, mapHash: config.publicCtfMapHash, ranked: false
+    };
+  }
+  if (modeId === "CRUCIBLE_1V1") {
+    if (!config.enablePublicCrucible) throw new DurableCoreError("public_crucible_disabled");
+    return {
+      ...shared, modeId, clientMode: "1V1", vsRuleset: "CRUCIBLE",
+      rulesetId: config.publicCrucibleRulesetId, rulesetHash: config.publicCrucibleRulesetHash,
+      mapId: config.publicCrucibleMapId, mapHash: config.publicCrucibleMapHash, ranked: false
     };
   }
   if (!config.enablePublicHctf) throw new DurableCoreError("public_hctf_disabled");

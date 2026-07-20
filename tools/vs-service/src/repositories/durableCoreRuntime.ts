@@ -12,12 +12,14 @@ import { PostgresVerificationRepository } from "./postgresVerificationRepository
 import { PostgresRankSettlementRepository } from "./rankSettlement.js";
 import type { PublicContestRepository } from "./publicContest.js";
 import { PostgresPublicContestRepository } from "./postgresPublicContestRepository.js";
+import { PostgresCrucibleSettlementRepository } from "./crucibleSettlement.js";
 
 let repository: DurableCoreRepository | null = null;
 let public1v1Repository: Public1v1Repository | null = null;
 let verificationRepository: VerificationRepository | null = null;
 let rankSettlementRepository: PostgresRankSettlementRepository | null = null;
 let publicContestRepository: PublicContestRepository | null = null;
+let crucibleSettlementRepository: PostgresCrucibleSettlementRepository | null = null;
 
 export function durableCoreStatus(): {
   enabled: boolean;
@@ -76,4 +78,11 @@ export function getPublicContestRepository(): PublicContestRepository {
   if (!config.databaseUrl) throw new Error("VS_DATABASE_URL_required_for_public_contests");
   publicContestRepository ??= new PostgresPublicContestRepository(durablePool);
   return publicContestRepository;
+}
+
+export function getCrucibleSettlementRepository(): PostgresCrucibleSettlementRepository {
+  if (config.durableStore !== "postgres") throw new Error("postgres_crucible_settlement_store_required");
+  if (!config.databaseUrl) throw new Error("VS_DATABASE_URL_required_for_crucible_settlement");
+  crucibleSettlementRepository ??= new PostgresCrucibleSettlementRepository(durablePool);
+  return crucibleSettlementRepository;
 }

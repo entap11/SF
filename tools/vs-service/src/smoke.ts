@@ -778,7 +778,8 @@ async function main(): Promise<void> {
     }, matchHeaders);
     const crucibleSettlement = crucibleSettle.settlement as JsonRecord;
     expect(String(crucibleSettlement.settlement_status) === "SETTLED", "Crucible settlement status mismatch", crucibleSettle);
-    expect(Number(crucibleSettlement.winner_payout) === 2000, "Crucible winner payout mismatch", crucibleSettle);
+    expect(Number(crucibleSettlement.winner_payout) === 1800
+      && Number(crucibleSettlement.award_reserve) === 200, "Crucible payout/reserve mismatch", crucibleSettle);
 
     const noContestOpen = await post(baseUrl, "open_crucible_escrow", {
       match_id: "crucible_no_contest_smoke",
@@ -925,7 +926,9 @@ async function main(): Promise<void> {
     const persistedSnapshot = persistedLedgerB.getSnapshot();
     expect(Number((persistedSnapshot.config as JsonRecord).stake_bps) === 0, "persisted config missing", persistedSnapshot.config);
     expect(((persistedSnapshot.settlements_by_match_id as JsonRecord).persist_match as JsonRecord)?.winner_id === "persist_a", "persisted settlement missing", persistedSnapshot);
-    expect(Number((persistedSnapshot.balances_by_player as JsonRecord).persist_a) === 11000, "persisted balance missing", persistedSnapshot.balances_by_player);
+    expect(Number((persistedSnapshot.balances_by_player as JsonRecord).persist_a) === 10800
+      && Number((persistedSnapshot.balances_by_player as JsonRecord).crucible_award_reserve) === 200,
+    "persisted balance/reserve missing", persistedSnapshot.balances_by_player);
 
     const waxEpochPath = join(tempDir, "crucible-epoch.json");
     const waxEpochA = new CrucibleLedger(waxEpochPath, "epoch_a");

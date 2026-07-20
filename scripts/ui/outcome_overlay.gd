@@ -977,7 +977,7 @@ func _apply_crucible_status_from_tree(winner_id: int) -> void:
 	var finish_millis: int = maxi(0, int(tree.get_meta("crucible_local_balance_finish_millis", after_escrow_millis)))
 	var stake_millis: int = maxi(0, int(tree.get_meta("crucible_stake_each_millis", start_millis - after_escrow_millis)))
 	var payout_millis: int = maxi(0, int(tree.get_meta("crucible_winner_payout_millis", 0)))
-	var burn_millis: int = maxi(0, int(tree.get_meta("crucible_burn_millis", 0)))
+	var reserve_millis: int = maxi(0, int(tree.get_meta("crucible_award_reserve_millis", 0)))
 	var delta_millis: int = int(tree.get_meta("crucible_balance_delta_millis", finish_millis - start_millis))
 	var settlement_status: String = str(tree.get_meta("crucible_settlement_status", "")).strip_edges()
 	stat_max_power.text = "Wax: start %s | after escrow %s | finish %s" % [
@@ -986,10 +986,10 @@ func _apply_crucible_status_from_tree(winner_id: int) -> void:
 		_format_wax_millis(finish_millis)
 	]
 	var delta_prefix: String = "+" if delta_millis > 0 else ""
-	stat_units_killed.text = "Stake %s | Winner payout %s | Burn %s | Net %s%s" % [
+	stat_units_killed.text = "Stake %s | Winner payout %s | Award reserve %s | Net %s%s" % [
 		_format_wax_millis(stake_millis),
 		_format_wax_millis(payout_millis),
-		_format_wax_millis(burn_millis),
+		_format_wax_millis(reserve_millis),
 		delta_prefix,
 		_format_signed_wax_millis(delta_millis)
 	]

@@ -84,10 +84,12 @@ async function main(): Promise<void> {
     const health = await fetch(`${root}/health`).then((res) => res.json() as Promise<JsonRecord>);
     const healthKeys = Object.keys(health).sort();
     expect(JSON.stringify(healthKeys) === JSON.stringify([
-      "admin_auth_required", "authenticated_1v1_slice_enabled", "build", "ctf_bot_fallback_enabled",
+      "admin_auth_required", "authenticated_1v1_slice_enabled", "build", "crucible_wax_settlement_enabled",
+      "ctf_bot_fallback_enabled",
       "durable_public_1v1_enabled", "economy_mutations_enabled", "hctf_live_secrecy_certified",
       "match_authority_auth_required", "match_verification_enabled", "ok", "player_auth_configured",
       "public_1v1_enabled", "public_contests_enabled", "public_contests_store_authorized",
+      "public_crucible_enabled",
       "public_ctf_enabled", "public_gauntlet_enabled", "public_hctf_enabled", "public_leaderboards_enabled",
       "public_time_puzzles_enabled",
       "rank_mutations_enabled", "service", "storage"
@@ -97,6 +99,7 @@ async function main(): Promise<void> {
       && health.match_verification_enabled === false && health.durable_public_1v1_enabled === false
       && health.public_1v1_enabled === false && health.public_ctf_enabled === false
       && health.public_hctf_enabled === false && health.hctf_live_secrecy_certified === false
+      && health.public_crucible_enabled === false && health.crucible_wax_settlement_enabled === false
       && health.ctf_bot_fallback_enabled === false && health.public_leaderboards_enabled === false
       && health.public_contests_enabled === false && health.public_time_puzzles_enabled === false
       && health.public_gauntlet_enabled === false && health.public_contests_store_authorized === false

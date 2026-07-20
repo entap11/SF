@@ -84,12 +84,12 @@ func _run() -> void:
 		return
 	_assert_eq(str(settlement.get("winner_id", "")), PLAYER_A, "winner id")
 	_assert_eq(str(settlement.get("settlement_status", "")), "SETTLED", "settlement status")
-	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 51000, "winner balance")
+	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 50800, "winner balance")
 	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_B)), 49000, "loser balance")
 	_assert_eq(str(get_meta("crucible_settlement_status", "")), "SETTLED", "tree settlement status")
-	_assert_eq(int(get_meta("crucible_local_balance_finish_millis", 0)), 51000, "local finish balance")
+	_assert_eq(int(get_meta("crucible_local_balance_finish_millis", 0)), 50800, "local finish balance")
 	_assert_eq(int(get_meta("crucible_remote_balance_finish_millis", 0)), 49000, "remote finish balance")
-	_assert_eq(int(get_meta("crucible_balance_delta_millis", 0)), 1000, "local balance delta")
+	_assert_eq(int(get_meta("crucible_balance_delta_millis", 0)), 800, "local balance delta")
 
 	lobby.queue_free()
 	arena.queue_free()

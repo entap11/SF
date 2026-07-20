@@ -125,7 +125,10 @@ export class MemoryPublic1v1Repository implements Public1v1Repository {
       rankPolicy: input.policy.ranked
         ? { enabled: true, queue: "GLOBAL_RANK", policy_id: "STANDARD_1V1_V1" }
         : { enabled: false, queue: "NONE", policy_id: "NONE" },
-      economyPolicy: { policy_id: "NONE" },
+      economyPolicy: input.policy.modeId === "CRUCIBLE_1V1"
+        ? { policy_id: "CRUCIBLE_WAX_V1", stake_each_millis: 1000, winner_payout_millis: 1800,
+          award_reserve_millis: 200 }
+        : { policy_id: "NONE" },
       practicePolicy: { practice: false, bot_fill: false },
       createdAt: contractCreatedAt,
       expiresAt: new Date(new Date(contractCreatedAt).getTime() + input.policy.sessionTtlSec * 1_000).toISOString()

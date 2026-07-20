@@ -1261,6 +1261,7 @@ func _bot_fill_jukebox_clear_keys() -> Array[String]:
 		"crucible_stake_each_millis",
 		"crucible_pot_millis",
 		"crucible_burn_millis",
+		"crucible_award_reserve_millis",
 		"crucible_winner_payout_millis",
 		"crucible_local_balance_start_millis",
 		"crucible_local_balance_after_escrow_millis",
@@ -1333,6 +1334,7 @@ func _vs_launch_clear_keys() -> Array[String]:
 		"crucible_stake_each_millis",
 		"crucible_pot_millis",
 		"crucible_burn_millis",
+		"crucible_award_reserve_millis",
 		"crucible_winner_payout_millis",
 		"crucible_local_balance_start_millis",
 		"crucible_local_balance_after_escrow_millis",
@@ -1512,6 +1514,18 @@ func _validate_session_contract(session: Dictionary) -> Dictionary:
 func _prepare_crucible_match_context() -> bool:
 	if not _context_is_crucible():
 		return true
+	if _durable_public_1v1:
+		_context_meta["vs_ruleset"] = CrucibleRulesetPolicy.RULESET_CRUCIBLE
+		_context_meta["vs_crucible"] = true
+		_context_meta["crucible_match_id"] = str(_context_meta.get("crucible_match_id", _session_id))
+		_context_meta["crucible_stake_each_millis"] = 1000
+		_context_meta["crucible_pot_millis"] = 2000
+		_context_meta["crucible_winner_payout_millis"] = 1800
+		_context_meta["crucible_award_reserve_millis"] = 200
+		_context_meta["crucible_burn_millis"] = 0
+		status_label.text = "Crucible escrow locked by the server: stake 1.000 Wax | winner payout 1.800 Wax."
+		_refresh_summary()
+		return true
 	var crucible_state: Node = get_node_or_null("/root/CrucibleState")
 	if crucible_state == null:
 		status_label.text = "Crucible is unavailable."
@@ -1568,6 +1582,7 @@ func _prepare_crucible_match_context() -> bool:
 	_context_meta["crucible_stake_each_millis"] = maxi(0, int(escrow.get("stake_each", 0)))
 	_context_meta["crucible_pot_millis"] = maxi(0, int(escrow.get("pot", 0)))
 	_context_meta["crucible_burn_millis"] = maxi(0, int(escrow.get("burn", 0)))
+	_context_meta["crucible_award_reserve_millis"] = maxi(0, int(escrow.get("award_reserve", 0)))
 	_context_meta["crucible_winner_payout_millis"] = maxi(0, int(escrow.get("winner_payout", 0)))
 	_context_meta["crucible_local_balance_start_millis"] = local_balance_before
 	_context_meta["crucible_local_balance_after_escrow_millis"] = local_balance_after

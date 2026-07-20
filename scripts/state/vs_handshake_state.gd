@@ -884,6 +884,8 @@ func accept_public_bot_fallback(ticket_id: String, request_id: String = "") -> D
 	})
 
 func _public_duel_mode_id(context: Dictionary) -> String:
+	if bool(context.get("vs_crucible", false)) or str(context.get("vs_ruleset", "")).strip_edges().to_upper() == "CRUCIBLE":
+		return "CRUCIBLE_1V1"
 	var mode: String = str(context.get("mode", context.get("vs_mode", "1V1"))).strip_edges().to_upper().replace(" ", "_").replace("-", "_")
 	if mode == "CAPTURE_FLAG" or mode == "CTF":
 		return "CTF_1V1"

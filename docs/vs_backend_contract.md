@@ -34,6 +34,15 @@ Quarantined actions are:
 - Async contests: `open_async_entry_escrow`, `submit_async_contest_result`, `preview_async_contest_result_payout_report`, `preview_async_contest_payout_report`, `approve_async_contest_payout_report`, `settle_async_contest`, `settle_async_contest_payouts`, `settle_async_contest_payout_percentages`, `refund_async_entry`.
 - Honey: `record_honey_activity`, `grant_honey`, `debit_honey`, `debit_hive_honey_purchase`, `debug_set_honey_balance`.
 - Crucible/Wax: `preview_crucible_entry`, `update_crucible_config`, `open_crucible_escrow`, `settle_crucible_match`, `refund_crucible_match`, `resolve_crucible_review`, `record_crucible_lifecycle`, `record_competitive_wax_result`, `award_crucible_wax`, `debug_set_crucible_balance`.
+
+Public Crucible uses the durable `CRUCIBLE_1V1` roster and separate PostgreSQL
+settlement actions: `open_public_crucible_escrow` and
+`settle_public_crucible_verified` require match authority;
+`refund_public_crucible`, `reverse_public_crucible_settlement`,
+`set_public_crucible_balance`, and `get_public_crucible_metrics` require ops.
+The fixed accounting is 1,000 millis from each player, 1,800 to the verified
+winner, and 200 to the non-client-addressable award reserve. Public mode and
+Wax mutation flags are independent and default false.
 - Contest dashboard: `POST /v1/contest_dash/config` and `POST /v1/contest_dash/delete`.
 
 Paid or Crucible variants of `create_invite`, `join_invite`, `enqueue_quick_match`, `create_friend_invite`, `respond_friend_invite`, `start_session`, bot fill, and `leave_session` also fail closed. Their ordinary free variants remain available.

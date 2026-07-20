@@ -27,6 +27,7 @@ import { handleDurablePublic1v1Action } from "./public1v1Http.js";
 import { handleVerificationAction } from "./verificationHttp.js";
 import { handlePublicRankAction } from "./publicRankHttp.js";
 import { handlePublicContestAction } from "./publicContestHttp.js";
+import { handleCrucibleSettlementAction } from "./crucibleSettlementHttp.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -916,6 +917,7 @@ async function handleAction(req: Request, res: Response): Promise<void> {
   if (await handlePublicRankAction(action, req, res)) return;
   if (await handleVerificationAction(action, req, res)) return;
   if (await handleDurablePublic1v1Action(action, req, res)) return;
+  if (await handleCrucibleSettlementAction(action, req, res)) return;
   if (QUARANTINED_ECONOMY_ACTIONS.has(action) && !requireEconomyMutations(res)) {
     return;
   }
@@ -2511,6 +2513,8 @@ function healthPayload(): JsonRecord {
     public_1v1_enabled: config.enablePublic1v1,
     public_ctf_enabled: config.enablePublicCtf,
     public_hctf_enabled: config.enablePublicHctf,
+    public_crucible_enabled: config.enablePublicCrucible,
+    crucible_wax_settlement_enabled: config.enableCrucibleWaxSettlement,
     hctf_live_secrecy_certified: config.hctfLiveSecrecyCertified,
     ctf_bot_fallback_enabled: config.enableCtfBotFallback,
     rank_mutations_enabled: config.enableRankMutations,

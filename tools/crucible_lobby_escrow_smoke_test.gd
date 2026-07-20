@@ -54,7 +54,8 @@ func _run() -> void:
 		_fail("Crucible lobby context missing escrow ids")
 		return
 	_assert_eq(int(context_meta.get("crucible_stake_each_millis", 0)), 1000, "stake metadata")
-	_assert_eq(int(context_meta.get("crucible_winner_payout_millis", 0)), 2000, "winner payout metadata")
+	_assert_eq(int(context_meta.get("crucible_winner_payout_millis", 0)), 1800, "winner payout metadata")
+	_assert_eq(int(context_meta.get("crucible_award_reserve_millis", 0)), 200, "award reserve metadata")
 	_assert_eq(int(context_meta.get("crucible_local_balance_start_millis", 0)), 50000, "local start metadata")
 	_assert_eq(int(context_meta.get("crucible_local_balance_after_escrow_millis", 0)), 49000, "local after escrow metadata")
 	var status_node: Label = lobby.get("status_label") as Label

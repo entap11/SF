@@ -47,6 +47,7 @@ type Escrow = {
   stake_unit: "wax_millis";
   pot: number;
   burn: number;
+  award_reserve: number;
   winner_payout: number;
   config_version: number;
   config_hash: string;
@@ -57,7 +58,10 @@ type Escrow = {
 
 const BASIS_POINTS_DENOMINATOR = 10_000;
 const RULESET_CRUCIBLE = "CRUCIBLE";
-const HOUSE_BURN_ACCOUNT = "crucible_burn";
+const AWARD_RESERVE_ACCOUNT = "crucible_award_reserve";
+const CRUCIBLE_STAKE_MILLIS = 1_000;
+const CRUCIBLE_WINNER_PAYOUT_MILLIS = 1_800;
+const CRUCIBLE_AWARD_RESERVE_MILLIS = 200;
 const SNAPSHOT_SCHEMA_VERSION = 1;
 const SNAPSHOT_TYPE = "crucible_ledger";
 const REPEATED_OPPONENT_WINDOW_SEC = 24 * 60 * 60;
@@ -137,7 +141,7 @@ function configHash(config: CrucibleConfig): string {
   return createHash("sha256").update([
     `v:${config.config_version}`,
     `stake:${config.stake_bps}`,
-    `burn:${config.burn_bps}`,
+    `reserve:${CRUCIBLE_AWARD_RESERVE_MILLIS}`,
     `min:${config.minimum_stake_millis}`,
     `round:${config.rounding_mode}`,
     `wager:${config.wagering_enabled}`
@@ -198,6 +202,7 @@ export class CrucibleLedger {
     }
     next.stake_bps = Math.min(BASIS_POINTS_DENOMINATOR, next.stake_bps);
     next.burn_bps = Math.min(BASIS_POINTS_DENOMINATOR, next.burn_bps);
+    next.minimum_stake_millis = CRUCIBLE_STAKE_MILLIS;
     next.config_version = Math.max(1, next.config_version);
     this.config = next;
     const record = {
@@ -329,6 +334,7 @@ export class CrucibleLedger {
       stake_unit: "wax_millis",
       pot: intValue(preview.pot),
       burn: intValue(preview.burn),
+      award_reserve: intValue(preview.award_reserve),
       winner_payout: intValue(preview.winner_payout),
       config_version: this.config.config_version,
       config_hash: configHash(this.config),
@@ -387,13 +393,11 @@ export class CrucibleLedger {
       return this.store(cleanKey, { ok: true, settlement: clone(settlement) });
     }
     this.balances.set(cleanWinner, this.getBalanceMillis(cleanWinner) + escrow.winner_payout);
-    this.balances.set(HOUSE_BURN_ACCOUNT, this.getBalanceMillis(HOUSE_BURN_ACCOUNT) + escrow.burn);
-    this.appendTransaction("BURN", cleanMatch, HOUSE_BURN_ACCOUNT, escrow.burn, escrow.escrow_id, {});
+    this.balances.set(AWARD_RESERVE_ACCOUNT, this.getBalanceMillis(AWARD_RESERVE_ACCOUNT) + escrow.award_reserve);
+    this.appendTransaction("AWARD_RESERVE_CONTRIBUTION", cleanMatch, AWARD_RESERVE_ACCOUNT, escrow.award_reserve, escrow.escrow_id, {});
     this.appendTransaction("WINNER_PAYOUT", cleanMatch, cleanWinner, escrow.winner_payout, escrow.escrow_id, {});
-    const loserBurnShare = Math.floor(escrow.burn / 2);
-    const winnerBurnShare = Math.max(0, escrow.burn - loserBurnShare);
-    this.applyWaxStats(cleanWinner, escrow.winner_payout, winnerBurnShare);
-    this.applyWaxStats(loser, -Math.max(0, escrow.stake_each), loserBurnShare);
+    this.applyWaxStats(cleanWinner, escrow.winner_payout, 0);
+    this.applyWaxStats(loser, -Math.max(0, escrow.stake_each), 0);
     escrow.settlement_status = "SETTLED";
     const settlement = this.settlementRecord(escrow, "SETTLED", cleanWinner, loser, cleanSource, cleanString(reason), metadata);
     this.settlementsByMatchId.set(cleanMatch, settlement);
@@ -648,7 +652,7 @@ export class CrucibleLedger {
     if (lowerBalance < Math.max(1, this.config.minimum_stake_millis)) {
       return error("no_wax", "Your Wax Has Melted.");
     }
-    const stake = Math.max(1, this.config.minimum_stake_millis);
+    const stake = CRUCIBLE_STAKE_MILLIS;
     const pot = stake * 2;
     const burn = 0;
     return {
@@ -656,7 +660,8 @@ export class CrucibleLedger {
       stake_each: stake,
       pot,
       burn,
-      winner_payout: Math.max(0, pot - burn),
+      award_reserve: CRUCIBLE_AWARD_RESERVE_MILLIS,
+      winner_payout: CRUCIBLE_WINNER_PAYOUT_MILLIS,
       config_version: this.config.config_version,
       config_hash: configHash(this.config)
     };
@@ -695,6 +700,7 @@ export class CrucibleLedger {
       stake_unit: escrow.stake_unit,
       pot: escrow.pot,
       burn: escrow.burn,
+      award_reserve: escrow.award_reserve,
       winner_payout: escrow.winner_payout,
       winner_id: winnerId,
       loser_id: loserId,
@@ -833,6 +839,7 @@ export class CrucibleLedger {
       }
       merged.stake_bps = Math.min(BASIS_POINTS_DENOMINATOR, merged.stake_bps);
       merged.burn_bps = Math.min(BASIS_POINTS_DENOMINATOR, merged.burn_bps);
+      merged.minimum_stake_millis = CRUCIBLE_STAKE_MILLIS;
       merged.config_version = Math.max(1, merged.config_version);
       this.config = merged;
     }
@@ -948,13 +955,11 @@ export class CrucibleLedger {
   private finalizeHeldPayout(escrow: Escrow, winnerId: string, actorId: string, metadata: JsonRecord): JsonRecord {
     const loser = winnerId === escrow.player_a_id ? escrow.player_b_id : escrow.player_a_id;
     this.balances.set(winnerId, this.getBalanceMillis(winnerId) + escrow.winner_payout);
-    this.balances.set(HOUSE_BURN_ACCOUNT, this.getBalanceMillis(HOUSE_BURN_ACCOUNT) + escrow.burn);
-    this.appendTransaction("BURN", escrow.match_id, HOUSE_BURN_ACCOUNT, escrow.burn, escrow.escrow_id, { review_release: true, actor_id: actorId });
+    this.balances.set(AWARD_RESERVE_ACCOUNT, this.getBalanceMillis(AWARD_RESERVE_ACCOUNT) + escrow.award_reserve);
+    this.appendTransaction("AWARD_RESERVE_CONTRIBUTION", escrow.match_id, AWARD_RESERVE_ACCOUNT, escrow.award_reserve, escrow.escrow_id, { review_release: true, actor_id: actorId });
     this.appendTransaction("WINNER_PAYOUT", escrow.match_id, winnerId, escrow.winner_payout, escrow.escrow_id, { review_release: true, actor_id: actorId });
-    const loserBurnShare = Math.floor(escrow.burn / 2);
-    const winnerBurnShare = Math.max(0, escrow.burn - loserBurnShare);
-    this.applyWaxStats(winnerId, escrow.winner_payout, winnerBurnShare);
-    this.applyWaxStats(loser, -Math.max(0, escrow.stake_each), loserBurnShare);
+    this.applyWaxStats(winnerId, escrow.winner_payout, 0);
+    this.applyWaxStats(loser, -Math.max(0, escrow.stake_each), 0);
     escrow.settlement_status = "SETTLED";
     const settlement = this.settlementRecord(escrow, "SETTLED", winnerId, loser, "ADMIN_REVIEW", "review_release", {
       ...metadata,

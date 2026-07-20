@@ -46,7 +46,7 @@ func _run() -> void:
 	_assert_eq(str(settlement.get("winner_id", "")), PLAYER_A, "seat 1 should map to player A")
 	_assert_eq(str(settlement.get("result_source", "")), "AUTHORITATIVE_SIM", "settlement source")
 	_assert_eq(str(get_meta("crucible_settlement_status", "")), "SETTLED", "tree status")
-	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 51000, "winner payout")
+	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_A)), 50800, "winner payout")
 	_assert_eq(int(crucible_state.call("get_balance_millis", PLAYER_B)), 49000, "loser remains debited")
 
 	_clear_crucible_tree_meta()
