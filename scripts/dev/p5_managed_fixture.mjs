@@ -12,6 +12,7 @@ const mode = process.argv.at(-1) ?? "";
 const mapHash = "325e97a6677eb32e2f396fa9077b614c76a2150dad960243e8ae00b55909d14a";
 const rulesHash = "d7a78887b71c7d010db1b8ea1af84aa847ca877644878f6c3a0d96aed26aa57c";
 const simBuildId = process.env.P5_SIM_BUILD_ID?.trim() ?? "";
+const managedCommandTickOffset = 2;
 if (!simBuildId) throw new Error("P5_SIM_BUILD_ID is required");
 
 function contractInput(label, nowIso, overrides = {}) {
@@ -55,14 +56,15 @@ async function prepareReplay(label, overrides = {}) {
   const created = await core.createContract(spec.input);
   const fixture = JSON.parse(await readFile(new URL("../../tools/match-authority/fixtures/closequarters-standard-golden-intents.json", import.meta.url), "utf8"));
   for (const intent of fixture.intents) {
+    const executeTick = intent.execute_tick + managedCommandTickOffset;
     await core.appendCommand({
       matchId: created.contract.matchId,
       matchEpoch: created.contract.matchEpoch,
       playerId: intent.seat_id === 1 ? spec.playerA : spec.playerB,
       seatId: intent.seat_id,
       clientCommandId: uuidV7(),
-      issuedTick: Math.max(0, intent.execute_tick - 3),
-      requestedExecuteTick: intent.execute_tick,
+      issuedTick: Math.max(0, executeTick - 3),
+      requestedExecuteTick: executeTick,
       command: { kind: "lane_intent", src: intent.src, dst: intent.dst, intent: intent.intent },
       receivedAt: nowIso
     });

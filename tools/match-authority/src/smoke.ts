@@ -127,6 +127,33 @@ async function main(): Promise<void> {
       && authoredFirst.winner_player_id === playerA
       && authoredFirst.applied_commands === authoredCommands.length,
     "authored v1.xy golden replay did not terminate deterministically", { authoredFirst, authoredSecond });
+    const managedAuthoredCommands = authoredCommands.map((entry) => ({
+      command: {
+        ...entry.command,
+        execute_tick: Number((entry.command as Record<string, unknown>).execute_tick) + 2
+      }
+    }));
+    const managedAuthoredPayloads = managedAuthoredCommands.map((entry) => entry.command);
+    const managedAuthoredJob: Job = {
+      ...authoredMapJob,
+      jobId: "0190f47a-e234-7abc-8def-123456789abd",
+      resultId: "0190f47a-f234-7abc-8def-123456789abd",
+      commandLogHash: sha256Canonical(managedAuthoredPayloads),
+      commands: managedAuthoredCommands
+    };
+    managedAuthoredJob.inputHash = sha256Canonical({
+      contract_id: managedAuthoredJob.contract.contractId,
+      contract_hash: managedAuthoredJob.contract.contractHash,
+      match_epoch: managedAuthoredJob.contract.matchEpoch,
+      commands: managedAuthoredPayloads, lifecycle_events: []
+    });
+    validateJobBundle(managedAuthoredJob);
+    const [managedFirst, managedSecond] = await replayJobTwice(config, managedAuthoredJob);
+    expect(managedFirst.ok && managedSecond.ok
+      && managedFirst.final_state_hash === managedSecond.final_state_hash
+      && managedFirst.winner_player_id === playerA
+      && managedFirst.applied_commands === managedAuthoredCommands.length,
+    "managed-command-lead golden replay did not terminate deterministically", { managedFirst, managedSecond });
     const rejectedCommands: { command: Record<string, unknown> }[] = authoredCommands
       .map((entry) => ({ command: { ...entry.command } }));
     rejectedCommands[0]!.command.seat_id = 2;
@@ -236,7 +263,7 @@ async function main(): Promise<void> {
     console.log(JSON.stringify({ ok: true, smoke: "match_authority", deterministic_hash: first.final_state_hash,
       elapsed_sim_ticks: first.elapsed_sim_ticks, disagreement: "NO_CONTEST", lifecycle_forfeit: true,
       lifecycle_no_contest: true, human_ctf_replay: true, wrong_map_rejected: true,
-      authored_map_normalized: true, artifact_path_escape_rejected: true,
+      authored_map_normalized: true, managed_command_lead: true, artifact_path_escape_rejected: true,
       command_binding_rejected: true, signature: "ES256" }));
   } finally {
     await rm(tempDir, { recursive: true, force: true });
