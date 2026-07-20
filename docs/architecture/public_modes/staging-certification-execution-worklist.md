@@ -3,7 +3,7 @@
 - Program: Public Modes staging certification
 - Branch: `sprint/staging-certification`
 - Base revision: `b9c35e5e5b1d238c621fcb0fa39fdbdd72b5ad90`
-- Current phase: `P1`
+- Current phase: `P2`
 - Public enablement: `HOLD`
 - Mutation/economy enablement: `HOLD`
 
@@ -55,18 +55,18 @@ These are identifiers and decisions, not secret values:
 
 - [x] Names of the environment, database, deployment, credential, device, and
   evidence owners.
-- [ ] Staging provider and non-secret service identifiers for VS, Rank, match
+- [x] Staging provider and exact target identifiers for VS, Rank, match
   authority, and PostgreSQL.
 - [x] Confirmation that all existing service auto-sync/auto-deploy controls are off.
-- [ ] Isolated PostgreSQL clone/snapshot and permission to create a separate
+- [x] Isolated PostgreSQL instance plan and permission to create a separate
   restore target.
-- [ ] Backup/PITR mechanism, retention window, and external artifact location.
-- [ ] Manual deployment and rollback access for all three services.
-- [ ] Alert destination capable of showing a real open and resolve event.
+- [x] Backup/PITR mechanism, retention window, and external artifact location.
+- [x] Manual deployment and rollback access for all three services.
+- [x] Alert destination capable of showing a real open and resolve event.
 - [ ] Four staging-capable devices, ideally at least two iOS and two Android,
   or an explicit limitation if that inventory cannot be met.
 - [ ] Signed staging client build and non-secret build number.
-- [ ] Exact initial map, ruleset, and simulation revision proposed for Standard
+- [x] Exact initial map, ruleset, and simulation revision proposed for Standard
   1v1 certification.
 
 If an input is unavailable, record `BLOCKED` or an accepted limitation. Do not
@@ -111,23 +111,24 @@ rollback target unambiguous.
   presence only and fails if any capability is enabled or malformed.
 - [x] Add an evidence table for service name, provider, region, source SHA,
   build/artifact digest, prior rollback revision, and health URL class.
-- [ ] Add the selected Godot build number plus map, ruleset, simulation, and
+- [x] Add the selected Godot build number plus map, ruleset, simulation, and
   manifest hashes.
-- [ ] Add a redacted capability matrix showing presence and effective boolean
+- [x] Add a redacted capability matrix showing presence and effective boolean
   values; never copy secret values.
-- [ ] Add a trust map for player identity, ops admin, match authority, verifier,
+- [x] Add a trust map for player identity, ops admin, match authority, verifier,
   VS-to-Rank, and database roles.
-- [ ] Add backup/PITR, retention, restore target, alert target, and log retention
+- [x] Add backup/PITR, retention, restore target, alert target, and log retention
   entries.
-- [ ] Prepare exact preflight and health-check commands with secret placeholders
+- [x] Prepare exact preflight and health-check commands with secret placeholders
   supplied only through the operator's secret manager.
 
 ### Operator actions
 
 - [x] Confirm external auto-sync/auto-deploy controls are off.
-- [ ] Confirm every VS and Rank capability gate is false.
-- [ ] Confirm services fail closed when required credentials are absent.
-- [ ] Confirm deployment and database rollback targets still exist.
+- [x] Confirm every existing VS and Rank capability gate is false by absent,
+  explicit-false defaults; targets will set each value explicitly false.
+- [x] Confirm services fail closed when required credentials are absent.
+- [x] Confirm deployment and database rollback targets still exist.
 
 ### Exit artifact
 

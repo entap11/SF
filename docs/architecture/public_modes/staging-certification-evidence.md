@@ -1,6 +1,6 @@
 # Public Modes Staging Certification Evidence
 
-- Status: `IN PROGRESS — P1`
+- Status: `IN PROGRESS — P2`
 - Public enablement: `HOLD`
 - Mutation/economy enablement: `HOLD`
 - Branch: `sprint/staging-certification`
@@ -16,8 +16,8 @@ only for observed evidence. Planned work remains `NOT RUN`.
 | Phase | Status | Evidence anchor | Blocking item |
 | --- | --- | --- | --- |
 | P0 repository/control baseline | `PASS` | This document | — |
-| P1 environment inventory | `IN PROGRESS` | Render inventory below | Isolated target topology, capability/trust map, recovery and alert details |
-| P2 database recovery rehearsal | `NOT RUN` | — | P1 and staging clone details |
+| P1 environment inventory | `PASS` | Render inventory and immutable candidate below | — |
+| P2 database recovery rehearsal | `NOT RUN` | — | Isolated environment and recovery instances not yet created |
 | P3 all-off deployment | `NOT RUN` | — | P2 and operator approval |
 | P4 remote config/operations | `NOT RUN` | — | P3 |
 | P5 authority/workers | `NOT RUN` | — | P3–P4 |
@@ -138,7 +138,7 @@ nightly result is not used to waive the exact-base push gate.
 
 ## P1 environment inventory
 
-Status: `IN PROGRESS`
+Status: `PASS`
 
 Record service/region identifiers, immutable artifact identities, redacted
 capability values, credential trust roles, database recovery capabilities,
@@ -169,6 +169,120 @@ only the VS service. Rank and PostgreSQL are workspace-level resources outside
 that environment. This confirms that the existing layout is not the isolated
 certification topology proposed for P2–P6.
 
+### Immutable certification candidate
+
+The deployment branch `deploy/staging-cert-20260720` is pinned at
+`1beb3553f2e619fe41ae88e4cb2be71695b4f3e0`. It is not advanced with the
+certification evidence branch. Its runtime tree differs from the exact green
+base `b9c35e5` only by release-readiness timeout and staging-preflight scripts;
+gameplay, service, map, configuration, and Render runtime files are unchanged.
+
+| Candidate input | Selected identity | SHA-256 |
+| --- | --- | --- |
+| VS source archive | Git tree under `tools/vs-service` at `1beb355` | `55cccabc683055d8fb5d460cdfffb878d9bd94b25d20be4313b8a53928327760` |
+| Rank source archive | Git tree under `tools/rank-service` at `1beb355` | `474a226f3286042b6d347f43f4799522c428aa47e69e4ef70f51d48e326711ca` |
+| Authority source archive | `tools/match-authority` plus replay entrypoint at `1beb355` | `1aab33cd811fdce38ea7f51fefb3c86d40e6a0d33e13398da9888eec38a1055a` |
+| Godot simulation archive | `project.godot`, `scripts`, and replay entrypoint at `1beb355` | `01e2166ddf471d8bb494d3ec80699e12b41cdc2d57c60344200e987d5f083578` |
+| Client source archive | project, export settings, scripts, scenes, data, and maps at `1beb355` | `93cf3b5d06c355a2ca2edb7cc40fb56c8bb03de29d4d6ab04240af19db983a2e` |
+| Client build | Export build `2026071701`; short version `0.1.1` | Source archive above; signed binary digest deferred to P6 |
+| Simulation build | Godot `4.2.stable.official.46dc27791`; ID `sf-sim-1beb355` | Simulation archive above |
+| Standard 1v1 map | `MAP_closequarters__CQ2__1p` | `325e97a6677eb32e2f396fa9077b614c76a2150dad960243e8ae00b55909d14a` |
+| Standard rules | `standard-v1` | `d7a78887b71c7d010db1b8ea1af84aa847ca877644878f6c3a0d96aed26aa57c` |
+| Authority worker | ID `authority-worker-1beb355` | Authority source archive above; deployed artifact ID deferred to P5 |
+
+Render native builds do not have a provider artifact or deploy ID before they
+exist. P3 and P5 must bind each service to the pinned deployment branch and add
+its actual deploy ID to this record. The signed Godot binary remains a P6
+artifact. These are staged evidence handoffs, not mutable identity gaps.
+
+### Isolated target topology
+
+| Role | Exact target | Required posture before first use |
+| --- | --- | --- |
+| Environment | `My project` / `Certification` | Protected; network isolation requested; provider-plan rejection is a hard stop |
+| VS | `swarmfront-cert-vs` | Oregon; `deploy/staging-cert-20260720`; manual deploy; all capabilities false |
+| Rank | `swarmfront-cert-rank` | Oregon; same pinned branch; manual deploy; all mutation/public caps false |
+| Match authority | `swarmfront-cert-authority` | Oregon background worker; pinned worker/sim/content manifest; no public ingress |
+| Primary rehearsal database | `swarmfront-cert-db` | Paid PostgreSQL 18; isolated from existing Rank data; external access restricted |
+| Fresh restore target | `swarmfront-cert-db-restore` | Empty paid PostgreSQL 18; temporary P2 restore/comparison target |
+
+No existing service or database is moved into this environment. The existing
+`SF`, `entap-identity-rank-staging`, and
+`entap-identity-rank-staging-db` resources are read-only reference inventory
+and are not migration, deployment, or recovery targets.
+
+### Capability and credential posture
+
+The Render API was queried locally and filtered before output so secret values
+were never printed. All 27 VS capability variables and all four Rank capability
+variables are absent on the existing services and therefore use their explicit
+false code defaults. The target services will set every one of these values to
+`false` rather than relying on absence.
+
+Credential presence on the existing services is redacted:
+
+| Service | Present | Absent |
+| --- | --- | --- |
+| VS | Legacy match-authority token | Database URL, admin token, verifier worker token/public key, player public key, VS-to-Rank private key |
+| Rank | Database URL, Rank API token | Player signing pair, VS-to-Rank public key, verifier public key |
+
+The target uses newly generated, certification-only credentials. No existing
+credential is copied. Production-mode Rank refuses to start without its API
+token and database URL; protected VS routes reject empty admin, authority, and
+worker credentials; the authority worker exits with
+`match_authority_not_configured` when any required worker/signing/artifact
+credential is missing. This is the required fail-closed posture.
+
+### Credential trust map
+
+| Trust boundary | Private credential holder | Verifier / consumer | Scope |
+| --- | --- | --- | --- |
+| Player identity | Certification Rank only | VS receives public key only | Short-lived player/session JWTs |
+| Ops admin | Environment operator only; injected into VS | VS admin endpoints | P4 config, reconciliation, rollback |
+| VS-to-Rank | VS settlement worker only | Rank receives public key only | Verified result settlement |
+| Authority worker lease | VS and authority worker | VS verification endpoints | Lease/complete/fail jobs only |
+| Verifier signing | Authority worker only | VS and Rank receive public key only | Detached ES256 result receipts |
+| Database | Render secret manager; service-specific roles | VS and Rank migration/runtime clients | Separate schemas/permissions; no client access |
+
+Player, admin, authority, verifier, VS-to-Rank, and database credentials are
+distinct. Godot clients receive only public player-verification material and
+public service URLs; they never receive admin, worker, signing-private, Rank, or
+database credentials.
+
+### Recovery, alerting, retention, and commands
+
+- P2 source is a new empty paid PostgreSQL 18 certification database, not a
+  clone of live user data. A provider logical export and PITR recovery instance
+  are the backup/restore evidence. Paid Render PostgreSQL provides PITR; use the
+  conservative Hobby minimum of three days unless the Billing page proves the
+  seven-day Pro window. Provider logical exports retain for seven days.
+- The restore target is `swarmfront-cert-db-restore`. Database exports remain
+  outside Git; only provider IDs, timestamps, bounded counts, and SHA-256
+  digests enter this evidence record.
+- Platform alert destination is the Render workspace-owner email with all
+  notifications selected for certification services. Application alert rows
+  remain support-visible in the authenticated P4 dashboard and must prove a
+  real open/resolve cycle there.
+- Use the conservative Hobby log and metric retention of seven days unless the
+  provider reports a longer plan window. Evidence needed beyond that window is
+  hashed and indexed outside raw service logs.
+- Rollback revisions are the pinned candidate's immediately preceding live
+  deploys recorded in the Render inventory. New certification services have no
+  prior deploy until P3; their first known-good all-off deploy becomes the
+  rollback target before any P4 configuration publication.
+
+Exact redacted preflight and health commands:
+
+```bash
+scripts/dev/run_staging_certification_preflight.sh --environment
+curl --fail --silent --show-error "$VS_HEALTH_URL/health"
+curl --fail --silent --show-error "$RANK_HEALTH_URL/health"
+```
+
+Capability and credential variables for the preflight are supplied only by the
+operator's local environment or provider secret manager. URLs and secrets are
+never committed.
+
 ### Read-only discovery completed during P0
 
 - GitHub exposes environments named `main - entap-identity-rank-staging` and
@@ -188,9 +302,8 @@ certification topology proposed for P2–P6.
   false code defaults, and reports credential presence only as absent. A
   deliberate `VS_ENABLE_PUBLIC_1V1=true` test fails closed as required.
 
-These findings are inventory inputs only. P1 cannot pass until the isolated
-target topology, capability values, credential trust boundaries, backup/PITR,
-alert delivery, signed client build, and initial content revisions are recorded.
+The P1 inventory is complete. Actual environment/resource creation begins in
+P2 under the explicit product-owner authorization issued on 2026-07-20.
 
 ## P2 database migration and recovery
 
