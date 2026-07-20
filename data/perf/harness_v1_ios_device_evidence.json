@@ -1,0 +1,115 @@
+{
+  "schema": "sf_perf_harness_v1_ios_device_evidence_v1",
+  "version": 1,
+  "status": "PASS_WITH_LIMITATIONS",
+  "capture_date": "2026-07-20",
+  "source_commit": "eaea2fccc79b51591eb7acdf7c41dffcefdd6af4",
+  "device": {
+    "platform": "iOS",
+    "model": "iPhone 16 Pro",
+    "os_version": "26.5.2 (23F84)",
+    "gpu": "Apple A18 Pro GPU",
+    "udid": "00008140-000614482E00401C"
+  },
+  "build": {
+    "configuration": "Debug",
+    "bundle_identifier": "com.matthew.swarmfront",
+    "version": "0.1.1",
+    "build_number": "2026071701",
+    "signing_team": "SH6675DXQ5",
+    "codesign_verification": "PASS",
+    "executable_sha256": "4d6a8558a0d1950298f17765201b47eb0bd224369340f5eebf0ffabff65f2d16",
+    "pck_sha256": "9deaddd3078526263bdbf73257b8d7cef1705906c5a5110335c0b4ea276bf1bd"
+  },
+  "execution_route": {
+    "name": "production_shell_soak",
+    "argument": "--soak-perf",
+    "map": "res://maps/_future/quadfight/MAP_quadfight__SBASE__1p.json",
+    "requested_lane_pairs": 8,
+    "initial_eligible_lane_pairs": 4,
+    "authoritative_state_boundary": "PRESERVED",
+    "direct_fixture_runner": "UNAVAILABLE_IN_EXPORTED_IOS_APP"
+  },
+  "runs": [
+    {
+      "name": "extended_soak",
+      "requested_duration_s": 150,
+      "instrumentation": "device_console_and_sim_profile",
+      "rounds": 1,
+      "failed_rounds": 0,
+      "result": "PASS",
+      "observations": {
+        "post_warmup_initial_fps_range": [115, 120],
+        "accumulated_load_fps_range": [90, 100],
+        "typical_sim_tick_ms_range": [2.0, 7.9],
+        "occasional_sim_tick_warning_ms_approx": 8.5,
+        "startup_render_hitch_ms_approx": 142,
+        "startup_sim_hitch_ms_approx": 225
+      }
+    },
+    {
+      "name": "metal_soak",
+      "requested_duration_s": 45,
+      "instrumentation": "Metal System Trace",
+      "trace_requested_duration_s": 10,
+      "trace_recorded_duration_s": 11.395343,
+      "rounds": 1,
+      "failed_rounds": 0,
+      "result": "PASS",
+      "trace": {
+        "size_mib_approx": 141,
+        "file_count": 601,
+        "tree_sha256": "35a9f95c8c07c8046eb046da83ea2c6910ca6455e3790eb5a2b8253c507f4e14",
+        "target_process_pid": 40872,
+        "target_process_exit_status": 0,
+        "thermal_state": "Nominal",
+        "startup_second_surface_swaps": 86,
+        "subsequent_complete_second_surface_swaps_range": [110, 118]
+      }
+    },
+    {
+      "name": "time_profiler_soak",
+      "requested_duration_s": 45,
+      "instrumentation": "Time Profiler",
+      "trace_requested_duration_s": 20,
+      "trace_recorded_duration_s": 21.009884,
+      "rounds": 1,
+      "failed_rounds": 0,
+      "result": "PASS",
+      "trace": {
+        "size_mib_approx": 12,
+        "file_count": 238,
+        "tree_sha256": "ab519e8f64c8a2ebeb662ddb368008a58246b60e5492a89e1c7149c190b50155",
+        "target_process_pid": 40891,
+        "target_process_exit_status": 0,
+        "thermal_state": "Nominal",
+        "time_profile_sample_rows": 7803
+      }
+    }
+  ],
+  "invalid_captures": [
+    {
+      "instrumentation": "Metal System Trace",
+      "requested_trace_duration_s": 90,
+      "gameplay_soak_completed": true,
+      "approximate_size_gib": 4.2,
+      "classification": "ABORTED_TOOLING_POSTPROCESS",
+      "usable_as_trace_evidence": false
+    }
+  ],
+  "limitations": [
+    "single iOS device class and single production map",
+    "production Shell soak rather than direct selected-fixture matrix",
+    "no canonical on-device per-fixture comparison reports",
+    "no battery delta or Energy Log evidence",
+    "no Android device evidence",
+    "no additional low- or mid-tier iOS device evidence"
+  ],
+  "non_fatal_startup_warnings": [
+    "AudioOutputUnitStart returned -50",
+    "SSL module initialization failed",
+    "unsupported icon format warning",
+    "Unicode NUL warnings"
+  ],
+  "integration_recommendation": "HARNESS V1 READY WITH LIMITATIONS"
+}

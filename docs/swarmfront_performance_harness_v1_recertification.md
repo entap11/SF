@@ -12,6 +12,8 @@ They do not, by themselves, block integration of this mobile-only game's perform
 
 The machine-readable sprint record is `data/perf/harness_v1_recertification_sprint.json`. It preserves the workflow run IDs, artifact IDs and digests, source commit, timing ranges, and the refusal to promote either result.
 
+Supplemental physical-iOS testing subsequently passed a 150-second production gameplay soak and two bounded Instruments captures on an iPhone 16 Pro. Both valid captures remained at nominal thermal state and exited successfully. See `docs/swarmfront_performance_harness_v1_ios_device_evidence.md` and `data/perf/harness_v1_ios_device_evidence.json`. This evidence supports the existing `HARNESS V1 READY WITH LIMITATIONS` recommendation; it does not make a battery, Android, or full device-matrix claim.
+
 ## Frozen failure signature
 
 | Run | Static repetitions | Total hitches | p99 range | Maximum frame | Result |

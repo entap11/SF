@@ -72,6 +72,22 @@
     "threshold_change": "NONE",
     "baseline_promotion": "NONE"
   },
+  "physical_ios_review": {
+    "status": "PASS_WITH_LIMITATIONS",
+    "source_commit": "eaea2fccc79b51591eb7acdf7c41dffcefdd6af4",
+    "device": "iPhone 16 Pro",
+    "os_version": "26.5.2 (23F84)",
+    "production_soak": "PASS",
+    "valid_instruments_captures": 2,
+    "thermal_state": "Nominal",
+    "evidence_json": "data/perf/harness_v1_ios_device_evidence.json",
+    "evidence_document": "docs/swarmfront_performance_harness_v1_ios_device_evidence.md",
+    "remaining_limitations": [
+      "direct selected-fixture matrix is not exposed in the exported iOS app",
+      "battery and energy evidence not collected",
+      "Android and additional iOS device classes not tested"
+    ]
+  },
   "integration_recommendation": "HARNESS V1 READY WITH LIMITATIONS",
   "required_integration_gates": [
     "19 focused harness gates",
