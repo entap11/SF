@@ -1,22 +1,27 @@
 # Swarmfront Public Modes Sprint Completion Handoff
 
-Date: 2026-07-19  
-Branch: `sprint/public-modes-readiness`  
-Code implementation: `COMPLETE`  
-Repository regression: `PASS WITH DISCLOSED EXCEPTIONS`  
-Public enablement: `HOLD`
+- Date: 2026-07-20
+- Branch: `sprint/public-modes-readiness`
+- Sprint status: `COMPLETE`
+- Code implementation: `COMPLETE`
+- Integration: `MERGED TO MAIN`
+- Repository regression: `PASS — EXACT INTEGRATED REVISION`
+- Public enablement: `HOLD`
 
 ## Outcome
 
 All 13 sharpened packages (0–12) are represented by evidence reports and the
-code-grounded execution program is implemented. The branch is merge-ready as a
-code candidate, but it is not authorization to turn on a public or mutation
-flag. Managed-environment, worker, alert-delivery, and physical-device evidence
-listed in the package reports remains outside this repository run.
+code-grounded execution program is implemented. The sprint was merged to
+`main` by merge commit `b0b7bedd98b24b997fc3f2cd6170bfd4cfc236ba`.
+The exact final integrated revision
+`1e03a70dd9c5a63351e8f09a09d93bfabe06a4dc` passed Release Readiness. This
+completion record is not authorization to turn on a public or mutation flag.
+Managed-environment, worker, alert-delivery, and physical-device evidence listed
+in the package reports remains part of the next staging-certification sprint.
 
 Every new public and mutation flag defaults false. No staging/production
-database was migrated, no remote rollout revision was published, no deployment
-cap was enabled, and `main` was not changed.
+database was migrated, no remote rollout revision was published, and no
+deployment cap was enabled as part of this sprint.
 
 ## Branch rollback points
 
@@ -28,6 +33,7 @@ cap was enabled, and `main` was not changed.
 | `0f9a6ff` | Package 11: authenticated 3P FFA, 2v2, and 4P FFA |
 | `a45d618` | Package 12: controlled rollout and operations |
 | `5eecf19` | Cross-sprint regression record and health-contract stabilization |
+| `1fb45b9` | Pre-merge gate evidence and merge authorization record |
 
 Packages 9–12 each have an independent pushed implementation commit. Packages
 0–8 were already complete when the dedicated sprint branch was created, so
@@ -98,6 +104,40 @@ Headless Godot continues to emit the existing NUL-map parsing, shader sampler,
 resource UID, and exit-leak warnings in several UI tests. The named contract
 tests exit successfully and these diagnostics predate the sprint.
 
+## Final integrated Release Readiness evidence
+
+The final required default-off regression ran against the exact integrated
+revision, after the merge and both CI stabilization commits:
+
+| Evidence | Recorded value |
+| --- | --- |
+| Sprint merge commit | `b0b7bedd98b24b997fc3f2cd6170bfd4cfc236ba` |
+| Final tested `main` revision | `1e03a70dd9c5a63351e8f09a09d93bfabe06a4dc` |
+| GitHub Actions run | [Release Readiness 29722881367](https://github.com/entap11/SF/actions/runs/29722881367) |
+| Result | `success` |
+| Job interval | `2026-07-20T06:52:23Z`–`2026-07-20T07:20:18Z` |
+| MVP smoke | 26 passed, 0 failed |
+| PR manifest validation | 31 contract/schema/parity checks passed, 0 failed; 29 runtime-route rows delegated to the separate route matrix |
+| Boot/runtime route matrix | 50 passed, 0 failed |
+| Deterministic soak | 18 passed, 0 failed; seeds 123–124 across 9 PR configurations |
+
+The workflow checked out the final SHA, verified Godot, prepared required import
+sidecars, ran the complete Release Readiness gate, collected smoke logs, and
+uploaded both artifact sets. Every workflow step completed successfully on the
+self-hosted `sf-macos-godot-home` runner (`macOS`, `ARM64`, `godot`).
+
+Uploaded evidence metadata:
+
+| Artifact | Artifact ID | SHA-256 digest | GitHub expiry |
+| --- | --- | --- | --- |
+| `player-config-matrix-29722881367` | `8453581958` | `b4bc5487ed495682dbde7bbba1a5e8536e6a984b771c70ba58f305b0a7c8db95` | 2026-10-18 |
+| `smoke-logs-29722881367` | `8453582428` | `0358f02ee4ab4b1379453c1670d27289b07c0751029b7361522f5f3e7a768f13` | 2026-10-18 |
+
+The result counts, exact revision, run URL, artifact identifiers, and artifact
+digests are preserved here so the permanent sprint record does not depend on
+the downloadable artifacts remaining within their retention window. Package
+reports remain versioned on this branch.
+
 ## Public rollout prerequisites
 
 - Apply migrations to an isolated managed-PostgreSQL clone; prove backup/restore
@@ -119,31 +159,17 @@ tests exit successfully and these diagnostics predate the sprint.
   `enable_contest_rewards` false until their independent mutation evidence is
   accepted.
 
-## Merge recommendation
+## Merge and deployment-safety record
 
-The branch is suitable to merge into `main` as a default-off code candidate
-after review. Because the branch was created directly from its recorded main
-baseline, its ancestry is known. Remote `main` has since advanced from that
-baseline, so integration now requires a non-destructive merge or rebase followed
-by a full regression of the exact integrated revision; it is no longer eligible
-for a direct fast-forward into the current `main`.
+The product owner explicitly approved the merge after confirming in the Render
+dashboard that all auto-sync, auto-deploy, and similar automatic publication
+controls had been disabled before the sprint began. The branch was merged
+non-destructively; its second parent is the recorded sprint tip `1fb45b9`.
 
-Merging is permitted only after confirming that pushes to main do not trigger
-service deployment, worker publication, startup migration execution, or remote
-configuration publication.
-
-```sh
-git fetch origin
-git checkout main
-git pull --ff-only origin main
-git merge --no-ff sprint/public-modes-readiness
-# Run the required regression on this exact merge revision before pushing.
-git push origin main
-```
-
-If remote `main` advances again, update the integration revision and rerun the
-regression before pushing. Do not force-push either branch. The merge and push
-to `main` require explicit product-owner approval.
+The GitHub deployments API returns no deployment record for the final tested
+revision. That repository-visible check does not prove third-party settings by
+itself, so it is recorded together with the product owner's Render-dashboard
+attestation rather than used as a substitute for it.
 
 ### Repository-visible deployment audit
 
@@ -163,12 +189,17 @@ to `main` require explicit product-owner approval.
   genuinely disabled, but it makes any later Rank deployment/restart a migration
   event that must be explicitly scheduled and backed up.
 - Repository files cannot prove settings in an externally configured Render,
-  GitHub App, or other deployment dashboard. An account owner must verify that
-  no dashboard-level auto-deploy hook overrides the repository blueprint before
-  the merge push.
+  GitHub App, or other deployment dashboard. For this merge, the account owner
+  supplied that external confirmation before the push.
+
+The remote `sprint/public-modes-readiness` branch is intentionally retained as
+the package-by-package rollback and evidence branch. It must not be deleted
+without a future explicit reason and product-owner direction.
 
 ## Proposed next step
 
-Review this handoff and the Package 12 operations contract, then explicitly
-approve or decline the fast-forward into `main`. After merge, the next work is a
-staging certification run with every flag still false—not public enablement.
+Open a staging-certification sprint. Keep every public-mode and mutation/economy
+flag false; use manual, controlled deployments; capture managed-database
+migration and restore evidence; use real service-to-service credentials; run the
+physical device matrix; and prove rollback. This is staging certification, not
+public enablement.
