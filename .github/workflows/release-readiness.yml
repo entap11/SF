@@ -64,6 +64,31 @@ jobs:
           set -euo pipefail
           "${GODOT_BIN}" --version
 
+      - name: Import Godot resources
+        run: |
+          set -euo pipefail
+          import_log="${RUNNER_TEMP}/godot-import.log"
+          set +e
+          "${GODOT_BIN}" --headless --path "${GITHUB_WORKSPACE}" --import 2>&1 | tee "${import_log}"
+          import_rc=${PIPESTATUS[0]}
+          set -e
+
+          # Godot 4.2 can return non-zero for known shader diagnostics after it
+          # has successfully populated the import cache. Require the cache and
+          # the boot-critical imports instead of accepting a missing cache.
+          required_imports=(
+            "assets/fonts/brand/Iceland/Iceland-Regular.ttf.import"
+            "assets/sprites/sf_skin_v1/barracks.PNG.import"
+            "assets/sprites/sf_skin_v1/mm_back_art.png.import"
+          )
+          for required_import in "${required_imports[@]}"; do
+            if [[ ! -f "${required_import}" ]]; then
+              echo "GODOT_IMPORT_FAIL missing=${required_import} import_rc=${import_rc}"
+              exit 1
+            fi
+          done
+          echo "GODOT_IMPORT_READY import_rc=${import_rc}"
+
       - name: Run Release Readiness
         run: |
           set -euo pipefail
