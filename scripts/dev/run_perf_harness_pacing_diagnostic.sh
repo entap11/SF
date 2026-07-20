@@ -39,6 +39,8 @@ validate_report_contract() {
     .determinism.pass == true and
     .isolation.pass == true and
     .backend_isolation.pass == true and
+    .diagnostic_window_lifecycle.app_lifecycle_isolated == true and
+    .diagnostic_window_lifecycle.auto_accept_quit == false and
     .scenario_count == 6 and
     ([.scenarios[].integrity_failures | length] | all(. == 0))
   ' "${report_path}" >/dev/null

@@ -365,9 +365,11 @@ jobs:
           done
           echo "PERF_PACING_DIAGNOSTIC_IMPORT_READY import_rc=${import_rc}"
 
-      - name: Verify interrupted cleanup
+      - name: Verify diagnostic isolation
         run: |
           set -euo pipefail
+          "${GODOT_BIN}" --headless --path "${GITHUB_WORKSPACE}" \
+            --script res://tools/app_lifecycle_smoke_test.gd
           "${GODOT_BIN}" --headless --path "${GITHUB_WORKSPACE}" \
             --script res://tools/perf_interrupted_cleanup_smoke_test.gd
 

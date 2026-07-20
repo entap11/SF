@@ -22,9 +22,13 @@ func _run() -> void:
 	var marker_value: Variant = get_meta("sf_perf_harness_active", false)
 	set_meta("sf_perf_harness_active", true)
 	var analytics: Node = root.get_node_or_null("/root/AnalyticsClient")
+	var app_lifecycle: Node = root.get_node_or_null("/root/AppLifecycle")
 	_expect(analytics != null and analytics.has_method("set_perf_harness_isolation"), "analytics isolation seam must exist")
+	_expect(app_lifecycle != null and app_lifecycle.has_method("set_perf_harness_isolation"), "AppLifecycle isolation seam must exist")
 	if analytics != null and analytics.has_method("set_perf_harness_isolation"):
 		_expect(bool(analytics.call("set_perf_harness_isolation", true)), "analytics isolation must activate under the harness marker")
+	if app_lifecycle != null and app_lifecycle.has_method("set_perf_harness_isolation"):
+		_expect(bool(app_lifecycle.call("set_perf_harness_isolation", true)), "AppLifecycle isolation must activate under the harness marker")
 	_test_backend_denial()
 	await _test_snapshot_restore(ops_state)
 	await _test_topology_detection(ops_state)
@@ -32,6 +36,8 @@ func _run() -> void:
 	_test_source_contracts()
 	if analytics != null and analytics.has_method("set_perf_harness_isolation"):
 		_expect(bool(analytics.call("set_perf_harness_isolation", false)), "analytics isolation must restore")
+	if app_lifecycle != null and app_lifecycle.has_method("set_perf_harness_isolation"):
+		_expect(bool(app_lifecycle.call("set_perf_harness_isolation", false)), "AppLifecycle isolation must restore")
 	if marker_existed:
 		set_meta("sf_perf_harness_active", marker_value)
 	else:
@@ -102,6 +108,8 @@ func _test_source_contracts() -> void:
 	_expect(runner.contains("PHASE0_ISOLATION_MUTATOR_V1"), "A-B-A mutator fixture must remain registered")
 	var analytics_source: String = FileAccess.get_file_as_string("res://scripts/state/analytics_client.gd")
 	_expect(analytics_source.contains("perf_harness_isolated"), "analytics client must retain the harness denial path")
+	var lifecycle_source: String = FileAccess.get_file_as_string("res://scripts/state/app_lifecycle_state.gd")
+	_expect(lifecycle_source.contains("_perf_harness_isolation"), "AppLifecycle must retain the harness notification isolation path")
 
 
 func _expect(condition: bool, message: String) -> void:

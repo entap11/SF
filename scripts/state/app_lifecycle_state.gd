@@ -18,11 +18,14 @@ var _background_count: int = 0
 var _foreground_count: int = 0
 var _focus_lost_count: int = 0
 var _focus_gained_count: int = 0
+var _perf_harness_isolation: bool = false
 
 func _notification(what: int) -> void:
 	handle_lifecycle_notification(what)
 
 func handle_lifecycle_notification(what: int) -> bool:
+	if _perf_harness_isolation:
+		return _is_external_lifecycle_notification(what)
 	match what:
 		NOTIFICATION_APPLICATION_PAUSED:
 			record_background_event("application_paused")
@@ -37,6 +40,15 @@ func handle_lifecycle_notification(what: int) -> bool:
 			record_focus_event(true, "window_focus_in")
 			return true
 	return false
+
+func set_perf_harness_isolation(enabled: bool) -> bool:
+	if not OS.is_debug_build():
+		return false
+	var tree: SceneTree = get_tree()
+	if enabled and (tree == null or not bool(tree.get_meta("sf_perf_harness_active", false))):
+		return false
+	_perf_harness_isolation = enabled
+	return _perf_harness_isolation == enabled
 
 func record_background_event(reason: String = "backgrounded") -> void:
 	var clean_reason: String = _clean_reason(reason, "backgrounded")
@@ -134,3 +146,9 @@ func _emit_lifecycle_changed() -> void:
 func _clean_reason(reason: String, fallback: String) -> String:
 	var clean: String = str(reason).strip_edges()
 	return fallback if clean.is_empty() else clean
+
+func _is_external_lifecycle_notification(what: int) -> bool:
+	return what == NOTIFICATION_APPLICATION_PAUSED \
+		or what == NOTIFICATION_APPLICATION_RESUMED \
+		or what == NOTIFICATION_WM_WINDOW_FOCUS_OUT \
+		or what == NOTIFICATION_WM_WINDOW_FOCUS_IN

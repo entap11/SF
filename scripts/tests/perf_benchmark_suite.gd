@@ -51,6 +51,7 @@ const NORMAL_MATCH_PILOT_SCHEDULE: Array = [
 
 var OpsState: Node = null
 var _analytics_isolation_active: bool = false
+var _app_lifecycle_isolation_active: bool = false
 var _gpu_vfx_auto_fallback_env_restore: Dictionary = {}
 var _interrupted_isolation_snapshot: Dictionary = {}
 var _interrupted_scene_root: Node = null
@@ -71,6 +72,8 @@ func _init() -> void:
 	call_deferred("_run_entry")
 
 func _run_entry() -> void:
+	if _diagnostic_window_lifecycle:
+		_reassert_diagnostic_quit_guard("diagnostic_lifecycle_run_entry")
 	var args: Dictionary = _parse_args()
 	var user_args: PackedStringArray = OS.get_cmdline_user_args()
 	if not str(_user_data_isolation.get("error", "")).is_empty():
@@ -89,9 +92,15 @@ func _run_entry() -> void:
 		remove_meta("sf_perf_harness_active")
 		quit(2)
 		return
+	if not _set_app_lifecycle_harness_isolation(true):
+		push_error("perf_benchmark_suite: app_lifecycle_isolation_unavailable")
+		remove_meta("sf_perf_harness_active")
+		quit(2)
+		return
+	_app_lifecycle_isolation_active = true
 	if not _set_analytics_harness_isolation(true):
 		push_error("perf_benchmark_suite: analytics_isolation_unavailable")
-		remove_meta("sf_perf_harness_active")
+		_cleanup_entry_state()
 		quit(2)
 		return
 	_analytics_isolation_active = true
@@ -103,8 +112,13 @@ func _run_entry() -> void:
 	await _prime_harness_shared_services()
 	var report: Dictionary = await _run_suite(args)
 	if _diagnostic_window_lifecycle:
+		_diagnostic_window_event("diagnostic_lifecycle_report", {
+			"auto_accept_quit": auto_accept_quit,
+			"app_lifecycle_isolated": _app_lifecycle_isolation_active
+		})
 		report["diagnostic_window_lifecycle"] = {
 			"auto_accept_quit": auto_accept_quit,
+			"app_lifecycle_isolated": _app_lifecycle_isolation_active,
 			"events": _diagnostic_window_events.duplicate(true)
 		}
 	var output_path := str(args.get("output", DEFAULT_OUTPUT_PATH))
@@ -3601,6 +3615,9 @@ func _cleanup_entry_state() -> void:
 	if _analytics_isolation_active and root != null and is_instance_valid(root):
 		_set_analytics_harness_isolation(false)
 	_analytics_isolation_active = false
+	if _app_lifecycle_isolation_active and root != null and is_instance_valid(root):
+		_set_app_lifecycle_harness_isolation(false)
+	_app_lifecycle_isolation_active = false
 	if has_meta("sf_perf_harness_active"):
 		remove_meta("sf_perf_harness_active")
 	_restore_gpu_vfx_auto_fallback_environment()
@@ -3648,6 +3665,14 @@ func _set_analytics_harness_isolation(enabled: bool) -> bool:
 		and analytics.has_method("set_perf_harness_isolation") \
 		and bool(analytics.call("set_perf_harness_isolation", enabled))
 
+func _set_app_lifecycle_harness_isolation(enabled: bool) -> bool:
+	if root == null or not is_instance_valid(root):
+		return false
+	var lifecycle: Node = root.get_node_or_null("/root/AppLifecycle")
+	return lifecycle != null \
+		and lifecycle.has_method("set_perf_harness_isolation") \
+		and bool(lifecycle.call("set_perf_harness_isolation", enabled))
+
 func _configure_diagnostic_window_lifecycle(user_args: PackedStringArray) -> void:
 	if not user_args.has("--diagnose-window-lifecycle"):
 		return
@@ -3671,10 +3696,18 @@ func _on_diagnostic_close_requested() -> void:
 	})
 
 func _on_diagnostic_focus_entered() -> void:
-	_diagnostic_window_event("window_focus_entered")
+	_reassert_diagnostic_quit_guard("window_focus_entered")
 
 func _on_diagnostic_focus_exited() -> void:
-	_diagnostic_window_event("window_focus_exited")
+	_reassert_diagnostic_quit_guard("window_focus_exited")
+
+func _reassert_diagnostic_quit_guard(event_name: String) -> void:
+	var previous_auto_accept_quit: bool = auto_accept_quit
+	auto_accept_quit = false
+	_diagnostic_window_event(event_name, {
+		"auto_accept_quit_before_reassert": previous_auto_accept_quit,
+		"auto_accept_quit_after_reassert": auto_accept_quit
+	})
 
 func _diagnostic_window_event(event_name: String, details: Dictionary = {}) -> void:
 	if not _diagnostic_window_lifecycle:
