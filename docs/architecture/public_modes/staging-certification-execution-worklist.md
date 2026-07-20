@@ -3,7 +3,7 @@
 - Program: Public Modes staging certification
 - Branch: `sprint/staging-certification`
 - Base revision: `b9c35e5e5b1d238c621fcb0fa39fdbdd72b5ad90`
-- Current phase: `P3`
+- Current phase: `P4`
 - Public enablement: `HOLD`
 - Mutation/economy enablement: `HOLD`
 
@@ -194,13 +194,13 @@ a public route or mutation.
 
 ### Repository work
 
-- [ ] Add per-service preflight, deploy, health, rollback, and restore-candidate
+- [x] Add per-service preflight, deploy, health, rollback, and restore-candidate
   records with UTC timestamps and artifact digests.
-- [ ] Add a redacted capability assertion showing every effective public and
+- [x] Add a redacted capability assertion showing every effective public and
   mutation value false after each transition.
-- [ ] Add negative authentication, wrong audience/role, and missing credential
+- [x] Add negative authentication, wrong audience/role, and missing credential
   results.
-- [ ] Record durable reconnect/restart checks and authoritative state hashes.
+- [x] Record durable reconnect/restart checks and authoritative state hashes.
 
 ### Exit artifact
 
@@ -371,7 +371,8 @@ the required managed-environment and physical-device evidence.
 
 ## Next executable action
 
-Finish P0 by reconfirming external provider auto-deploy controls are off. The
-exact-base and branch-head Release Readiness runs are green, their artifacts are
-indexed, all roles are named, and `sprint/staging-certification` is published.
-After the provider check is recorded, begin the read-only P1 inventory.
+Begin P4 by reconfirming the final P3 candidate deploy IDs and explicit all-off
+provider values, then enable only `VS_ENABLE_REMOTE_OPS_CONFIG` with the agreed
+non-zero reconciliation interval. Publish an authenticated, expiring all-false
+revision; no public, mutation, rank, reward, or economy capability may be
+enabled during P4.

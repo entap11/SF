@@ -1,6 +1,6 @@
 # Public Modes Staging Certification Evidence
 
-- Status: `IN PROGRESS — P3`
+- Status: `IN PROGRESS — P4`
 - Public enablement: `HOLD`
 - Mutation/economy enablement: `HOLD`
 - Branch: `sprint/staging-certification`
@@ -18,10 +18,10 @@ only for observed evidence. Planned work remains `NOT RUN`.
 | P0 repository/control baseline | `PASS` | This document | — |
 | P1 environment inventory | `PASS` | Render inventory and immutable candidate below | — |
 | P2 database recovery rehearsal | `PASS` | [P2 runbook](staging-certification-p2-runbook.md) | — |
-| P3 all-off deployment | `NOT RUN` | — | All-off services not yet created |
-| P4 remote config/operations | `NOT RUN` | — | P3 |
-| P5 authority/workers | `NOT RUN` | — | P3–P4 |
-| P6 physical device matrix | `NOT RUN` | — | P3–P5 and devices |
+| P3 all-off deployment | `PASS` | Immutable deploy/rollback table below | — |
+| P4 remote config/operations | `NOT RUN` | — | — |
+| P5 authority/workers | `NOT RUN` | — | P4 |
+| P6 physical device matrix | `NOT RUN` | — | P4–P5 and devices |
 | P7 canary recommendation | `NOT RUN` | — | P0–P6 |
 
 ## P0 repository/control baseline
@@ -334,9 +334,100 @@ digests, preservation families, failure history, and timing are recorded in the
 
 ## P3 manual all-off deployment
 
-Status: `NOT RUN`
+Status: `PASS`
 
-No service has been deployed or restarted by this sprint.
+Three new Starter services were created inside protected, network-isolated
+Render environment `Certification` (`evm-d9f68mos116c738bmf60`). All use
+manual deployment (`autoDeploy: no`) in Oregon. Rank and VS are web services
+with `/health`; the authority is a background worker with no ingress. The two
+existing web services and existing Rank database remained on their exact P1
+deploy/provider identities throughout P3.
+
+### Build and permission failure history
+
+The first baseline builds failed safely before runtime because
+`NODE_ENV=production` caused `npm ci` to omit TypeScript and other build-only
+dependencies. All three build commands were corrected to
+`npm ci --include=dev && npm run build`; runtime remains in production mode.
+Rank's first corrected runtime start then failed at the non-mutating
+`CREATE TABLE IF NOT EXISTS schema_migrations` probe because its restricted role
+lacked PostgreSQL schema `CREATE`. The certification Rank role received that
+permission because Rank owns its startup migration procedure; VS remains
+restricted to its `vs_*` tables and sequences. No migration was pending or
+applied during P3. These failed deploys never became live.
+
+The redacted provisioner is
+`scripts/dev/provision_staging_certification_p3.rb`. It generates separate
+player, admin, VS-to-Rank, worker, verifier, and database credentials in memory,
+creates service-specific database roles, and refuses to rotate those roles if
+any target service already exists.
+
+### Immutable deployment identities
+
+The remote rollback branch `deploy/staging-cert-baseline-20260720` is pinned at
+the exact green base `b9c35e5e5b1d238c621fcb0fa39fdbdd72b5ad90`. The
+candidate branch remains pinned at
+`1beb3553f2e619fe41ae88e4cb2be71695b4f3e0`.
+
+| Role | Service ID | Known-good baseline deploy | First candidate deploy | Final restored candidate deploy |
+| --- | --- | --- | --- | --- |
+| Rank | `srv-d9f6j1l7vvec73foama0` | `dep-d9f6mlbbc2fs73983ccg` at `b9c35e5` | `dep-d9f6o9t7vvec73fokpu0` at `1beb355` | `dep-d9f6ud37uimc73aq0570` at `1beb355` |
+| VS | `srv-d9f6j25aeets73ci1fjg` | `dep-d9f6l9b7uimc73apggig` at `b9c35e5` | `dep-d9f6o9n7f7vs73c1vd0g` at `1beb355` | `dep-d9f6skv7f7vs73c27tmg` at `1beb355` |
+| Authority | `srv-d9f6j2gs116c738c7er0` | `dep-d9f6l9f7f7vs73c1paag` at `b9c35e5` | `dep-d9f6o9j7uimc73aplr70` at `1beb355` | `dep-d9f6qrgs116c738cjec0` at `1beb355` |
+
+At exit, all three services reported the candidate branch, `autoDeploy: no`,
+and the final `1beb355` deploy above as `live`.
+
+### All-off and authentication evidence
+
+Provider-side environment inspection found all 27 canonical VS capability
+variables explicitly `false`, plus `VS_SPECTATOR_ENABLED=false` and
+`VS_SPECTATOR_DEV_OPEN=false`. All four Rank capability variables and the Rank
+debug-action gate are explicitly `false`. Health reported every public,
+durable-route, verification, remote-config, spectator-live, rank, contest,
+reward, bot-fallback, and economy result false after baseline deployment,
+candidate deployment, restart, rollback, and restoration.
+
+Observed fail-closed HTTP results:
+
+| Probe | Expected/observed result | Status |
+| --- | --- | --- |
+| Rank public leaderboard while disabled | `503 public_leaderboards_disabled` | `PASS` |
+| Rank admin details with missing bearer | `401 unauthorized` | `PASS` |
+| Rank admin details with wrong bearer | `401 unauthorized` | `PASS` |
+| VS public 1v1 enqueue while disabled | `503 authenticated_1v1_slice_disabled` | `PASS` |
+| Correctly signed player JWT with wrong audience | `401 token_issuer_or_audience_invalid` | `PASS` |
+| Correct VS admin credential with wrong role | `401 admin_auth_required` | `PASS` |
+| Rank admin credential presented to VS admin route | `401 admin_auth_required` | `PASS` |
+
+No credential value, private key, or database connection string was printed or
+committed.
+
+### Restart, rollback, and preservation
+
+Each candidate service produced an observed provider restart event. Rank and VS
+returned healthy; the no-ingress authority returned provider-live. Ten seconds
+after all restarts, health remained all-off and the database fingerprint/counts
+were unchanged.
+
+| Role | Rollback deploy | Baseline verification | Measured rollback | Candidate restoration |
+| --- | --- | --- | ---: | --- |
+| Authority | `dep-d9f6qej7uimc73appla0` | `b9c35e5`, provider-live, no ingress | 52 s | `dep-d9f6qrgs116c738cjec0`, live |
+| VS | `dep-d9f6s53rjlhs73dlupsg` | `b9c35e5`, health pass, all caps false | 62 s | `dep-d9f6skv7f7vs73c27tmg`, health pass |
+| Rank | `dep-d9f6u01kh4rs73d8dlig` | `b9c35e5`, health pass, all caps false | 53 s | `dep-d9f6ud37uimc73aq0570`, health pass |
+
+The post-restoration database schema SHA-256 remains
+`e8cdc990973c29dee564ef4b6756ada0b6c4034cc7d3f6a5a2a4f502b56478c3`.
+`schema_migrations=17`, `rank_audit_events=1`, and
+`vs_crucible_accounts=2`; all other application-table counts remain zero.
+These bounded values are the authoritative all-off persistence fingerprint for
+P3. The existing VS deploy `dep-d90aqv8jo6nc73cgdae0`, existing Rank deploy
+`dep-d9akqmlaeets73bp7n6g`, and existing Rank database provider `updatedAt`
+`2026-06-25T22:36:25.431367Z` remained unchanged.
+
+The authority worker was certified here only as an all-off, no-ingress service
+process. Its pinned Godot binary and real artifact manifest are intentionally a
+P5 gate; P3 does not claim that it can yet execute a replay job.
 
 ## P4 remote configuration and operations
 
@@ -378,6 +469,9 @@ No public mode or mutation/economy capability is authorized.
 | Scheduled nightly smoke logs | GitHub artifact `8466304673` | `3e9fbd55866cfe4b3242830cf8e9a7f1d58b32ec4c21db9151ad3ecc99f49db8` | 2026-07-20T15:26:09Z | 2026-10-18 | GitHub Actions |
 | P2 local PostgreSQL 18 dump | Temporary external file; source `dpg-d9f68vn7f7vs73c0tal0-a` | `a9e39db57dc449484d6669bc2980277dc746dc516ba7a0c54cf947314ba2039d` | 2026-07-20T18:17Z | Ephemeral; provider export/PITR are retained copies | Database operator |
 | P2 Render logical export | `dpg-d9f68vn7f7vs73c0tal0-a/2026-07-20T18:17Z` | `e101d71937d2bf4068cc4df5ef713894211beb37ed6b2d275d6239dc4fe022de` | 2026-07-20T18:17Z | Render 7-day export window | Database operator |
+| P3 Rank candidate deploy | `dep-d9f6ud37uimc73aq0570` | `474a226f3286042b6d347f43f4799522c428aa47e69e4ef70f51d48e326711ca` | 2026-07-20T18:57Z | Render deploy/log retention | Environment operator |
+| P3 VS candidate deploy | `dep-d9f6skv7f7vs73c27tmg` | `55cccabc683055d8fb5d460cdfffb878d9bd94b25d20be4313b8a53928327760` | 2026-07-20T18:54Z | Render deploy/log retention | Environment operator |
+| P3 authority candidate deploy | `dep-d9f6qrgs116c738cjec0` | `1aab33cd811fdce38ea7f51fefb3c86d40e6a0d33e13398da9888eec38a1055a` | 2026-07-20T18:50Z | Render deploy/log retention | Environment operator |
 
 Never put credentials, private keys, connection strings, raw database exports,
 unredacted device identifiers, or user identifiers in this index.
