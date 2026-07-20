@@ -63,16 +63,28 @@ capture_variant() {
   local rc
   local signal_number=0
   local signal_name=""
+  local engine_args=()
+  local harness_args=()
+
+  while (( $# > 0 )); do
+    if [[ "$1" == "--require-window-foreground" ]]; then
+      harness_args+=("$1")
+    else
+      engine_args+=("$1")
+    fi
+    shift
+  done
 
   started_at="$(date '+%Y-%m-%d %H:%M:%S')"
   set +e
-  "${GODOT_BIN}" "$@" --path "${ROOT_DIR}" --script "${HARNESS}" -- \
+  "${GODOT_BIN}" "${engine_args[@]}" --path "${ROOT_DIR}" --script "${HARNESS}" -- \
     --sf-perf-harness \
     --diagnose-window-lifecycle \
     --perf-user-dir="${user_dir}" \
     --collection-level="${collection_level}" \
     --suite="${SUITE}" \
     --mode="${MODE}" \
+    "${harness_args[@]}" \
     --output="res://${report_rel}" >"${log_path}" 2>&1 &
   godot_pid=$!
   printf 'PERF_PACING_DIAGNOSTIC_PROCESS label=%s pid=%s started_at=%s\n' "${label}" "${godot_pid}" "${started_at}"
@@ -129,6 +141,14 @@ capture_variant() {
   fi
   if [[ "${collection_level}" == "FULL" ]]; then
     jq -e 'all(.scenarios[]; .collection.retention.raw_sample_capture == true and .collection.retention.retained_raw_sample_count == 300)' "${report_path}" >/dev/null
+  fi
+  if [[ "${VARIANT}" == "foreground_awake_minimal" ]]; then
+    jq -e '
+      any(.diagnostic_window_lifecycle.events[]; .event == "diagnostic_foreground_preflight" and .pass == true and .after.window_focused == true and .after.low_processor_usage_mode == false) and
+      ([.diagnostic_window_lifecycle.events[] | select(.event == "scenario_begin" or .event == "scenario_end")] | length == 12) and
+      all(.diagnostic_window_lifecycle.events[] | select(.event == "scenario_begin" or .event == "scenario_end"); .window_focused == true and .low_processor_usage_mode == false) and
+      ([.diagnostic_window_lifecycle.events[] | select(.event == "window_focus_exited")] | length == 0)
+    ' "${report_path}" >/dev/null
   fi
 
   jq --arg label "${label}" --argjson process_rc "${rc}" '{
@@ -201,6 +221,9 @@ case "${VARIANT}" in
     ;;
   default_awake_repeat_minimal)
     capture_variant "${VARIANT}" MINIMAL
+    ;;
+  foreground_awake_minimal)
+    capture_variant "${VARIANT}" MINIMAL --require-window-foreground
     ;;
   default_awake_full)
     capture_variant "${VARIANT}" FULL

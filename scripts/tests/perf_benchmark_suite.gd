@@ -109,6 +109,11 @@ func _run_entry() -> void:
 		_cleanup_entry_state()
 		quit(2)
 		return
+	if user_args.has("--require-window-foreground") and not await _diagnostic_foreground_preflight():
+		push_error("perf_benchmark_suite: diagnostic_window_foreground_unavailable")
+		_cleanup_entry_state()
+		quit(2)
+		return
 	await _prime_harness_shared_services()
 	var report: Dictionary = await _run_suite(args)
 	if _diagnostic_window_lifecycle:
@@ -214,6 +219,12 @@ func _run_suite(args: Dictionary) -> Dictionary:
 			var scenario_def: Dictionary = base_scenario_def.duplicate(true)
 			scenario_def["_repetition_index"] = repetition_index + 1
 			scenario_def["_suite_sequence_index"] = suite_sequence_index
+			if _diagnostic_window_lifecycle:
+				_diagnostic_window_event("scenario_begin", _diagnostic_runtime_state({
+					"scenario_id": str(scenario_def.get("scenario_id", "unknown")),
+					"repetition_index": repetition_index + 1,
+					"suite_sequence_index": suite_sequence_index
+				}))
 			var scenario: Dictionary
 			match benchmark_mode:
 				"deterministic_windowed_presentation", "static_windowed_deterministic":
@@ -225,6 +236,12 @@ func _run_suite(args: Dictionary) -> Dictionary:
 				_:
 					scenario = await _run_canonical_sim_scenario(scenario_def, benchmark_mode, gates)
 			scenarios.append(scenario)
+			if _diagnostic_window_lifecycle:
+				_diagnostic_window_event("scenario_end", _diagnostic_runtime_state({
+					"scenario_id": str(scenario_def.get("scenario_id", "unknown")),
+					"repetition_index": repetition_index + 1,
+					"suite_sequence_index": suite_sequence_index
+				}))
 	var failed: Array = []
 	var integrity_failed: Array = []
 	for scenario_any in scenarios:
@@ -3708,6 +3725,49 @@ func _reassert_diagnostic_quit_guard(event_name: String) -> void:
 		"auto_accept_quit_before_reassert": previous_auto_accept_quit,
 		"auto_accept_quit_after_reassert": auto_accept_quit
 	})
+
+func _diagnostic_foreground_preflight() -> bool:
+	var before: Dictionary = _diagnostic_runtime_state()
+	if DisplayServer.get_name() == "headless":
+		_diagnostic_window_event("diagnostic_foreground_preflight", {
+			"pass": false,
+			"reason": "headless_display_server",
+			"before": before,
+			"after": before
+		})
+		return false
+	DisplayServer.window_move_to_foreground()
+	var deadline_msec: int = Time.get_ticks_msec() + 10000
+	while not DisplayServer.window_is_focused() and Time.get_ticks_msec() < deadline_msec:
+		await process_frame
+	for _settle_frame in range(3):
+		await process_frame
+	var after: Dictionary = _diagnostic_runtime_state()
+	var focused: bool = bool(after.get("window_focused", false))
+	var low_processor_mode: bool = bool(after.get("low_processor_usage_mode", true))
+	var passed: bool = focused and not low_processor_mode
+	_diagnostic_window_event("diagnostic_foreground_preflight", {
+		"pass": passed,
+		"reason": "" if passed else "window_not_focused" if not focused else "low_processor_usage_mode_enabled",
+		"before": before,
+		"after": after
+	})
+	return passed
+
+func _diagnostic_runtime_state(extra: Dictionary = {}) -> Dictionary:
+	var state: Dictionary = {
+		"display_server": DisplayServer.get_name(),
+		"window_focused": false if DisplayServer.get_name() == "headless" else DisplayServer.window_is_focused(),
+		"window_mode": int(DisplayServer.window_get_mode()),
+		"vsync_mode": int(DisplayServer.window_get_vsync_mode()),
+		"low_processor_usage_mode": OS.is_in_low_processor_usage_mode(),
+		"low_processor_usage_mode_sleep_usec": OS.get_low_processor_usage_mode_sleep_usec(),
+		"delta_smoothing": OS.is_delta_smoothing_enabled(),
+		"engine_max_fps": Engine.max_fps
+	}
+	for key_any in extra.keys():
+		state[str(key_any)] = extra.get(key_any)
+	return state
 
 func _diagnostic_window_event(event_name: String, details: Dictionary = {}) -> void:
 	if not _diagnostic_window_lifecycle:

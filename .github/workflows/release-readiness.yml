@@ -57,6 +57,7 @@ on:
         options:
           - default_awake_minimal
           - default_awake_repeat_minimal
+          - foreground_awake_minimal
           - default_awake_full
           - vsync_disabled_full
           - post_load_awake_minimal
