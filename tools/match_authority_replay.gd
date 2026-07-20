@@ -35,9 +35,16 @@ func _replay(bundle: Dictionary) -> Dictionary:
 		var artifact_path: String = str(bundle.get("map_artifact_path", ""))
 		if not artifact_path.begins_with("res://"):
 			return {"ok": false, "error_code": "MAP_ARTIFACT_PATH_INVALID"}
-		map_data = MapLoader.load_map(artifact_path)
+		var loaded_map: Dictionary = MapLoader.load_map(artifact_path)
+		if not bool(loaded_map.get("ok", false)):
+			return {
+				"ok": false,
+				"error_code": "MAP_ARTIFACT_NORMALIZATION_FAILED",
+				"detail": str(loaded_map.get("err", "unknown"))
+			}
+		map_data = loaded_map.get("data", {}) as Dictionary
 		if map_data.is_empty():
-			return {"ok": false, "error_code": "MAP_ARTIFACT_NORMALIZATION_FAILED"}
+			return {"ok": false, "error_code": "MAP_ARTIFACT_NORMALIZATION_EMPTY"}
 	if mode_id == "CTF_1V1":
 		map_data = MapModeRules.apply_capture_flag_territory_split(map_data, {"mode": "CAPTURE_FLAG"})
 	var commands: Array = bundle.get("commands", []) as Array
@@ -78,6 +85,7 @@ func _replay(bundle: Dictionary) -> Dictionary:
 	var runner: Node = runner_script.new() as Node
 	get_root().add_child(runner)
 	runner.call("bind_state", state)
+	runner.call("enable_deterministic_clock", 0)
 	runner.call("set_running", true, "match_authority_replay")
 	var max_ticks: int = clampi(int((bundle.get("ruleset_data", {}) as Dictionary).get("max_sim_ticks", 12000)), 1, 36000)
 	var command_index: int = 0
@@ -93,6 +101,7 @@ func _replay(bundle: Dictionary) -> Dictionary:
 				return {"ok": false, "error_code": "COMMAND_MISSED_EXECUTE_TICK", "command_seq": command_index + 1}
 			var applied: Dictionary = _apply_command(ops, state, command)
 			if not bool(applied.get("ok", false)):
+				applied["command_seq"] = command_index + 1
 				return applied
 			command_index += 1
 			applied_commands += 1

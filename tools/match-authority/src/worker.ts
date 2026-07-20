@@ -223,7 +223,9 @@ async function runGodot(config: WorkerConfig, projectPath: string, input: Record
       child.on("error", (error) => { clearTimeout(timeout); reject(error); });
       child.on("exit", (code) => {
         clearTimeout(timeout);
-        code === 0 ? resolve() : reject(new AuthorityError(`GODOT_EXIT_${code}:${stderr.slice(-500)}`, true));
+        code === 0 || code === 3
+          ? resolve()
+          : reject(new AuthorityError(`GODOT_EXIT_${code}:${stderr.slice(-500)}`, true));
       });
     });
     return JSON.parse(await readFile(outputPath, "utf8")) as ReplayResult;

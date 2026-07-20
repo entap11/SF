@@ -127,6 +127,29 @@ async function main(): Promise<void> {
       && authoredFirst.winner_player_id === playerA
       && authoredFirst.applied_commands === authoredCommands.length,
     "authored v1.xy golden replay did not terminate deterministically", { authoredFirst, authoredSecond });
+    const rejectedCommands: { command: Record<string, unknown> }[] = authoredCommands
+      .map((entry) => ({ command: { ...entry.command } }));
+    rejectedCommands[0]!.command.seat_id = 2;
+    const rejectedPayloads = rejectedCommands.map((entry) => entry.command);
+    const rejectedJob: Job = {
+      ...authoredMapJob,
+      jobId: "0190f47a-0234-7abc-8def-123456789abc",
+      resultId: "0190f47a-1234-7abc-8def-123456789abd",
+      commandLogHash: sha256Canonical(rejectedPayloads),
+      commands: rejectedCommands
+    };
+    rejectedJob.inputHash = sha256Canonical({
+      contract_id: rejectedJob.contract.contractId,
+      contract_hash: rejectedJob.contract.contractHash,
+      match_epoch: rejectedJob.contract.matchEpoch,
+      commands: rejectedPayloads, lifecycle_events: []
+    });
+    validateJobBundle(rejectedJob);
+    const [rejectedFirst, rejectedSecond] = await replayJobTwice(config, rejectedJob);
+    expect(!rejectedFirst.ok && !rejectedSecond.ok
+      && rejectedFirst.error_code === "COMMAND_OWNERSHIP_INVALID"
+      && rejectedSecond.error_code === "COMMAND_OWNERSHIP_INVALID",
+    "structured replay rejection was not retained", { rejectedFirst, rejectedSecond });
     const ctfJob: Job = {
       ...job,
       jobId: "0190f47a-a234-7abc-8def-123456789abc",
