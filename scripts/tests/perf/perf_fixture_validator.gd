@@ -143,13 +143,51 @@ static func static_preflight(scenario: Dictionary, execution_mode: String) -> Di
 					errors.append("%s src must be a positive number" % command_kind)
 				if not _is_number(command.get("dst")) or int(command.get("dst", 0)) <= 0:
 					errors.append("%s dst must be a positive number" % command_kind)
+				elif int(command.get("src", 0)) == int(command.get("dst", 0)):
+					errors.append("%s src and dst must differ" % command_kind)
 				if command_kind == "exact_lane_intent" and not ["attack", "feed"].has(str(command.get("intent", ""))):
 					errors.append("exact_lane_intent intent must be attack or feed")
 	var camera_schedule_any: Variant = scenario.get("camera_schedule", [])
+	var cadence_any: Variant = scenario.get("cadence", {})
+	var scheduled_frame_limit: int = 0
+	if typeof(cadence_any) == TYPE_DICTIONARY:
+		var cadence: Dictionary = cadence_any as Dictionary
+		scheduled_frame_limit = int(cadence.get("warmup_frames", 0)) + int(cadence.get("measurement_frames", 0))
 	if typeof(camera_schedule_any) != TYPE_ARRAY:
 		errors.append("camera_schedule must be an Array when present")
-	elif not (camera_schedule_any as Array).is_empty():
-		errors.append("camera_schedule entries are not supported by Phase 0 fixtures")
+	else:
+		for camera_any in camera_schedule_any as Array:
+			if typeof(camera_any) != TYPE_DICTIONARY:
+				errors.append("every camera_schedule entry must be a Dictionary")
+				continue
+			var camera_entry: Dictionary = camera_any as Dictionary
+			if not _is_number(camera_entry.get("frame")) or int(camera_entry.get("frame", 0)) <= 0:
+				errors.append("camera_schedule frame must be positive")
+			elif scheduled_frame_limit <= 0 or int(camera_entry.get("frame", 0)) > scheduled_frame_limit:
+				errors.append("camera_schedule frame exceeds the deterministic cadence")
+			var position_any: Variant = camera_entry.get("position", [])
+			var zoom_any: Variant = camera_entry.get("zoom", [])
+			if not _numeric_pair(position_any):
+				errors.append("camera_schedule position must be a numeric pair")
+			if not _numeric_pair(zoom_any) or float((zoom_any as Array)[0]) <= 0.0 or float((zoom_any as Array)[1]) <= 0.0:
+				errors.append("camera_schedule zoom must be a positive numeric pair")
+	var ui_schedule_any: Variant = scenario.get("ui_schedule", [])
+	if typeof(ui_schedule_any) != TYPE_ARRAY:
+		errors.append("ui_schedule must be an Array when present")
+	else:
+		for ui_any in ui_schedule_any as Array:
+			if typeof(ui_any) != TYPE_DICTIONARY:
+				errors.append("every ui_schedule entry must be a Dictionary")
+				continue
+			var ui_entry: Dictionary = ui_any as Dictionary
+			if not _is_number(ui_entry.get("frame")) or int(ui_entry.get("frame", 0)) <= 0:
+				errors.append("ui_schedule frame must be positive")
+			elif scheduled_frame_limit <= 0 or int(ui_entry.get("frame", 0)) > scheduled_frame_limit:
+				errors.append("ui_schedule frame exceeds the deterministic cadence")
+			if str(ui_entry.get("path", "")).strip_edges().is_empty():
+				errors.append("ui_schedule path is required")
+			if typeof(ui_entry.get("visible")) != TYPE_BOOL:
+				errors.append("ui_schedule visible must be boolean")
 	for key in ["initial_lanes", "initial_swarms", "initial_barracks_routes", "commands_per_burst", "swarm_burst"]:
 		if int(scenario.get(key, 0)) < 0:
 			errors.append("%s cannot be negative" % key)
@@ -281,6 +319,12 @@ static func _array_count(value: Variant) -> int:
 
 static func _is_number(value: Variant) -> bool:
 	return typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT
+
+
+static func _numeric_pair(value: Variant) -> bool:
+	if typeof(value) != TYPE_ARRAY or (value as Array).size() != 2:
+		return false
+	return _is_number((value as Array)[0]) and _is_number((value as Array)[1])
 
 
 static func _failure(errors: Array[String]) -> Dictionary:

@@ -1,6 +1,6 @@
 # Swarmfront Performance Harness V1 Completion Plan
 
-Status: `P2-C COMPLETE — P2-D NEXT`
+Status: `P2-D COMPLETE — P2-E NEXT`
 
 Branch: `codex/perf-harness-v1-completion`
 
@@ -57,6 +57,14 @@ Implemented evidence:
 ### P2-D — Battlefield and UI stress
 
 Implement late-match, lane, structure, distress, capture, camera, and UI fixtures. File-backed fixtures use production `MapLoader`/`MapApplier`; synthetic presentation fixtures must declare and hash their synthetic identity. Camera/UI evidence is windowed-only.
+
+Implemented evidence:
+
+- The deterministic windowed suite contains the exact seven-fixture inventory: late match, lane, structure, distress, capture, camera, and UI stress. Production-map fixtures retain their `MapLoader` content hash; synthetic fixtures declare a hashed `sf_perf_synthetic_scene_v1` descriptor.
+- Late-match stress reached 200 moving units through public `UnitSystem` injection without bypassing the 400-unit capacity or expanding the renderer pool. Lane stress retained eight active lanes and exercised production Super Swarm commands.
+- Structure stress applied two towers and two barracks through the production state/renderer path. Distress stress observed six simultaneous active, pressure, and rupture render states; capture stress recorded six exact ownership transitions.
+- Camera stress targeted the exact `Arena/Camera2D` node, and UI stress targeted exact Main-scene paths. Both schedules are fail-closed against the deterministic frame cadence and are windowed-only.
+- The 21-run acceptance matrix completed three repetitions per fixture with identical event and final-state hashes, zero integrity failures, exact protected-state restoration, every fixture root freed, and analytics/backend isolation passing.
 
 ### P2-E — Lifecycle soak
 

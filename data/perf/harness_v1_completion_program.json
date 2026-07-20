@@ -59,7 +59,7 @@
     },
     {
       "phase_id": "P2_D_BATTLEFIELD_UI_STRESS",
-      "status": "PLANNED",
+      "status": "IMPLEMENTED",
       "fixtures": [
         "LATE_MATCH_V1",
         "LANE_STRESS_V1",

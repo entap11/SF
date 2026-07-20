@@ -606,6 +606,9 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 	var phase2_stress_profile: String = str(scenario_def.get("phase2_stress_profile", ""))
 	var phase2_stress_tracker: Dictionary = _phase2_stress_tracker_start(state, scenario_def) if not phase2_stress_profile.is_empty() else {}
 	var phase2_render_peaks: Dictionary = {}
+	var phase2_battlefield_profile: String = str(scenario_def.get("phase2_battlefield_profile", ""))
+	var phase2_battlefield_tracker: Dictionary = _phase2_battlefield_tracker_start(state, scenario_def) if not phase2_battlefield_profile.is_empty() else {}
+	var phase2_battlefield_render_peaks: Dictionary = {}
 	var render_monitor_peaks: Dictionary = {
 		"draw_calls": 0,
 		"rendered_objects": 0,
@@ -613,13 +616,15 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 	}
 	for frame_number in range(1, adapter.total_frames() + 1):
 		var frame_start_usec: int = Time.get_ticks_usec()
+		if not phase2_battlefield_tracker.is_empty():
+			_phase2_apply_presentation_schedule(scene_root, arena, scenario_def, frame_number, phase2_battlefield_tracker)
 		if adapter.should_tick(frame_number):
 			tick_index = adapter.tick_number_for_frame(frame_number)
 			var issued: Array = _issue_commands_for_tick(arena, state, scenario_def, tick_index)
 			if not issued.is_empty():
 				command_log.append({"tick": tick_index, "commands": issued})
 			sim_runner.call("_tick", SIM_TICK_INTERVAL_SEC)
-			if not phase2_stress_tracker.is_empty():
+			if not phase2_stress_tracker.is_empty() or not phase2_battlefield_tracker.is_empty():
 				# Manual deterministic ticks bypass Arena's process-owned publish cadence.
 				# Publish the resulting canonical model through the production renderer path.
 				if arena.has_method("mark_render_dirty"):
@@ -628,6 +633,8 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 					arena.call("_push_render_model")
 			if not phase2_stress_tracker.is_empty():
 				_phase2_stress_track_tick(phase2_stress_tracker, state, sim_runner, tick_index)
+			if not phase2_battlefield_tracker.is_empty():
+				_phase2_battlefield_track_tick(phase2_battlefield_tracker, state, tick_index)
 			if target_units > 0 and unit_count_policy == "bounded_moving":
 				unit_count_timeline.append({
 					"tick": tick_index,
@@ -636,6 +643,8 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 		await process_frame
 		if not phase2_stress_tracker.is_empty():
 			_phase2_stress_track_render(phase2_render_peaks, arena)
+		if not phase2_battlefield_tracker.is_empty():
+			_phase2_battlefield_track_render(phase2_battlefield_render_peaks, scene_root, arena)
 		if target_units > 0:
 			var current_unit_count: int = _runtime_unit_count(state)
 			unit_count_min = mini(unit_count_min, current_unit_count)
@@ -670,6 +679,7 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 	var renderer_configuration_state: Dictionary = _renderer_configuration_state(arena)
 	var renderer_configuration_hash: String = PERF_DETERMINISTIC_HASH.hash_variant(renderer_configuration_state)
 	var phase2_stress_evidence: Dictionary = _phase2_stress_finalize(phase2_stress_tracker, phase2_render_peaks, state, sim_runner, arena, scenario_def) if not phase2_stress_tracker.is_empty() else {}
+	var phase2_battlefield_evidence: Dictionary = _phase2_battlefield_finalize(phase2_battlefield_tracker, phase2_battlefield_render_peaks, state, scenario_def) if not phase2_battlefield_tracker.is_empty() else {}
 	var integrity_failures: Array = []
 	if not bool(bot_isolation.get("pass", false)):
 		integrity_failures.append("bots_not_disabled")
@@ -688,6 +698,9 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 	if not phase2_stress_evidence.is_empty() and not bool(phase2_stress_evidence.get("pass", false)):
 		for failure_any in phase2_stress_evidence.get("failures", []) as Array:
 			integrity_failures.append("phase2_stress:%s" % str(failure_any))
+	if not phase2_battlefield_evidence.is_empty() and not bool(phase2_battlefield_evidence.get("pass", false)):
+		for failure_any in phase2_battlefield_evidence.get("failures", []) as Array:
+			integrity_failures.append("phase2_battlefield:%s" % str(failure_any))
 	var final_unit_count: int = _runtime_unit_count(state)
 	var unit_motion_end: Array = _unit_motion_snapshot(state) if target_units > 0 else []
 	var unit_motion_evidence: Dictionary = _unit_motion_evidence(unit_motion_start, unit_motion_end) if target_units > 0 else {}
@@ -770,6 +783,10 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 		"phase2_stress_evidence": phase2_stress_evidence,
 		"phase2_event_hash": str(phase2_stress_evidence.get("event_hash", "")),
 		"phase2_render_lifecycle_hash": str(phase2_stress_evidence.get("render_lifecycle_hash", "")),
+		"phase2_battlefield_profile": phase2_battlefield_profile,
+		"phase2_battlefield_evidence": phase2_battlefield_evidence,
+		"phase2_battlefield_event_hash": str(phase2_battlefield_evidence.get("event_hash", "")),
+		"phase2_battlefield_render_hash": str(phase2_battlefield_evidence.get("render_hash", "")),
 		"render_monitor_peaks": render_monitor_peaks,
 		"runtime_counts": (setup.get("actual_counts", {}) as Dictionary).duplicate(true),
 		"fixture_setup_evidence": {
@@ -1625,6 +1642,226 @@ func _phase2_stress_finalize(
 		"render_lifecycle_hash": PERF_DETERMINISTIC_HASH.hash_variant(render_payload)
 	}
 
+func _phase2_battlefield_tracker_start(state: GameState, scenario_def: Dictionary) -> Dictionary:
+	var initial_counts: Dictionary = _phase2_battlefield_state_counts(state)
+	return {
+		"profile": str(scenario_def.get("phase2_battlefield_profile", "")),
+		"target_hive_ids": (scenario_def.get("stress_target_hive_ids", []) as Array).duplicate(),
+		"previous_owner_by_hive": _phase2_owner_snapshot(state),
+		"previous_counts_hash": PERF_DETERMINISTIC_HASH.hash_variant(initial_counts),
+		"count_events": [{"tick": 0, "counts": initial_counts}],
+		"owner_events": [],
+		"presentation_events": [],
+		"max_lanes": int(initial_counts.get("lanes", 0)),
+		"max_units": int(initial_counts.get("units", 0)),
+		"max_swarms": int(initial_counts.get("swarms", 0)),
+		"expected_camera_events": (scenario_def.get("camera_schedule", []) as Array).size(),
+		"expected_ui_events": (scenario_def.get("ui_schedule", []) as Array).size()
+	}
+
+func _phase2_battlefield_track_tick(tracker: Dictionary, state: GameState, tick: int) -> void:
+	var counts: Dictionary = _phase2_battlefield_state_counts(state)
+	tracker["max_lanes"] = maxi(int(tracker.get("max_lanes", 0)), int(counts.get("lanes", 0)))
+	tracker["max_units"] = maxi(int(tracker.get("max_units", 0)), int(counts.get("units", 0)))
+	tracker["max_swarms"] = maxi(int(tracker.get("max_swarms", 0)), int(counts.get("swarms", 0)))
+	var counts_hash: String = PERF_DETERMINISTIC_HASH.hash_variant(counts)
+	if counts_hash != str(tracker.get("previous_counts_hash", "")):
+		(tracker.get("count_events", []) as Array).append({"tick": tick, "counts": counts})
+	tracker["previous_counts_hash"] = counts_hash
+	var previous_owners: Dictionary = tracker.get("previous_owner_by_hive", {}) as Dictionary
+	var current_owners: Dictionary = _phase2_owner_snapshot(state)
+	var target_hive_ids: Array = tracker.get("target_hive_ids", []) as Array
+	for hive_id_any in current_owners.keys():
+		var hive_id: int = int(hive_id_any)
+		if not target_hive_ids.is_empty() and not target_hive_ids.has(hive_id):
+			continue
+		var old_owner: int = int(previous_owners.get(hive_id, current_owners.get(hive_id, 0)))
+		var new_owner: int = int(current_owners.get(hive_id, old_owner))
+		if old_owner != new_owner:
+			(tracker.get("owner_events", []) as Array).append({
+				"tick": tick,
+				"hive_id": hive_id,
+				"old_owner": old_owner,
+				"new_owner": new_owner
+			})
+	tracker["previous_owner_by_hive"] = current_owners
+
+func _phase2_battlefield_state_counts(state: GameState) -> Dictionary:
+	if state == null:
+		return {"hives": 0, "lanes": 0, "units": 0, "swarms": 0, "towers": 0, "barracks": 0}
+	return {
+		"hives": state.hives.size(),
+		"lanes": state.lanes.size(),
+		"units": _runtime_unit_count(state),
+		"swarms": state.swarm_packets.size(),
+		"towers": state.towers.size(),
+		"barracks": state.barracks.size()
+	}
+
+func _phase2_owner_snapshot(state: GameState) -> Dictionary:
+	var out: Dictionary = {}
+	if state == null:
+		return out
+	for hive_any in state.hives:
+		if hive_any is HiveData:
+			var hive: HiveData = hive_any as HiveData
+			out[int(hive.id)] = int(hive.owner_id)
+	return out
+
+func _phase2_apply_presentation_schedule(
+	scene_root: Node,
+	arena: Node,
+	scenario_def: Dictionary,
+	frame_number: int,
+	tracker: Dictionary
+) -> void:
+	var presentation_events: Array = tracker.get("presentation_events", []) as Array
+	for camera_any in scenario_def.get("camera_schedule", []) as Array:
+		var entry: Dictionary = camera_any as Dictionary
+		if int(entry.get("frame", -1)) != frame_number:
+			continue
+		var camera_node: Camera2D = arena.get_node_or_null("Camera2D") as Camera2D if arena != null else null
+		var position_values: Array = entry.get("position", []) as Array
+		var zoom_values: Array = entry.get("zoom", []) as Array
+		var position := Vector2(float(position_values[0]), float(position_values[1]))
+		var zoom := Vector2(float(zoom_values[0]), float(zoom_values[1]))
+		if camera_node != null:
+			camera_node.make_current()
+			camera_node.global_position = position
+			camera_node.zoom = zoom
+			camera_node.force_update_scroll()
+		presentation_events.append({
+			"kind": "camera",
+			"frame": frame_number,
+			"path": "Camera2D",
+			"position": [position.x, position.y],
+			"zoom": [zoom.x, zoom.y],
+			"ok": camera_node != null
+		})
+	for ui_any in scenario_def.get("ui_schedule", []) as Array:
+		var entry: Dictionary = ui_any as Dictionary
+		if int(entry.get("frame", -1)) != frame_number:
+			continue
+		var path: String = str(entry.get("path", ""))
+		var node: CanvasItem = scene_root.get_node_or_null(path) as CanvasItem if scene_root != null else null
+		var visible: bool = bool(entry.get("visible", false))
+		if node != null:
+			node.visible = visible
+		presentation_events.append({
+			"kind": "ui",
+			"frame": frame_number,
+			"path": path,
+			"visible": visible,
+			"ok": node != null
+		})
+	tracker["presentation_events"] = presentation_events
+
+func _phase2_battlefield_track_render(peaks: Dictionary, scene_root: Node, arena: Node) -> void:
+	var hive_renderer: Node = arena.get_node_or_null("MapRoot/HiveRenderer") if arena != null else null
+	if hive_renderer != null and hive_renderer.has_method("get_distress_debug_snapshot"):
+		var distress: Dictionary = hive_renderer.call("get_distress_debug_snapshot") as Dictionary
+		peaks["distress_active_count"] = maxi(int(peaks.get("distress_active_count", 0)), int(distress.get("active_count", 0)))
+		peaks["distress_pressure_count"] = maxi(int(peaks.get("distress_pressure_count", 0)), int(distress.get("pressure_count", 0)))
+		peaks["distress_rupture_count"] = maxi(int(peaks.get("distress_rupture_count", 0)), int(distress.get("rupture_count", 0)))
+	var lane_renderer: CanvasItem = arena.get_node_or_null("MapRoot/LaneRenderer") as CanvasItem if arena != null else null
+	peaks["lane_renderer_observed"] = bool(peaks.get("lane_renderer_observed", false)) or (lane_renderer != null and lane_renderer.visible)
+	var tower_renderer: Node = arena.get_node_or_null("MapRoot/TowerRenderer") if arena != null else null
+	var barracks_renderer: Node = arena.get_node_or_null("MapRoot/BarracksRenderer") if arena != null else null
+	peaks["tower_renderer_children"] = maxi(int(peaks.get("tower_renderer_children", 0)), tower_renderer.get_child_count() if tower_renderer != null else 0)
+	peaks["barracks_renderer_children"] = maxi(int(peaks.get("barracks_renderer_children", 0)), barracks_renderer.get_child_count() if barracks_renderer != null else 0)
+	var pool: Dictionary = _unit_renderer_pool_snapshot(arena)
+	peaks["unit_pool_peak_active"] = maxi(int(peaks.get("unit_pool_peak_active", 0)), int(pool.get("peak_pooled_objects", 0)))
+	var visible_scheduled_ui: int = 0
+	if scene_root != null:
+		for path in ["UI/SelectionHud", "UI/MissNOutBanner", "HudOverlayLayer/HudOverlay"]:
+			var node: CanvasItem = scene_root.get_node_or_null(path) as CanvasItem
+			if node != null and node.visible:
+				visible_scheduled_ui += 1
+	peaks["scheduled_ui_visible_count"] = maxi(int(peaks.get("scheduled_ui_visible_count", 0)), visible_scheduled_ui)
+
+func _phase2_battlefield_finalize(
+	tracker: Dictionary,
+	render_peaks: Dictionary,
+	state: GameState,
+	scenario_def: Dictionary
+) -> Dictionary:
+	var profile: String = str(tracker.get("profile", ""))
+	var failures: Array = []
+	var presentation_events: Array = tracker.get("presentation_events", []) as Array
+	var camera_events: int = 0
+	var ui_events: int = 0
+	for event_any in presentation_events:
+		var event: Dictionary = event_any as Dictionary
+		if not bool(event.get("ok", false)):
+			failures.append("presentation_target_missing:%s" % str(event.get("path", "")))
+		if str(event.get("kind", "")) == "camera":
+			camera_events += 1
+		elif str(event.get("kind", "")) == "ui":
+			ui_events += 1
+	match profile:
+		"late_match_v1":
+			if int(tracker.get("max_lanes", 0)) < 8 or int(tracker.get("max_units", 0)) < 200:
+				failures.append("late_match_concurrency_target_missing")
+			if int(render_peaks.get("unit_pool_peak_active", 0)) < 200:
+				failures.append("late_match_unit_renderer_scale_missing")
+		"lane_stress_v1":
+			if int(tracker.get("max_lanes", 0)) < 8:
+				failures.append("lane_stress_lane_target_missing")
+			if int(tracker.get("max_swarms", 0)) <= 0:
+				failures.append("lane_stress_swarm_target_missing")
+			if not bool(render_peaks.get("lane_renderer_observed", false)):
+				failures.append("lane_renderer_not_observed")
+		"structure_stress_v1":
+			if state == null or state.towers.size() != 2 or state.barracks.size() != 2:
+				failures.append("structure_state_count_mismatch")
+			if int(render_peaks.get("tower_renderer_children", 0)) < 2 or int(render_peaks.get("barracks_renderer_children", 0)) < 2:
+				failures.append("structure_renderer_count_mismatch")
+		"distress_storm_v1":
+			var distress_target: int = (scenario_def.get("stress_target_hive_ids", []) as Array).size()
+			if (
+				int(render_peaks.get("distress_active_count", 0)) < distress_target
+				or int(render_peaks.get("distress_pressure_count", 0)) < distress_target
+				or int(render_peaks.get("distress_rupture_count", 0)) < distress_target
+			):
+				failures.append("distress_lifecycle_not_observed")
+		"capture_storm_v1":
+			var capture_target: int = (scenario_def.get("stress_target_hive_ids", []) as Array).size()
+			if (tracker.get("owner_events", []) as Array).size() != capture_target:
+				failures.append("capture_transition_target_missing")
+		"camera_stress_v1":
+			if camera_events != int(tracker.get("expected_camera_events", -1)):
+				failures.append("camera_schedule_incomplete")
+		"ui_stress_v1":
+			if ui_events != int(tracker.get("expected_ui_events", -1)):
+				failures.append("ui_schedule_incomplete")
+			if int(render_peaks.get("scheduled_ui_visible_count", 0)) <= 0:
+				failures.append("ui_visibility_not_observed")
+		_:
+			failures.append("phase2_battlefield_profile_unknown")
+	var event_payload: Dictionary = {
+		"count_events": (tracker.get("count_events", []) as Array).duplicate(true),
+		"owner_events": (tracker.get("owner_events", []) as Array).duplicate(true),
+		"presentation_events": presentation_events.duplicate(true),
+		"max_lanes": int(tracker.get("max_lanes", 0)),
+		"max_units": int(tracker.get("max_units", 0)),
+		"max_swarms": int(tracker.get("max_swarms", 0))
+	}
+	var render_payload: Dictionary = {
+		"peaks": render_peaks.duplicate(true),
+		"final_counts": _phase2_battlefield_state_counts(state),
+		"expected_camera_events": int(tracker.get("expected_camera_events", 0)),
+		"expected_ui_events": int(tracker.get("expected_ui_events", 0))
+	}
+	return {
+		"pass": failures.is_empty(),
+		"failures": failures,
+		"profile": profile,
+		"events": event_payload,
+		"event_hash": PERF_DETERMINISTIC_HASH.hash_variant(event_payload),
+		"render": render_payload,
+		"render_hash": PERF_DETERMINISTIC_HASH.hash_variant(render_payload)
+	}
+
 func _unit_renderer_pool_snapshot(arena: Node) -> Dictionary:
 	var renderer: Node = arena.get_node_or_null("PoolsRoot/UnitRenderer") if arena != null else null
 	if renderer == null or not renderer.has_method("get_pool_telemetry_snapshot"):
@@ -1819,6 +2056,16 @@ func _scenario_definitions(
 			scenarios = [
 				_phase2_hive_upgrade_storm_scenario(),
 				_phase2_super_swarm_chain_scenario()
+			]
+		"phase2_battlefield_ui_stress":
+			scenarios = [
+				_phase2_late_match_scenario(),
+				_phase2_lane_stress_scenario(),
+				_phase2_structure_stress_scenario(),
+				_phase2_distress_storm_scenario(),
+				_phase2_capture_storm_scenario(),
+				_phase2_camera_stress_scenario(),
+				_phase2_ui_stress_scenario()
 			]
 		"phase0_collector_calibration":
 			scenarios = _phase0_collector_calibration_scenarios()
@@ -2249,6 +2496,170 @@ func _phase2_synthetic_descriptor(map_id: String, width: int, height: int, hives
 		"spawns": []
 	}
 
+func _phase2_battlefield_scenario_base(fixture_id: String, seed_value: int, map_path: String = MAP_STRESS) -> Dictionary:
+	var scenario: Dictionary = _scenario_def(
+		fixture_id,
+		map_path,
+		8.0,
+		seed_value,
+		["canonical_simrunner", "render_model"],
+		0,
+		0,
+		1
+	)
+	scenario["fixture_id"] = fixture_id
+	scenario["phase2_battlefield_profile"] = fixture_id.to_lower()
+	scenario["measurement_profile"] = "deterministic_windowed_presentation"
+	scenario["content_kind"] = "production_map"
+	scenario["camera_policy"] = "production_map_fit"
+	scenario["phase2_requires_three_repetitions"] = true
+	scenario["baseline_candidate"] = false
+	scenario["baseline_ineligible_reason"] = "phase2_battlefield_ui_stress_diagnostic_not_yet_baseline_approved"
+	scenario["performance_gating"] = false
+	scenario["performance_gate_disposition"] = "DIAGNOSTIC_PENDING_BASELINE_REVIEW"
+	scenario["tick_count"] = 80
+	scenario["warmup_ticks"] = 10
+	scenario["repetitions"] = 3
+	scenario["renderers"] = ["floor", "hive", "lane", "unit", "tower", "barracks", "wall", "polish"]
+	scenario["cadence"] = {
+		"target_fps": 30,
+		"simulation_hz": 10,
+		"frames_per_simulation_tick": 3,
+		"warmup_frames": 30,
+		"measurement_frames": 210,
+		"simulation_active": true
+	}
+	return scenario
+
+func _phase2_late_match_scenario() -> Dictionary:
+	var scenario: Dictionary = _phase2_battlefield_scenario_base("LATE_MATCH_V1", 7301)
+	scenario["initial_lanes"] = 8
+	scenario["target_units"] = 200
+	scenario["unit_count_policy"] = "bounded_moving"
+	scenario["capacity_bypass_allowed"] = false
+	scenario["expected_pool_capacity"] = 400
+	scenario["expected_pool_expansions"] = 0
+	scenario["lane_build_timeout_ms"] = 3000
+	scenario["renderer_ready_timeout_ms"] = 3000
+	scenario["expected_command_count_min"] = 8
+	scenario["expected_counts"] = {"hives": 14, "active_lanes": 0, "units": 0, "towers": 0, "barracks": 0, "structure_slots": 2, "walls": 0}
+	return scenario
+
+func _phase2_lane_stress_scenario() -> Dictionary:
+	var scenario: Dictionary = _phase2_battlefield_scenario_base("LANE_STRESS_V1", 7401)
+	scenario["initial_lanes"] = 8
+	scenario["expected_command_count_min"] = 8
+	scenario["command_schedule"] = [
+		{"tick": 20, "kind": "swarm_active_lane", "salt": 0},
+		{"tick": 30, "kind": "swarm_active_lane", "salt": 1},
+		{"tick": 40, "kind": "swarm_active_lane", "salt": 2},
+		{"tick": 50, "kind": "swarm_active_lane", "salt": 3}
+	]
+	scenario["expected_counts"] = {"hives": 14, "active_lanes": 0, "units": 0, "towers": 0, "barracks": 0, "structure_slots": 2, "walls": 0}
+	return scenario
+
+func _phase2_structure_stress_scenario() -> Dictionary:
+	var scenario: Dictionary = _phase2_battlefield_scenario_base("STRUCTURE_STRESS_V1", 7501, "")
+	scenario["content_kind"] = "synthetic_scene"
+	scenario["content_identity"] = "sf_perf:structure_stress_v1"
+	scenario["camera_policy"] = "authored_scene_transform"
+	scenario["initial_lanes"] = 4
+	scenario["initial_barracks_routes"] = 2
+	scenario["expected_command_count_min"] = 4
+	var descriptor: Dictionary = _phase2_synthetic_descriptor("STRUCTURE_STRESS_V1", 18, 24, [
+		{"id": 1, "grid_pos": [2, 3], "owner_id": 1, "power": 20, "kind": "Hive"},
+		{"id": 2, "grid_pos": [6, 3], "owner_id": 1, "power": 20, "kind": "Hive"},
+		{"id": 3, "grid_pos": [12, 3], "owner_id": 2, "power": 20, "kind": "Hive"},
+		{"id": 4, "grid_pos": [16, 3], "owner_id": 2, "power": 20, "kind": "Hive"},
+		{"id": 5, "grid_pos": [2, 20], "owner_id": 1, "power": 20, "kind": "Hive"},
+		{"id": 6, "grid_pos": [6, 20], "owner_id": 1, "power": 20, "kind": "Hive"},
+		{"id": 7, "grid_pos": [12, 20], "owner_id": 2, "power": 20, "kind": "Hive"},
+		{"id": 8, "grid_pos": [16, 20], "owner_id": 2, "power": 20, "kind": "Hive"}
+	])
+	descriptor["towers"] = [
+		{"id": 1, "x": 5, "y": 9, "control_hive_ids": [1, 2, 5], "owner_id": 1},
+		{"id": 2, "x": 13, "y": 14, "control_hive_ids": [3, 4, 8], "owner_id": 2}
+	]
+	descriptor["barracks"] = [
+		{"id": 1, "x": 5, "y": 14, "control_hive_ids": [1, 5, 6], "owner_id": 1},
+		{"id": 2, "x": 13, "y": 9, "control_hive_ids": [3, 7, 8], "owner_id": 2}
+	]
+	scenario["synthetic_descriptor"] = descriptor
+	scenario["expected_counts"] = {"hives": 8, "active_lanes": 0, "units": 0, "towers": 2, "barracks": 2, "structure_slots": 0, "walls": 0}
+	return scenario
+
+func _phase2_distress_storm_scenario() -> Dictionary:
+	var scenario: Dictionary = _phase2_battlefield_scenario_base("DISTRESS_STORM_V1", 7601, "")
+	scenario["content_kind"] = "synthetic_scene"
+	scenario["content_identity"] = "sf_perf:distress_storm_v1"
+	scenario["camera_policy"] = "authored_scene_transform"
+	scenario["stress_target_hive_ids"] = [2, 4, 6, 8, 10, 12]
+	scenario["expected_command_count_exact"] = 6
+	var hives: Array = []
+	var schedule: Array = []
+	var pair_positions: Array = [[2, 2, 2, 20], [5, 2, 5, 20], [8, 2, 8, 20], [11, 2, 11, 20], [14, 2, 14, 20], [17, 2, 17, 20]]
+	for pair_index in range(6):
+		var src_id: int = pair_index * 2 + 1
+		var dst_id: int = src_id + 1
+		var pos: Array = pair_positions[pair_index] as Array
+		hives.append({"id": src_id, "grid_pos": [pos[0], pos[1]], "owner_id": 2, "power": 30, "kind": "Hive"})
+		hives.append({"id": dst_id, "grid_pos": [pos[2], pos[3]], "owner_id": 1, "power": 5, "kind": "Hive"})
+		schedule.append({"tick": 1, "kind": "exact_lane_intent", "src": src_id, "dst": dst_id, "intent": "attack"})
+	hives.append({"id": 13, "grid_pos": [28, 12], "owner_id": 1, "power": 5, "kind": "Hive"})
+	scenario["command_schedule"] = schedule
+	scenario["synthetic_descriptor"] = _phase2_synthetic_descriptor("DISTRESS_STORM_V1", 30, 24, hives)
+	scenario["expected_counts"] = {"hives": 13, "active_lanes": 0, "units": 0, "towers": 0, "barracks": 0, "structure_slots": 0, "walls": 0}
+	return scenario
+
+func _phase2_capture_storm_scenario() -> Dictionary:
+	var scenario: Dictionary = _phase2_battlefield_scenario_base("CAPTURE_STORM_V1", 7701, "")
+	scenario["content_kind"] = "synthetic_scene"
+	scenario["content_identity"] = "sf_perf:capture_storm_v1"
+	scenario["camera_policy"] = "authored_scene_transform"
+	scenario["stress_target_hive_ids"] = [2, 4, 6, 8, 10, 12]
+	scenario["expected_command_count_exact"] = 6
+	var hives: Array = []
+	var schedule: Array = []
+	var pair_positions: Array = [[2, 5, 5, 5], [8, 5, 11, 5], [14, 5, 17, 5], [2, 15, 5, 15], [8, 15, 11, 15], [14, 15, 17, 15]]
+	for pair_index in range(6):
+		var src_id: int = pair_index * 2 + 1
+		var dst_id: int = src_id + 1
+		var pos: Array = pair_positions[pair_index] as Array
+		hives.append({"id": src_id, "grid_pos": [pos[0], pos[1]], "owner_id": 1, "power": 30, "kind": "Hive"})
+		hives.append({"id": dst_id, "grid_pos": [pos[2], pos[3]], "owner_id": 0, "power": 1, "kind": "Hive"})
+		schedule.append({"tick": 1, "kind": "exact_lane_intent", "src": src_id, "dst": dst_id, "intent": "attack"})
+	hives.append({"id": 13, "grid_pos": [10, 21], "owner_id": 2, "power": 5, "kind": "Hive"})
+	scenario["command_schedule"] = schedule
+	scenario["synthetic_descriptor"] = _phase2_synthetic_descriptor("CAPTURE_STORM_V1", 20, 22, hives)
+	scenario["expected_counts"] = {"hives": 13, "active_lanes": 0, "units": 0, "towers": 0, "barracks": 0, "structure_slots": 0, "walls": 0}
+	return scenario
+
+func _phase2_camera_stress_scenario() -> Dictionary:
+	var scenario: Dictionary = _phase2_battlefield_scenario_base("CAMERA_STRESS_V1", 7801, MAP_PHASE1)
+	scenario["cadence"] = {"target_fps": 30, "simulation_hz": 10, "frames_per_simulation_tick": 3, "warmup_frames": 30, "measurement_frames": 90, "simulation_active": false}
+	scenario["camera_schedule"] = [
+		{"frame": 10, "position": [180.0, 280.0], "zoom": [0.75, 0.75]},
+		{"frame": 35, "position": [420.0, 560.0], "zoom": [1.20, 1.20]},
+		{"frame": 60, "position": [280.0, 760.0], "zoom": [0.90, 0.90]},
+		{"frame": 85, "position": [520.0, 320.0], "zoom": [1.10, 1.10]}
+	]
+	scenario["expected_counts"] = {"hives": 12, "active_lanes": 0, "units": 0, "towers": 0, "barracks": 0, "structure_slots": 0, "walls": 2}
+	return scenario
+
+func _phase2_ui_stress_scenario() -> Dictionary:
+	var scenario: Dictionary = _phase2_battlefield_scenario_base("UI_STRESS_V1", 7901, MAP_PHASE1)
+	scenario["cadence"] = {"target_fps": 30, "simulation_hz": 10, "frames_per_simulation_tick": 3, "warmup_frames": 30, "measurement_frames": 90, "simulation_active": false}
+	scenario["ui_schedule"] = [
+		{"frame": 10, "path": "UI/SelectionHud", "visible": true},
+		{"frame": 30, "path": "UI/SelectionHud", "visible": false},
+		{"frame": 50, "path": "UI/MissNOutBanner", "visible": true},
+		{"frame": 70, "path": "UI/MissNOutBanner", "visible": false},
+		{"frame": 90, "path": "HudOverlayLayer/HudOverlay", "visible": false},
+		{"frame": 110, "path": "HudOverlayLayer/HudOverlay", "visible": true}
+	]
+	scenario["expected_counts"] = {"hives": 12, "active_lanes": 0, "units": 0, "towers": 0, "barracks": 0, "structure_slots": 0, "walls": 2}
+	return scenario
+
 func _phase0_collector_calibration_scenarios() -> Array:
 	var base: Dictionary = _phase0_integrity_scenario()
 	base["scenario_id"] = "PHASE0_COLLECTOR_CALIBRATION_V1"
@@ -2555,6 +2966,7 @@ func _base_scenario_report(scenario_def: Dictionary, benchmark_mode: String, gat
 		"catalog_fixture_registered": bool(scenario_def.get("catalog_fixture_registered", false)),
 		"phase2_requires_three_repetitions": bool(scenario_def.get("phase2_requires_three_repetitions", false)),
 		"phase2_stress_profile": str(scenario_def.get("phase2_stress_profile", "")),
+		"phase2_battlefield_profile": str(scenario_def.get("phase2_battlefield_profile", "")),
 		"stress_target_hive_ids": (scenario_def.get("stress_target_hive_ids", []) as Array).duplicate(),
 		"measurement_profile": str(scenario_def.get("measurement_profile", _measurement_profile_for_benchmark_mode(benchmark_mode))),
 		"content_kind": str(scenario_def.get("content_kind", "production_map")),
@@ -3094,6 +3506,8 @@ func _fixture_identity_payload(scenario_def: Dictionary) -> Dictionary:
 		"commands_per_burst": int(scenario_def.get("commands_per_burst", 0)),
 		"swarm_burst": int(scenario_def.get("swarm_burst", 0)),
 		"command_schedule": (scenario_def.get("command_schedule", []) as Array).duplicate(true),
+		"camera_schedule": (scenario_def.get("camera_schedule", []) as Array).duplicate(true),
+		"ui_schedule": (scenario_def.get("ui_schedule", []) as Array).duplicate(true),
 		"runtime_switches": (scenario_def.get("runtime_switches", {}) as Dictionary).duplicate(true),
 		"camera_policy": str(scenario_def.get("camera_policy", "")),
 		"cadence": (scenario_def.get("cadence", {}) as Dictionary).duplicate(true),
@@ -3143,6 +3557,8 @@ func _determinism_evidence(scenarios: Array) -> Dictionary:
 				fields.append_array(["unit_count_timeline_hash", "unit_motion_hash"])
 		if not str(first_repetition.get("phase2_stress_profile", "")).is_empty():
 			fields.append("phase2_event_hash")
+		if not str(first_repetition.get("phase2_battlefield_profile", "")).is_empty():
+			fields.append("phase2_battlefield_event_hash")
 		var mismatches: Array = []
 		if repetitions.size() < required_repetitions:
 			mismatches.append("repetition_count:%d<%d" % [repetitions.size(), required_repetitions])
