@@ -39,12 +39,18 @@ on:
         required: false
         default: false
         type: boolean
+      perf_harness_recertify:
+        description: Run Harness V1 focused gates and baseline recertification
+        required: false
+        default: false
+        type: boolean
   schedule:
     - cron: "17 11 * * *"
 
 jobs:
   release-readiness:
     name: Release Readiness
+    if: ${{ !inputs.perf_harness_recertify }}
     runs-on: [self-hosted, macOS, godot]
     timeout-minutes: 150
     env:
@@ -166,3 +172,135 @@ jobs:
           path: |
             artifacts/ci_logs/*.log
           if-no-files-found: ignore
+
+  perf-harness-recertification:
+    name: Performance Harness V1 Recertification
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.perf_harness_recertify }}
+    runs-on: [self-hosted, macOS, godot]
+    timeout-minutes: 150
+    env:
+      GODOT_BIN: ${{ vars.GODOT_BIN || 'godot' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify compatible runner
+        run: |
+          set -euo pipefail
+          "${GODOT_BIN}" --version
+          machine_arch="$(uname -m)"
+          if [[ "${machine_arch}" != "arm64" ]]; then
+            echo "PERF_RECERT_FAIL expected_arch=arm64 actual_arch=${machine_arch}"
+            exit 1
+          fi
+
+      - name: Import Godot resources
+        run: |
+          set -euo pipefail
+          import_log="${RUNNER_TEMP}/godot-perf-import.log"
+          set +e
+          "${GODOT_BIN}" --headless --path "${GITHUB_WORKSPACE}" --import 2>&1 | tee "${import_log}"
+          import_rc=${PIPESTATUS[0]}
+          set -e
+          required_imports=(
+            "assets/fonts/brand/Iceland/Iceland-Regular.ttf.import"
+            "assets/sprites/sf_skin_v1/barracks.PNG.import"
+            "assets/sprites/sf_skin_v1/mm_back_art.png.import"
+          )
+          for required_import in "${required_imports[@]}"; do
+            if [[ ! -f "${required_import}" ]]; then
+              echo "PERF_RECERT_IMPORT_FAIL missing=${required_import} import_rc=${import_rc}"
+              exit 1
+            fi
+          done
+          echo "PERF_RECERT_IMPORT_READY import_rc=${import_rc}"
+
+      - name: Run all focused harness gates
+        run: |
+          set -euo pipefail
+          gates=(
+            tools/perf_gate_a_smoke_test.gd
+            tools/perf_gate_b_smoke_test.gd
+            tools/perf_gate_c_smoke_test.gd
+            tools/perf_gate_d_smoke_test.gd
+            tools/perf_gate_e_smoke_test.gd
+            tools/perf_gate_f_smoke_test.gd
+            tools/perf_phase1_gate_a_smoke_test.gd
+            tools/perf_phase1_gate_b_smoke_test.gd
+            tools/perf_phase1_gate_c_smoke_test.gd
+            tools/perf_phase1_gate_d_smoke_test.gd
+            tools/perf_phase1_gate_e_smoke_test.gd
+            tools/perf_phase1_gate_f_smoke_test.gd
+            tools/perf_phase2_gate_a_smoke_test.gd
+            tools/perf_phase2_gate_b_smoke_test.gd
+            tools/perf_phase2_gate_c_smoke_test.gd
+            tools/perf_phase2_gate_d_smoke_test.gd
+            tools/perf_phase2_gate_e_smoke_test.gd
+            tools/perf_phase2_gate_f_smoke_test.gd
+            tools/perf_phase2_gate_g_smoke_test.gd
+          )
+          for gate in "${gates[@]}"; do
+            "${GODOT_BIN}" --headless --path "${GITHUB_WORKSPACE}" --script "res://${gate}"
+          done
+
+      - name: Capture clean baseline candidates
+        run: |
+          set -euo pipefail
+          candidate_dir="artifacts/perf_harness_recert/candidates"
+          mkdir -p "${candidate_dir}"
+          harness="res://scripts/tests/perf_benchmark_suite.gd"
+          common=(--sf-perf-harness --collection-level=MINIMAL)
+
+          "${GODOT_BIN}" --path "${GITHUB_WORKSPACE}" --script "${harness}" -- \
+            "${common[@]}" --perf-user-dir=SwarmfrontPerfRecertStatic \
+            --suite=phase1_static_fixtures --mode=static_windowed_deterministic \
+            --output=res://${candidate_dir}/static_fixtures_windowed.json
+
+          "${GODOT_BIN}" --headless --path "${GITHUB_WORKSPACE}" --script "${harness}" -- \
+            "${common[@]}" --perf-user-dir=SwarmfrontPerfRecertCanonical \
+            --suite=phase1_normal_match --mode=canonical_sim_headless \
+            --output=res://${candidate_dir}/normal_match_canonical.json
+
+          "${GODOT_BIN}" --path "${GITHUB_WORKSPACE}" --script "${harness}" -- \
+            "${common[@]}" --perf-user-dir=SwarmfrontPerfRecertNormalWindowed \
+            --suite=phase1_normal_match --mode=deterministic_windowed_presentation \
+            --output=res://${candidate_dir}/normal_match_windowed.json
+
+          "${GODOT_BIN}" --path "${GITHUB_WORKSPACE}" --script "${harness}" -- \
+            "${common[@]}" --perf-user-dir=SwarmfrontPerfRecertUnitScale \
+            --suite=phase1_unit_scale --mode=static_windowed_deterministic \
+            --output=res://${candidate_dir}/unit_scale_windowed.json
+
+      - name: Package and self-compare candidates
+        run: |
+          set -euo pipefail
+          candidate_dir="res://artifacts/perf_harness_recert/candidates"
+          package_dir="res://artifacts/perf_harness_recert/harness_v1"
+          "${GODOT_BIN}" --headless --path "${GITHUB_WORKSPACE}" \
+            --script res://scripts/tools/perf_phase1_baseline_package.gd -- \
+            --approve-phase1-baselines \
+            --output-dir="${package_dir}" \
+            --static="${candidate_dir}/static_fixtures_windowed.json" \
+            --normal-canonical="${candidate_dir}/normal_match_canonical.json" \
+            --normal-windowed="${candidate_dir}/normal_match_windowed.json" \
+            --unit-scale="${candidate_dir}/unit_scale_windowed.json"
+
+          reports=(
+            static_fixtures_windowed.json
+            normal_match_canonical.json
+            normal_match_windowed.json
+            unit_scale_windowed.json
+          )
+          for report in "${reports[@]}"; do
+            "${GODOT_BIN}" --headless --path "${GITHUB_WORKSPACE}" \
+              --script res://scripts/tools/perf_compare.gd -- \
+              "${package_dir}/${report}" "${package_dir}/${report}"
+          done
+
+      - name: Upload recertification package
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: perf-harness-v1-recert-${{ github.run_id }}
+          path: artifacts/perf_harness_recert/
+          if-no-files-found: error
