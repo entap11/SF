@@ -191,6 +191,21 @@ static func static_preflight(scenario: Dictionary, execution_mode: String) -> Di
 	for key in ["initial_lanes", "initial_swarms", "initial_barracks_routes", "commands_per_burst", "swarm_burst"]:
 		if int(scenario.get(key, 0)) < 0:
 			errors.append("%s cannot be negative" % key)
+	var lifecycle_profile: String = str(scenario.get("phase2_lifecycle_profile", "")).strip_edges()
+	if not lifecycle_profile.is_empty():
+		var lifecycle_cycles: int = int(scenario.get("lifecycle_required_cycles", 0))
+		if lifecycle_cycles < 2 or lifecycle_cycles > 10:
+			errors.append("lifecycle_required_cycles must be between 2 and 10")
+		if int(scenario.get("repetitions", 0)) != lifecycle_cycles:
+			errors.append("lifecycle repetitions must equal lifecycle_required_cycles")
+		var lifecycle_limits_any: Variant = scenario.get("lifecycle_limits", {})
+		if typeof(lifecycle_limits_any) != TYPE_DICTIONARY:
+			errors.append("lifecycle_limits must be a Dictionary")
+		else:
+			var lifecycle_limits: Dictionary = lifecycle_limits_any as Dictionary
+			for key in ["node_growth", "orphan_node_count", "object_growth", "resource_growth", "static_memory_growth_bytes", "report_payload_bytes"]:
+				if not _is_number(lifecycle_limits.get(key)) or int(lifecycle_limits.get(key, -1)) < 0:
+					errors.append("lifecycle limit %s must be a non-negative number" % key)
 	var content_kind: String = str(scenario.get("content_kind", "production_map"))
 	var expected_counts_any: Variant = scenario.get("expected_counts", {})
 	if typeof(expected_counts_any) != TYPE_DICTIONARY:

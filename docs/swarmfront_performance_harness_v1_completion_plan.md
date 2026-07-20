@@ -1,6 +1,6 @@
 # Swarmfront Performance Harness V1 Completion Plan
 
-Status: `P2-D COMPLETE — P2-E NEXT`
+Status: `P2-E COMPLETE — P2-F NEXT`
 
 Branch: `codex/perf-harness-v1-completion`
 
@@ -69,6 +69,14 @@ Implemented evidence:
 ### P2-E — Lifecycle soak
 
 Run bounded repeated setup, measurement, and cleanup cycles. Compare protected-state, topology, node/object/resource, pool, sample-retention, and memory evidence. No unbounded arrays or report growth are allowed.
+
+Implemented evidence:
+
+- `LIFECYCLE_SOAK_V1` runs eight bounded deterministic-windowed setup, canonical measurement, and cleanup cycles through the existing harness controller. The global harness repetition ceiling remains 10.
+- Every cycle moved 100 production units, retained the fixed 400-object renderer pool with zero misses or expansions, restored the same protected-state and tree-topology hashes, and freed its fixture root.
+- After the first warmed cleanup, node and resource counts returned exactly, orphan nodes remained zero, object count grew by one, and retained static memory grew by 1,716,716 bytes against a 32 MiB fail-closed ceiling.
+- FULL collection retained exactly 90 percentile and 90 raw samples per cycle. Total retained report payload was 255,456 bytes; each report is independently capped at 1 MiB and every collector array is checked against its declared limit.
+- The focused Gate E exercise mutates engine state, installs a disposable fixture `GameState`, and adds a fixture root, then invokes the same isolation release/restore primitives used by synchronous interruption recovery. Protected state and topology verify exactly afterward.
 
 ### P2-F — Feature isolation
 

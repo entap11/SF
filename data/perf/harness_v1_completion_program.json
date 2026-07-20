@@ -79,7 +79,7 @@
     },
     {
       "phase_id": "P2_E_LIFECYCLE_SOAK",
-      "status": "PLANNED",
+      "status": "IMPLEMENTED",
       "fixtures": [
         "LIFECYCLE_SOAK_V1"
       ],

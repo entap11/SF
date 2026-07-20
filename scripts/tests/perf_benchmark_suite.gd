@@ -214,6 +214,9 @@ func _run_suite(args: Dictionary) -> Dictionary:
 		collector_calibration = _collector_calibration_evidence(scenarios)
 		if not bool(collector_calibration.get("pass", false)):
 			integrity_failed.append("collector_calibration")
+	var lifecycle_soak: Dictionary = _lifecycle_soak_evidence(scenarios) if suite_id == "phase2_lifecycle_soak" else {}
+	if not lifecycle_soak.is_empty() and not bool(lifecycle_soak.get("pass", false)):
+		integrity_failed.append("lifecycle_soak")
 	var unit_scale_diagnostic: Dictionary = _unit_scale_diagnostic(scenarios) if suite_id == "phase1_unit_scale" else {}
 	var report := {
 		"report_type": "sf_perf_benchmark_suite",
@@ -238,8 +241,9 @@ func _run_suite(args: Dictionary) -> Dictionary:
 		"isolation": isolation,
 		"backend_isolation": backend_isolation,
 		"collector_calibration": collector_calibration,
+		"lifecycle_soak": lifecycle_soak,
 		"unit_scale_diagnostic": unit_scale_diagnostic,
-		"pass": failed.is_empty() and bool(determinism.get("pass", true)) and bool(isolation.get("pass", true)) and bool(backend_isolation.get("pass", false)) and (collector_calibration.is_empty() or bool(collector_calibration.get("pass", false))),
+		"pass": failed.is_empty() and bool(determinism.get("pass", true)) and bool(isolation.get("pass", true)) and bool(backend_isolation.get("pass", false)) and (collector_calibration.is_empty() or bool(collector_calibration.get("pass", false))) and (lifecycle_soak.is_empty() or bool(lifecycle_soak.get("pass", false))),
 		"failed_scenarios": failed,
 		"integrity_failed_scenarios": integrity_failed
 	}
@@ -522,6 +526,8 @@ func _run_layer_isolation_scenario(scenario_def: Dictionary, benchmark_mode: Str
 
 func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mode: String, gates: Dictionary) -> Dictionary:
 	var isolation_snapshot: Dictionary = PERF_ISOLATION_GUARD.capture(self, OpsState)
+	var lifecycle_profile: String = str(scenario_def.get("phase2_lifecycle_profile", ""))
+	var lifecycle_runtime_before: Dictionary = _runtime_counter_snapshot() if not lifecycle_profile.is_empty() else {}
 	_arm_interrupted_cleanup(isolation_snapshot)
 	var adapter := PERF_DETERMINISTIC_WINDOWED_ADAPTER.new(scenario_def.get("cadence", {}) as Dictionary)
 	var cadence_errors: Array[String] = adapter.validation_errors()
@@ -787,6 +793,11 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 		"phase2_battlefield_evidence": phase2_battlefield_evidence,
 		"phase2_battlefield_event_hash": str(phase2_battlefield_evidence.get("event_hash", "")),
 		"phase2_battlefield_render_hash": str(phase2_battlefield_evidence.get("render_hash", "")),
+		"phase2_lifecycle_profile": lifecycle_profile,
+		"lifecycle_runtime_before": lifecycle_runtime_before,
+		"lifecycle_runtime_during": _runtime_counter_snapshot() if not lifecycle_profile.is_empty() else {},
+		"lifecycle_required_cycles": int(scenario_def.get("lifecycle_required_cycles", 0)),
+		"lifecycle_limits": (scenario_def.get("lifecycle_limits", {}) as Dictionary).duplicate(true),
 		"render_monitor_peaks": render_monitor_peaks,
 		"runtime_counts": (setup.get("actual_counts", {}) as Dictionary).duplicate(true),
 		"fixture_setup_evidence": {
@@ -801,6 +812,8 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 		"unit_scale_setup": unit_scale_setup,
 		"target_units": target_units,
 		"unit_count_policy": unit_count_policy,
+		"expected_pool_capacity": int(scenario_def.get("expected_pool_capacity", 0)),
+		"expected_pool_expansions": int(scenario_def.get("expected_pool_expansions", -1)),
 		"unit_count_window": {
 			"target": target_units,
 			"start": int(unit_scale_setup.get("actual_units", 0)) if target_units > 0 else 0,
@@ -2067,6 +2080,8 @@ func _scenario_definitions(
 				_phase2_camera_stress_scenario(),
 				_phase2_ui_stress_scenario()
 			]
+		"phase2_lifecycle_soak":
+			scenarios = [_phase2_lifecycle_soak_scenario()]
 		"phase0_collector_calibration":
 			scenarios = _phase0_collector_calibration_scenarios()
 		"phase0_isolation":
@@ -2658,6 +2673,58 @@ func _phase2_ui_stress_scenario() -> Dictionary:
 		{"frame": 110, "path": "HudOverlayLayer/HudOverlay", "visible": true}
 	]
 	scenario["expected_counts"] = {"hives": 12, "active_lanes": 0, "units": 0, "towers": 0, "barracks": 0, "structure_slots": 0, "walls": 2}
+	return scenario
+
+func _phase2_lifecycle_soak_scenario() -> Dictionary:
+	var scenario: Dictionary = _scenario_def(
+		"LIFECYCLE_SOAK_V1",
+		MAP_STRESS,
+		4.0,
+		8101,
+		["canonical_simrunner", "unit_system", "render_model"],
+		4,
+		0,
+		1
+	)
+	scenario["fixture_id"] = "LIFECYCLE_SOAK_V1"
+	scenario["phase2_lifecycle_profile"] = "bounded_setup_run_cleanup_v1"
+	scenario["measurement_profile"] = "deterministic_windowed_presentation"
+	scenario["content_kind"] = "production_map"
+	scenario["camera_policy"] = "production_map_fit"
+	scenario["phase2_requires_three_repetitions"] = true
+	scenario["lifecycle_required_cycles"] = 8
+	scenario["repetitions"] = 8
+	scenario["baseline_candidate"] = false
+	scenario["baseline_ineligible_reason"] = "phase2_lifecycle_soak_correctness_evidence_not_timing_baseline"
+	scenario["performance_gating"] = false
+	scenario["performance_gate_disposition"] = "DIAGNOSTIC_LIFECYCLE_ONLY"
+	scenario["target_units"] = 100
+	scenario["unit_count_policy"] = "bounded_moving"
+	scenario["capacity_bypass_allowed"] = false
+	scenario["expected_pool_capacity"] = 400
+	scenario["expected_pool_expansions"] = 0
+	scenario["lane_build_timeout_ms"] = 3000
+	scenario["renderer_ready_timeout_ms"] = 3000
+	scenario["tick_count"] = 40
+	scenario["warmup_ticks"] = 10
+	scenario["expected_command_count_min"] = 4
+	scenario["expected_counts"] = {"hives": 14, "active_lanes": 0, "units": 0, "towers": 0, "barracks": 0, "structure_slots": 2, "walls": 0}
+	scenario["cadence"] = {
+		"target_fps": 30,
+		"simulation_hz": 10,
+		"frames_per_simulation_tick": 3,
+		"warmup_frames": 30,
+		"measurement_frames": 90,
+		"simulation_active": true
+	}
+	scenario["lifecycle_limits"] = {
+		"node_growth": 2,
+		"orphan_node_count": 0,
+		"object_growth": 64,
+		"resource_growth": 32,
+		"static_memory_growth_bytes": 33554432,
+		"report_payload_bytes": 1048576
+	}
 	return scenario
 
 func _phase0_collector_calibration_scenarios() -> Array:
@@ -3275,6 +3342,17 @@ func _finalize_scenario(
 	arena: Node
 ) -> Dictionary:
 	var cleanup: Dictionary = await _cleanup_repetition(isolation_snapshot, scene_root, arena)
+	var lifecycle_profile: String = str(report.get("phase2_lifecycle_profile", ""))
+	if not lifecycle_profile.is_empty():
+		var runtime_after_cleanup: Dictionary = _runtime_counter_snapshot()
+		cleanup["runtime_after_cleanup"] = runtime_after_cleanup
+		report["lifecycle_runtime_after_cleanup"] = runtime_after_cleanup
+		report["lifecycle_interrupted_cleanup_contract"] = {
+			"armed_before_setup": true,
+			"synchronous_recovery_handler": "_finalize->_recover_interrupted_repetition",
+			"fixture_state_release": true,
+			"protected_state_restore": true
+		}
 	_disarm_interrupted_cleanup()
 	report["isolation_cleanup"] = cleanup
 	if not bool(cleanup.get("pass", false)):
@@ -3290,7 +3368,20 @@ func _finalize_scenario(
 			"limit": "exact_pre_scenario_state"
 		})
 		report["failed_gates"] = failed_gates
+	if not lifecycle_profile.is_empty():
+		report["lifecycle_report_payload_bytes"] = JSON.stringify(report).to_utf8_buffer().size()
 	return report
+
+func _runtime_counter_snapshot() -> Dictionary:
+	return {
+		"node_count": int(Performance.get_monitor(Performance.OBJECT_NODE_COUNT)),
+		"orphan_node_count": int(Performance.get_monitor(Performance.OBJECT_ORPHAN_NODE_COUNT)),
+		"object_count": int(Performance.get_monitor(Performance.OBJECT_COUNT)),
+		"resource_count": int(Performance.get_monitor(Performance.OBJECT_RESOURCE_COUNT)),
+		"static_memory_bytes": int(Performance.get_monitor(Performance.MEMORY_STATIC)),
+		"static_memory_peak_bytes": int(Performance.get_monitor(Performance.MEMORY_STATIC_MAX)),
+		"root_child_count": root.get_child_count() if root != null else -1
+	}
 
 func _cleanup_repetition(isolation_snapshot: Dictionary, scene_root: Node, arena: Node) -> Dictionary:
 	if arena != null and is_instance_valid(arena) and arena.has_method("clear_perf_match_seed_override"):
@@ -3495,6 +3586,9 @@ func _fixture_identity_payload(scenario_def: Dictionary) -> Dictionary:
 		"target_units": int(scenario_def.get("target_units", 0)),
 		"unit_count_policy": str(scenario_def.get("unit_count_policy", "exact_static")),
 		"phase2_requires_three_repetitions": bool(scenario_def.get("phase2_requires_three_repetitions", false)),
+		"phase2_lifecycle_profile": str(scenario_def.get("phase2_lifecycle_profile", "")),
+		"lifecycle_required_cycles": int(scenario_def.get("lifecycle_required_cycles", 0)),
+		"lifecycle_limits": (scenario_def.get("lifecycle_limits", {}) as Dictionary).duplicate(true),
 		"lane_build_timeout_ms": int(scenario_def.get("lane_build_timeout_ms", 0)),
 		"renderer_ready_timeout_ms": int(scenario_def.get("renderer_ready_timeout_ms", 0)),
 		"capacity_bypass_allowed": bool(scenario_def.get("capacity_bypass_allowed", true)),
@@ -3765,6 +3859,134 @@ func _isolation_evidence(scenarios: Array) -> Dictionary:
 		"shared_start_state_hash": expected_before_hash,
 		"scenario_count": rows.size(),
 		"scenarios": rows,
+		"mismatches": mismatches
+	}
+
+func _lifecycle_soak_evidence(scenarios: Array) -> Dictionary:
+	var mismatches: Array = []
+	var cycle_rows: Array = []
+	var first: Dictionary = scenarios[0] as Dictionary if not scenarios.is_empty() else {}
+	var required_cycles: int = int(first.get("lifecycle_required_cycles", 0))
+	var limits: Dictionary = (first.get("lifecycle_limits", {}) as Dictionary).duplicate(true)
+	if required_cycles <= 0 or scenarios.size() != required_cycles:
+		mismatches.append("cycle_count:%d!=%d" % [scenarios.size(), required_cycles])
+	var after_cleanup_rows: Array = []
+	var total_retained_percentile: int = 0
+	var total_retained_raw: int = 0
+	var total_report_payload_bytes: int = 0
+	for cycle_index in range(scenarios.size()):
+		var scenario: Dictionary = scenarios[cycle_index] as Dictionary
+		var cycle_number: int = cycle_index + 1
+		var cleanup: Dictionary = scenario.get("isolation_cleanup", {}) as Dictionary
+		var before: Dictionary = scenario.get("lifecycle_runtime_before", {}) as Dictionary
+		var during: Dictionary = scenario.get("lifecycle_runtime_during", {}) as Dictionary
+		var after: Dictionary = scenario.get("lifecycle_runtime_after_cleanup", {}) as Dictionary
+		var cycle_mismatches: Array = []
+		if before.is_empty() or during.is_empty() or after.is_empty():
+			cycle_mismatches.append("runtime_counter_snapshot_missing")
+		if not bool(cleanup.get("pass", false)) or not bool(cleanup.get("fixture_root_freed", false)):
+			cycle_mismatches.append("cleanup_not_exact")
+		if str(cleanup.get("before_protected_state_hash", "")) != str(cleanup.get("after_protected_state_hash", "")):
+			cycle_mismatches.append("protected_state_hash_mismatch")
+		var component_before: Dictionary = cleanup.get("component_hashes_before", {}) as Dictionary
+		var component_after: Dictionary = cleanup.get("component_hashes_after", {}) as Dictionary
+		if str(component_before.get("tree_topology", "")) != str(component_after.get("tree_topology", "")):
+			cycle_mismatches.append("topology_hash_mismatch")
+		var pool: Dictionary = scenario.get("renderer_pool_telemetry", {}) as Dictionary
+		if int(pool.get("total_pooled_objects", -1)) != int(scenario.get("expected_pool_capacity", -2)):
+			cycle_mismatches.append("pool_capacity_mismatch")
+		if int(pool.get("pool_misses", -1)) != 0 or int(pool.get("pool_expansions", -1)) != 0:
+			cycle_mismatches.append("pool_growth_observed")
+		var collection: Dictionary = scenario.get("collection", {}) as Dictionary
+		var retention: Dictionary = collection.get("retention", {}) as Dictionary
+		var percentile_limit: int = int(retention.get("percentile_sample_limit", -1))
+		var retained_percentile: int = int(retention.get("retained_percentile_sample_count", -1))
+		var forensic_limit: int = int(retention.get("forensic_record_limit", -1))
+		var retained_worst: int = int(retention.get("retained_worst_record_count", -1))
+		var retained_hitch: int = int(retention.get("retained_hitch_record_count", -1))
+		var raw_limit: int = int(retention.get("raw_sample_limit", -1))
+		var retained_raw: int = int(retention.get("retained_raw_sample_count", -1))
+		if int(collection.get("sample_count", -1)) != int(scenario.get("measured_frame_count", -2)):
+			cycle_mismatches.append("sample_count_mismatch")
+		if retained_percentile < 0 or retained_percentile > percentile_limit:
+			cycle_mismatches.append("percentile_retention_unbounded")
+		if retained_worst < 0 or retained_worst > forensic_limit or retained_hitch < 0 or retained_hitch > forensic_limit:
+			cycle_mismatches.append("forensic_retention_unbounded")
+		if retained_raw < 0 or retained_raw > raw_limit or (collection.get("raw_samples", []) as Array).size() != retained_raw:
+			cycle_mismatches.append("raw_retention_unbounded")
+		var report_payload_bytes: int = int(scenario.get("lifecycle_report_payload_bytes", -1))
+		if report_payload_bytes < 0 or report_payload_bytes > int(limits.get("report_payload_bytes", 0)):
+			cycle_mismatches.append("report_payload_unbounded")
+		total_retained_percentile += maxi(0, retained_percentile)
+		total_retained_raw += maxi(0, retained_raw)
+		total_report_payload_bytes += maxi(0, report_payload_bytes)
+		if not after.is_empty():
+			after_cleanup_rows.append(after.duplicate(true))
+		for mismatch_any in cycle_mismatches:
+			mismatches.append("cycle_%d:%s" % [cycle_number, str(mismatch_any)])
+		cycle_rows.append({
+			"cycle": cycle_number,
+			"pass": cycle_mismatches.is_empty(),
+			"mismatches": cycle_mismatches,
+			"runtime_before": before.duplicate(true),
+			"runtime_during": during.duplicate(true),
+			"runtime_after_cleanup": after.duplicate(true),
+			"protected_state_hash": str(cleanup.get("after_protected_state_hash", "")),
+			"topology_hash": str(component_after.get("tree_topology", "")),
+			"fixture_root_freed": bool(cleanup.get("fixture_root_freed", false)),
+			"pool": _stable_pool_identity(pool),
+			"retention": retention.duplicate(true),
+			"report_payload_bytes": report_payload_bytes
+		})
+	var trend_rows: Dictionary = {}
+	var counter_limits: Dictionary = {
+		"node_count": int(limits.get("node_growth", 0)),
+		"object_count": int(limits.get("object_growth", 0)),
+		"resource_count": int(limits.get("resource_growth", 0)),
+		"static_memory_bytes": int(limits.get("static_memory_growth_bytes", 0))
+	}
+	if after_cleanup_rows.size() == scenarios.size() and not after_cleanup_rows.is_empty():
+		for key_any in counter_limits.keys():
+			var key: String = str(key_any)
+			var baseline: int = int((after_cleanup_rows[0] as Dictionary).get(key, 0))
+			var peak: int = baseline
+			for row_any in after_cleanup_rows:
+				peak = maxi(peak, int((row_any as Dictionary).get(key, baseline)))
+			var final_value: int = int((after_cleanup_rows[-1] as Dictionary).get(key, baseline))
+			var peak_growth: int = maxi(0, peak - baseline)
+			var final_growth: int = maxi(0, final_value - baseline)
+			var limit: int = int(counter_limits.get(key, 0))
+			if peak_growth > limit or final_growth > limit:
+				mismatches.append("counter_growth:%s:peak=%d:final=%d:limit=%d" % [key, peak_growth, final_growth, limit])
+			trend_rows[key] = {"baseline": baseline, "peak": peak, "final": final_value, "peak_growth": peak_growth, "final_growth": final_growth, "limit": limit}
+		var max_orphans: int = 0
+		var expected_root_children: int = int((after_cleanup_rows[0] as Dictionary).get("root_child_count", -1))
+		for row_any in after_cleanup_rows:
+			var row: Dictionary = row_any as Dictionary
+			max_orphans = maxi(max_orphans, int(row.get("orphan_node_count", 0)))
+			if int(row.get("root_child_count", -2)) != expected_root_children:
+				mismatches.append("root_child_count_drift")
+		var orphan_limit: int = int(limits.get("orphan_node_count", 0))
+		if max_orphans > orphan_limit:
+			mismatches.append("orphan_node_count:%d>%d" % [max_orphans, orphan_limit])
+		trend_rows["orphan_node_count"] = {"maximum": max_orphans, "limit": orphan_limit}
+		trend_rows["root_child_count"] = {"expected": expected_root_children}
+	return {
+		"pass": mismatches.is_empty(),
+		"fixture_id": "LIFECYCLE_SOAK_V1",
+		"cycle_count": scenarios.size(),
+		"required_cycle_count": required_cycles,
+		"bounded_by_maximum_harness_repetitions": 10,
+		"limits": limits,
+		"cycles": cycle_rows,
+		"counter_trends": trend_rows,
+		"total_retained_percentile_samples": total_retained_percentile,
+		"total_retained_raw_samples": total_retained_raw,
+		"total_report_payload_bytes": total_report_payload_bytes,
+		"interrupted_cleanup_recovery": {
+			"handler": "_finalize->_recover_interrupted_repetition",
+			"focused_gate": "PERF_PHASE2_GATE_E_SMOKE"
+		},
 		"mismatches": mismatches
 	}
 
