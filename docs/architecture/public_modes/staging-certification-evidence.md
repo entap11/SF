@@ -15,7 +15,7 @@ only for observed evidence. Planned work remains `NOT RUN`.
 
 | Phase | Status | Evidence anchor | Blocking item |
 | --- | --- | --- | --- |
-| P0 repository/control baseline | `IN PROGRESS` | This document | Exact-base Release Readiness running; owners/external posture outstanding |
+| P0 repository/control baseline | `IN PROGRESS` | This document | Owners and external auto-deploy posture outstanding |
 | P1 environment inventory | `NOT RUN` | — | P0 exit gate |
 | P2 database recovery rehearsal | `NOT RUN` | — | P1 and staging clone details |
 | P3 all-off deployment | `NOT RUN` | — | P2 and operator approval |
@@ -33,11 +33,20 @@ only for observed evidence. Planned work remains `NOT RUN`.
 | Branch base | `b9c35e5e5b1d238c621fcb0fa39fdbdd72b5ad90` | `PASS` |
 | Base contains Public Modes exit handoff | Merge commit `b9c35e5` | `PASS` |
 | Base synchronized with `origin/main` at branch creation | Exact SHA match | `PASS` |
-| Release Readiness for exact base | GitHub Actions run `29749297605` | `IN PROGRESS` |
+| Release Readiness for exact base | GitHub Actions run `29749297605`, SHA `b9c35e5e5b1d238c621fcb0fa39fdbdd72b5ad90` | `PASS` |
 | Prior integrated Public Modes certification | Run `29722881367`, SHA `1e03a70dd9c5a63351e8f09a09d93bfabe06a4dc` | `PASS` |
 
 The exact-base run remains the P0 gate even though the branch delta from the
 previous green revision is documentation-only.
+
+Exact-base run `29749297605` completed successfully on the home runner from
+2026-07-20T15:26:16Z through 2026-07-20T15:53:42Z:
+
+- MVP smoke: 26 passed, 0 failed;
+- PR contract: 31 passed, 0 failed, 29 delegated runtime rows skipped;
+- PR boot/runtime: 24 passed, 0 failed, 5 invalid rows skipped;
+- deterministic PR soak: 18 passed, 0 failed, seeds 123–124; and
+- final result: `RELEASE_READINESS_PASS`.
 
 ### Repository-visible default-off checks
 
@@ -90,7 +99,7 @@ nightly result is not used to waive the exact-base push gate.
 
 ### P0 open items
 
-- [ ] Exact-base Release Readiness run completes successfully.
+- [x] Exact-base Release Readiness run completes successfully.
 - [ ] Environment owner recorded.
 - [ ] Database owner recorded.
 - [ ] Deployment operator recorded.
@@ -167,6 +176,8 @@ No public mode or mutation/economy capability is authorized.
 | Local PR contract report | `artifacts/player_config_matrix/latest.json` | `99ecf4846a6464bcd8bc9b5590dd43f19bb9d4ab8d2be5afb0d33b201262473d` | 2026-07-20T14:51:44Z | Ephemeral work machine | Repository operator |
 | Local PR boot report | `artifacts/player_config_matrix/boot_routes_latest.json` | `0b712221c9fe3ebfa83b115f43f3c41daa70b2a08ced809411300ddeebecd7e2` | 2026-07-20T15:17:39Z | Ephemeral work machine | Repository operator |
 | Local PR soak report | `artifacts/player_config_matrix/soak_latest.json` | `1a351cd52f389f525f06cec12164ff42e76494461d981c37ea838af30a990c50` | 2026-07-20T15:37:27Z | Ephemeral work machine | Repository operator |
+| Exact-base PR matrix | GitHub artifact `8467182728` | `7ac3f3aa69b67cd10adc6e63e315eefe82ae1e9d546f64891705bc62faa95d60` | 2026-07-20T15:53:36Z | 2026-10-18 | GitHub Actions |
+| Exact-base smoke logs | GitHub artifact `8467183582` | `8f937c28c43288429d163fa86e468bd6faca8d599cdcb027ebcfc55e761ebf9c` | 2026-07-20T15:53:37Z | 2026-10-18 | GitHub Actions |
 | Scheduled nightly matrix | GitHub artifact `8466303731` | `e09237236837e5811fb2153d1c00284f2fa3c70b5e402f51492ccac08a93dc05` | 2026-07-20T15:26:07Z | 2026-10-18 | GitHub Actions |
 | Scheduled nightly smoke logs | GitHub artifact `8466304673` | `3e9fbd55866cfe4b3242830cf8e9a7f1d58b32ec4c21db9151ad3ecc99f49db8` | 2026-07-20T15:26:09Z | 2026-10-18 | GitHub Actions |
 
