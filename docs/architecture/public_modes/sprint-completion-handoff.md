@@ -27,7 +27,7 @@ cap was enabled, and `main` was not changed.
 | `4cd460a` | Package 10: free async 3/5-map rolling cohorts |
 | `0f9a6ff` | Package 11: authenticated 3P FFA, 2v2, and 4P FFA |
 | `a45d618` | Package 12: controlled rollout and operations |
-| final handoff commit | Cross-sprint regression record and health-contract stabilization |
+| `5eecf19` | Cross-sprint regression record and health-contract stabilization |
 
 Packages 9–12 each have an independent pushed implementation commit. Packages
 0–8 were already complete when the dedicated sprint branch was created, so
@@ -81,6 +81,19 @@ lane. The focused public PvP map contract passes. The Corkscrew fixture is not
 selected by any public-mode contract in this sprint, but it should be repaired
 or removed from the broad fixture sweep separately.
 
+This diagnosis was reproduced at both the branch's recorded main baseline
+`6caae7e` and handoff commit `5eecf19`. Both revisions reported the same failure:
+
+```text
+opening_lane_unavailable ... failures=[{ "owner_id": 2, "reason": "no_opening_lane" }]
+```
+
+The three inputs that determine this result are also byte-for-byte identical at
+both revisions: the Corkscrew fixture blob is `00ecbd6`, the map-loader and
+opening-lane validation blob is `0203f4f`, and the broad map-contract smoke blob
+is `855d0a1`. This baseline replay proves the failure predates the sprint rather
+than merely inferring it from the affected files.
+
 Headless Godot continues to emit the existing NUL-map parsing, shader sampler,
 resource UID, and exit-leak warnings in several UI tests. The named contract
 tests exit successfully and these diagnostics predate the sprint.
@@ -109,21 +122,50 @@ tests exit successfully and these diagnostics predate the sprint.
 ## Merge recommendation
 
 The branch is suitable to merge into `main` as a default-off code candidate
-after review. Because it descends directly from the current local `main`, the
-cleanest integration is a fast-forward after confirming the remote `main` has
-not advanced:
+after review. Because the branch was created directly from its recorded main
+baseline, its ancestry is known. Remote `main` has since advanced from that
+baseline, so integration now requires a non-destructive merge or rebase followed
+by a full regression of the exact integrated revision; it is no longer eligible
+for a direct fast-forward into the current `main`.
+
+Merging is permitted only after confirming that pushes to main do not trigger
+service deployment, worker publication, startup migration execution, or remote
+configuration publication.
 
 ```sh
 git fetch origin
 git checkout main
 git pull --ff-only origin main
-git merge --ff-only sprint/public-modes-readiness
+git merge --no-ff sprint/public-modes-readiness
+# Run the required regression on this exact merge revision before pushing.
 git push origin main
 ```
 
-If remote `main` advances, rebase or merge the sprint branch and rerun the
-affected regression before integrating. Do not force-push either branch. The
-merge and push to `main` require explicit product-owner approval.
+If remote `main` advances again, update the integration revision and rerun the
+regression before pushing. Do not force-push either branch. The merge and push
+to `main` require explicit product-owner approval.
+
+### Repository-visible deployment audit
+
+- A push to `main` triggers `.github/workflows/release-readiness.yml`, which
+  checks out the revision, runs the release-readiness test gate, and uploads test
+  artifacts. It contains no service deployment, worker publication, migration,
+  or remote-config publication step.
+- The only repository Render blueprint is `render.yaml`. It describes the Rank
+  staging service and sets `autoDeploy: false`; it does not describe the VS
+  service or match-authority worker.
+- The VS start command starts the HTTP service and does not call its migration
+  runner. The match-authority start command starts the worker and has no schema
+  migration path. Remote configuration changes require an authenticated publish
+  action and are not performed on process startup.
+- The Rank service **does call `RankStore.init()` on startup, and that method
+  runs Rank migrations**. This is harmless on merge while Render auto-deploy is
+  genuinely disabled, but it makes any later Rank deployment/restart a migration
+  event that must be explicitly scheduled and backed up.
+- Repository files cannot prove settings in an externally configured Render,
+  GitHub App, or other deployment dashboard. An account owner must verify that
+  no dashboard-level auto-deploy hook overrides the repository blueprint before
+  the merge push.
 
 ## Proposed next step
 
