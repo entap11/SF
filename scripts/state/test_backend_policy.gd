@@ -11,17 +11,11 @@ static func automated_test_process() -> bool:
 	return false
 
 static func request_allowed(url: String) -> bool:
-	if performance_harness_active():
-		return false
 	return request_allowed_for_runtime(
 		url,
 		automated_test_process(),
 		OS.get_environment(ALLOW_LIVE_ENV)
 	)
-
-static func performance_harness_active() -> bool:
-	var loop: MainLoop = Engine.get_main_loop()
-	return loop is SceneTree and bool((loop as SceneTree).get_meta("sf_perf_harness_active", false))
 
 static func request_allowed_for_runtime(url: String, is_automated_test: bool, allow_live_value: String) -> bool:
 	if not is_automated_test:

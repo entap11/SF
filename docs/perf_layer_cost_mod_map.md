@@ -28,7 +28,7 @@ Use two complementary tools:
 Recommended first command:
 
 ```bash
-godot --headless --path . --script res://scripts/tests/rhythmic_lag_isolation.gd -- --duration 30 --output res://debug_reports/rhythmic_lag_isolation_latest.json
+godot --headless --path /Users/matthewballou/SideProjects/SF/project --script res://scripts/tests/rhythmic_lag_isolation.gd -- --duration 30 --output res://debug_reports/rhythmic_lag_isolation_latest.json
 ```
 
 ## Test Matrix

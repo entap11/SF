@@ -455,8 +455,6 @@ var sim_time_us: int = 0
 var match_seed: int = 1
 # Gameplay RNG boundary: gameplay logic must not call global rand* functions.
 var game_rng: RandomNumberGenerator = RandomNumberGenerator.new()
-var _perf_match_seed_override_enabled: bool = false
-var _perf_match_seed_override: int = 0
 var tie_history: Dictionary = {}
 var tie_cache: Dictionary = {}
 var tie_toast_ms: float = 0.0
@@ -11574,23 +11572,6 @@ func _seed_game_rng() -> void:
 		assert(game_rng != null, "Gameplay logic must not call global rand* functions.")
 	game_rng.seed = match_seed
 
-func set_perf_match_seed_override(seed_value: int) -> bool:
-	var tree: SceneTree = get_tree()
-	if not OS.is_debug_build() or tree == null or not bool(tree.get_meta("sf_perf_harness_active", false)):
-		return false
-	_perf_match_seed_override = seed_value
-	_perf_match_seed_override_enabled = true
-	match_seed = _compute_match_seed()
-	_seed_game_rng()
-	return match_seed == seed_value
-
-func clear_perf_match_seed_override() -> void:
-	_perf_match_seed_override_enabled = false
-	_perf_match_seed_override = 0
-
-func get_effective_match_seed() -> int:
-	return match_seed
-
 func _init_towers() -> void:
 	var structure_sets: Array = []
 	var structure_positions: Array = []
@@ -15295,8 +15276,6 @@ func _lane_has_player_send(lane: LaneData, pid: int) -> bool:
 	return false
 
 func _compute_match_seed() -> int:
-	if _perf_match_seed_override_enabled:
-		return _perf_match_seed_override
 	var source: String = current_map_name
 	if source == "":
 		source = current_map_path
