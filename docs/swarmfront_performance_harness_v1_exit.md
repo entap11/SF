@@ -6,6 +6,8 @@ Recommendation: `HARNESS V1 READY WITH LIMITATIONS`
 
 Harness V1 is complete on `codex/perf-harness-v1-completion`. The branch is suitable for merge evaluation: deterministic correctness, isolation, bounded collection, lifecycle cleanup, feature controls, and clean-tree baseline promotion all pass. No merge, deployment, gameplay change, or optimization is included.
 
+For pickup on another computer, use [swarmfront_performance_harness_v1_handoff.md](swarmfront_performance_harness_v1_handoff.md).
+
 ## What passed
 
 The final exit exercise completed 95 real scenario runs with zero failed scenarios, in addition to all 18 focused Phase 0–2-F gates. Gate G then passed, bringing the final focused-gate total to 19:
@@ -103,6 +105,7 @@ Capture a matching Android GPU Inspector trace for GPU stage attribution and pre
 | P2-D battlefield/UI | `dccce88` |
 | P2-E lifecycle | `e2dd4ce` |
 | P2-F feature isolation | `557a8e5` |
+| P2-G baselines and exit | `d33bbf6` |
 
 The final P2-G commit adds the exit package, machine-readable decision, Gate G, and this report. Review can preserve these commits for rollback and then choose merge-commit or squash policy separately.
 
