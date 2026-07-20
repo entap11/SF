@@ -1,7 +1,7 @@
 {
   "catalog_schema": "sf_perf_fixture_catalog_design_v1",
   "catalog_version": 1,
-  "status": "IMPLEMENTATION_IN_PROGRESS",
+  "status": "IMPLEMENTED",
   "baseline_policy": {
     "catalog_entries_are_candidates_only": true,
     "default_baseline_eligible": false,

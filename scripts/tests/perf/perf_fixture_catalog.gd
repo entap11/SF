@@ -92,6 +92,10 @@ static func validate_catalog(catalog: Dictionary) -> Dictionary:
 	_validate_baseline_policy(catalog.get("baseline_policy"), errors)
 	_validate_common(catalog.get("common"), errors)
 	_validate_fixtures(catalog.get("fixtures"), errors)
+	if str(catalog.get("status", "")) == "IMPLEMENTED":
+		for fixture_any in catalog.get("fixtures", []) as Array:
+			if typeof(fixture_any) == TYPE_DICTIONARY and str((fixture_any as Dictionary).get("status", "")) != "IMPLEMENTED":
+				errors.append("implemented_catalog_contains_unimplemented_fixture:%s" % str((fixture_any as Dictionary).get("fixture_id", "unknown")))
 	var deferred_any: Variant = catalog.get("deferred")
 	if typeof(deferred_any) != TYPE_ARRAY:
 		errors.append("deferred_not_array")

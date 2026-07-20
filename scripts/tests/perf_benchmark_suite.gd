@@ -11,6 +11,7 @@ const PERF_ISOLATION_GUARD := preload("res://scripts/tests/perf/perf_isolation_g
 const PERF_RESULT_CONTRACT := preload("res://scripts/tests/perf/perf_result_contract.gd")
 const PERF_METRICS_COLLECTOR := preload("res://scripts/tests/perf/perf_metrics_collector.gd")
 const PERF_BASELINE_COMPARATOR := preload("res://scripts/tests/perf/perf_baseline_comparator.gd")
+const PERF_BASELINE_ELIGIBILITY := preload("res://scripts/tests/perf/perf_baseline_eligibility.gd")
 const SPRITE_REGISTRY := preload("res://scripts/renderers/sprite_registry.gd")
 const TEST_BACKEND_POLICY := preload("res://scripts/state/test_backend_policy.gd")
 
@@ -227,6 +228,7 @@ func _run_suite(args: Dictionary) -> Dictionary:
 		"integrity_failed_scenarios": integrity_failed
 	}
 	report.merge(_result_environment(gates), true)
+	PERF_BASELINE_ELIGIBILITY.apply(report, fixture_catalog, catalog_fixtures_by_id)
 	_apply_result_contract(report)
 	var baseline_path := str(args.get("baseline", "")).strip_edges()
 	if not baseline_path.is_empty():
