@@ -298,7 +298,8 @@ def main
     "RANK_SERVICE_TOKEN_PUBLIC_KEY_PEM" => service_public,
     "RANK_VERIFIER_KEY_ID" => verifier_key_id,
     "RANK_VERIFIER_PUBLIC_KEY_PEM" => verifier_public,
-    "RANK_VERIFIER_WORKER_BUILD_ID" => worker_build_id
+    "RANK_VERIFIER_WORKER_BUILD_ID" => worker_build_id,
+    "RANK_VERIFIER_RECEIPT_MAX_AGE_SEC" => "3600"
   }
 
   rank = create_service(

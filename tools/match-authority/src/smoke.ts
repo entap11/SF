@@ -12,11 +12,14 @@ function expect(condition: unknown, message: string, details?: unknown): void {
 async function main(): Promise<void> {
   const projectPath = path.resolve(import.meta.dirname, "../../..");
   const mapRelative = "tools/match-authority/fixtures/authority-map.json";
+  const authoredMapRelative = "maps/_future/closequarters/MAP_closequarters__CQ2__1p.json";
   const rulesRelative = "tools/match-authority/fixtures/standard-rules.json";
-  const [mapBytes, rulesBytes] = await Promise.all([
-    readFile(path.join(projectPath, mapRelative)), readFile(path.join(projectPath, rulesRelative))
+  const [mapBytes, authoredMapBytes, rulesBytes] = await Promise.all([
+    readFile(path.join(projectPath, mapRelative)), readFile(path.join(projectPath, authoredMapRelative)),
+    readFile(path.join(projectPath, rulesRelative))
   ]);
   const mapHash = crypto.createHash("sha256").update(mapBytes).digest("hex");
+  const authoredMapHash = crypto.createHash("sha256").update(authoredMapBytes).digest("hex");
   const rulesHash = crypto.createHash("sha256").update(rulesBytes).digest("hex");
   const keyPair = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
   const privateKey = keyPair.privateKey.export({ format: "pem", type: "pkcs8" }).toString();
@@ -27,7 +30,12 @@ async function main(): Promise<void> {
     worker_build_id: "authority-worker-smoke-v1",
     sim_build_id: "godot-4.2.2-smoke",
     project_path: projectPath,
-    map_artifacts: { [mapHash]: mapRelative, ["0".repeat(64)]: mapRelative },
+    map_artifacts: {
+      [mapHash]: mapRelative,
+      [authoredMapHash]: authoredMapRelative,
+      ["0".repeat(64)]: mapRelative,
+      ["e".repeat(64)]: "../outside-project.json"
+    },
     ruleset_artifacts: { [rulesHash]: rulesRelative }
   }));
   const playerA = "0190f47a-1234-7abc-8def-123456789abc";
@@ -91,6 +99,27 @@ async function main(): Promise<void> {
     const [first, second] = await replayJobTwice(config, job);
     expect(first.ok && second.ok && first.final_state_hash === second.final_state_hash,
       "headless replays diverged", { first, second });
+    const authoredMapJob: Job = {
+      ...job,
+      jobId: "0190f47a-e234-7abc-8def-123456789abc",
+      resultId: "0190f47a-f234-7abc-8def-123456789abc",
+      finalCommandSeq: 0,
+      commandLogHash: sha256Canonical([]),
+      contract: { ...job.contract, mapHash: authoredMapHash },
+      commands: []
+    };
+    authoredMapJob.inputHash = sha256Canonical({
+      contract_id: authoredMapJob.contract.contractId,
+      contract_hash: authoredMapJob.contract.contractHash,
+      match_epoch: authoredMapJob.contract.matchEpoch,
+      commands: [], lifecycle_events: []
+    });
+    validateJobBundle(authoredMapJob);
+    const [authoredFirst, authoredSecond] = await replayJobTwice(config, authoredMapJob);
+    expect(!authoredFirst.ok && !authoredSecond.ok
+      && authoredFirst.error_code === "MATCH_NOT_TERMINAL"
+      && authoredSecond.error_code === "MATCH_NOT_TERMINAL",
+    "authored v1.xy map did not reach the normalized simulation path", { authoredFirst, authoredSecond });
     const ctfJob: Job = {
       ...job,
       jobId: "0190f47a-a234-7abc-8def-123456789abc",
@@ -157,6 +186,16 @@ async function main(): Promise<void> {
       expect(error instanceof AuthorityError && error.code === "MAP_HASH_MISMATCH",
         "wrong map artifact did not fail closed", error instanceof Error ? error.message : error);
     }
+    try {
+      await replayJobTwice(config, {
+        ...job,
+        contract: { ...job.contract, mapHash: "e".repeat(64) }
+      });
+      throw new Error("out-of-project artifact path was accepted");
+    } catch (error) {
+      expect(error instanceof AuthorityError && error.code === "ARTIFACT_PATH_INVALID",
+        "out-of-project artifact path did not fail closed", error instanceof Error ? error.message : error);
+    }
     const payloadHash = sha256Canonical(winner);
     const signature = crypto.sign("sha256", Buffer.from(canonicalJson(winner)), {
       key: privateKey, dsaEncoding: "ieee-p1363"
@@ -167,6 +206,7 @@ async function main(): Promise<void> {
     console.log(JSON.stringify({ ok: true, smoke: "match_authority", deterministic_hash: first.final_state_hash,
       elapsed_sim_ticks: first.elapsed_sim_ticks, disagreement: "NO_CONTEST", lifecycle_forfeit: true,
       lifecycle_no_contest: true, human_ctf_replay: true, wrong_map_rejected: true,
+      authored_map_normalized: true, artifact_path_escape_rejected: true,
       command_binding_rejected: true, signature: "ES256" }));
   } finally {
     await rm(tempDir, { recursive: true, force: true });

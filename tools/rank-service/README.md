@@ -146,7 +146,7 @@ npm run smoke:identity
 
 - `RANK_VERIFIED_MATCH_MUTATIONS_ENABLED=false` is the dedicated verified-result consumer gate; the existing `RANK_ECONOMY_MUTATIONS_ENABLED` gate must also be true before a rank write can occur.
 - VS authenticates with a short-lived ES256 JWT whose issuer, audience, subject, key ID, public key, scope, and lifetime are checked exactly. Configure the accepted identity with `RANK_SERVICE_TOKEN_*`; the private key remains in VS secret storage.
-- Rank independently verifies the detached ES256 match-authority receipt using `RANK_VERIFIER_KEY_ID`, `RANK_VERIFIER_PUBLIC_KEY_PEM`, and `RANK_VERIFIER_WORKER_BUILD_ID` before applying a result.
+- Rank independently verifies the detached ES256 match-authority receipt using `RANK_VERIFIER_KEY_ID`, `RANK_VERIFIER_PUBLIC_KEY_PEM`, `RANK_VERIFIER_WORKER_BUILD_ID`, and the bounded `RANK_VERIFIER_RECEIPT_MAX_AGE_SEC` before applying a result.
 - `rank_event_id` is the immutable verifier `result_id`. The processed-event ledger makes retries and post-restart delivery idempotent.
 - `RANK_PUBLIC_LEADERBOARDS_ENABLED=false` independently gates the shared Global Rank read. The endpoint labels its generation time and cache age and has no device-local fallback.
 - Run `npm run smoke:verified-settlement` for embedded-PostgreSQL service-token, receipt-signature, durable dedupe, and audit evidence.

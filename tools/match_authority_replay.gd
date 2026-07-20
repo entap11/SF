@@ -1,6 +1,7 @@
 extends SceneTree
 
 const MapModeRules := preload("res://scripts/maps/map_mode_rules.gd")
+const MapLoader := preload("res://scripts/maps/map_loader.gd")
 
 func _init() -> void:
 	await process_frame
@@ -30,6 +31,13 @@ func _replay(bundle: Dictionary) -> Dictionary:
 	var map_data: Dictionary = bundle.get("map_data", {}) as Dictionary
 	if map_data.is_empty():
 		return {"ok": false, "error_code": "MAP_ARTIFACT_MISSING"}
+	if str(map_data.get("_schema", "")) == "swarmfront.map.v1.xy":
+		var artifact_path: String = str(bundle.get("map_artifact_path", ""))
+		if not artifact_path.begins_with("res://"):
+			return {"ok": false, "error_code": "MAP_ARTIFACT_PATH_INVALID"}
+		map_data = MapLoader.load_map(artifact_path)
+		if map_data.is_empty():
+			return {"ok": false, "error_code": "MAP_ARTIFACT_NORMALIZATION_FAILED"}
 	if mode_id == "CTF_1V1":
 		map_data = MapModeRules.apply_capture_flag_territory_split(map_data, {"mode": "CAPTURE_FLAG"})
 	var commands: Array = bundle.get("commands", []) as Array

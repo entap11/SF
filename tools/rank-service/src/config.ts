@@ -93,7 +93,8 @@ export const config: RankServiceConfig = {
   verifier: {
     keyId: process.env.RANK_VERIFIER_KEY_ID?.trim() || "",
     publicKeyPem: normalizePem(process.env.RANK_VERIFIER_PUBLIC_KEY_PEM),
-    workerBuildId: process.env.RANK_VERIFIER_WORKER_BUILD_ID?.trim() || ""
+    workerBuildId: process.env.RANK_VERIFIER_WORKER_BUILD_ID?.trim() || "",
+    receiptMaxAgeSec: Math.max(30, parseIntValue(process.env.RANK_VERIFIER_RECEIPT_MAX_AGE_SEC, 3_600))
   },
   rank: {
     baseGain: parseFloatValue(process.env.RANK_BASE_GAIN, 100.0),
