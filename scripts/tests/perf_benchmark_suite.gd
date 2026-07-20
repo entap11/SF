@@ -120,6 +120,9 @@ func _run_suite(args: Dictionary) -> Dictionary:
 	var gates: Dictionary = gate_result.get("gates", {}) as Dictionary
 	var switch_overrides: Dictionary = args.get("switch_overrides", {}) as Dictionary
 	var scenario_defs: Array = _scenario_definitions(suite_id, switch_overrides, str(args.get("scenario", "")).strip_edges(), catalog_fixtures_by_id, catalog_common)
+	if args.has("repetitions"):
+		for scenario_any in scenario_defs:
+			(scenario_any as Dictionary)["repetitions"] = clampi(int(args.get("repetitions", 1)), 1, 10)
 	for scenario_any in scenario_defs:
 		var scenario_def: Dictionary = scenario_any as Dictionary
 		if str(scenario_def.get("measurement_profile", "")).strip_edges().is_empty():
@@ -195,6 +198,7 @@ func _run_suite(args: Dictionary) -> Dictionary:
 		collector_calibration = _collector_calibration_evidence(scenarios)
 		if not bool(collector_calibration.get("pass", false)):
 			integrity_failed.append("collector_calibration")
+	var unit_scale_diagnostic: Dictionary = _unit_scale_diagnostic(scenarios) if suite_id == "phase1_unit_scale" else {}
 	var report := {
 		"report_type": "sf_perf_benchmark_suite",
 		"result_schema_version": PERF_RESULT_CONTRACT.RESULT_SCHEMA_VERSION,
@@ -217,6 +221,7 @@ func _run_suite(args: Dictionary) -> Dictionary:
 		"isolation": isolation,
 		"backend_isolation": backend_isolation,
 		"collector_calibration": collector_calibration,
+		"unit_scale_diagnostic": unit_scale_diagnostic,
 		"pass": failed.is_empty() and bool(determinism.get("pass", true)) and bool(isolation.get("pass", true)) and bool(backend_isolation.get("pass", false)) and (collector_calibration.is_empty() or bool(collector_calibration.get("pass", false))),
 		"failed_scenarios": failed,
 		"integrity_failed_scenarios": integrity_failed
@@ -539,6 +544,16 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 	_disable_bots_for_benchmark()
 	var bot_isolation: Dictionary = _bot_isolation_evidence()
 	var initial_commands: Array = _apply_scenario_initial_state(arena, state, scenario_def)
+	var unit_scale_setup: Dictionary = {}
+	if int(scenario_def.get("target_units", 0)) > 0:
+		unit_scale_setup = await _prepare_unit_scale_fixture(arena, sim_runner, state, scenario_def)
+		if not bool(unit_scale_setup.get("pass", false)):
+			return await _finalize_scenario(
+				_scenario_error(scenario_def, benchmark_mode, "unit_scale_setup_failed:%s" % str(unit_scale_setup.get("reason", "unknown")), gates),
+				isolation_snapshot,
+				scene_root,
+				arena
+			)
 	_apply_render_isolation(arena, scenario_def)
 	var camera_settle: Dictionary = await _settle_windowed_camera(arena, str(scenario_def.get("camera_policy", "production_map_fit")))
 	var camera_identity: Dictionary = camera_settle.get("identity", {}) as Dictionary
@@ -564,6 +579,9 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 	var observed_warmup_duration_ms: float = 0.0
 	var observed_measurement_duration_ms: float = 0.0
 	var tick_index: int = 0
+	var target_units: int = int(scenario_def.get("target_units", 0))
+	var unit_count_min: int = _runtime_unit_count(state) if target_units > 0 else 0
+	var unit_count_max: int = unit_count_min
 	var render_monitor_peaks: Dictionary = {
 		"draw_calls": 0,
 		"rendered_objects": 0,
@@ -578,6 +596,10 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 				command_log.append({"tick": tick_index, "commands": issued})
 			sim_runner.call("_tick", SIM_TICK_INTERVAL_SEC)
 		await process_frame
+		if target_units > 0:
+			var current_unit_count: int = _runtime_unit_count(state)
+			unit_count_min = mini(unit_count_min, current_unit_count)
+			unit_count_max = maxi(unit_count_max, current_unit_count)
 		var frame_ms: float = float(Time.get_ticks_usec() - frame_start_usec) / 1000.0
 		if adapter.is_measurement_frame(frame_number):
 			measured_frame_count += 1
@@ -622,6 +644,17 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 		integrity_failures.append("measurement_frame_count_mismatch")
 	if final_state_hash.is_empty():
 		integrity_failures.append("final_state_hash_missing")
+	var final_unit_count: int = _runtime_unit_count(state)
+	if target_units > 0 and (unit_count_min != target_units or unit_count_max != target_units or final_unit_count != target_units):
+		integrity_failures.append("unit_count_measurement_invariant_failed")
+	var renderer_pool_end: Dictionary = _unit_renderer_pool_snapshot(arena)
+	var renderer_pool_hash: String = PERF_DETERMINISTIC_HASH.hash_variant(_stable_pool_identity(renderer_pool_end)) if target_units > 0 else ""
+	if target_units > 0 and int(renderer_pool_end.get("pool_expansions", -1)) != int((unit_scale_setup.get("renderer_pool_before", {}) as Dictionary).get("pool_expansions", -2)):
+		integrity_failures.append("unexpected_renderer_pool_expansion")
+	if target_units > 0 and int(renderer_pool_end.get("pool_misses", -1)) != int((unit_scale_setup.get("renderer_pool_before", {}) as Dictionary).get("pool_misses", -2)):
+		integrity_failures.append("unexpected_renderer_pool_miss")
+	if target_units > 0 and int(renderer_pool_end.get("active_pooled_objects", -1)) != target_units:
+		integrity_failures.append("renderer_active_count_mismatch")
 	if command_count < int(scenario_def.get("expected_command_count_min", 0)):
 		integrity_failures.append("scheduled_command_count_below_minimum")
 	if scenario_def.has("expected_command_count_exact") and command_count != int(scenario_def.get("expected_command_count_exact", -1)):
@@ -682,6 +715,20 @@ func _run_deterministic_windowed_scenario(scenario_def: Dictionary, benchmark_mo
 			"exact_counts": bool(setup.get("counts_exact", false))
 		},
 		"bot_isolation": bot_isolation,
+		"unit_scale_setup": unit_scale_setup,
+		"target_units": target_units,
+		"unit_count_window": {
+			"target": target_units,
+			"start": int(unit_scale_setup.get("actual_units", 0)) if target_units > 0 else 0,
+			"minimum": unit_count_min,
+			"maximum": unit_count_max,
+			"end": final_unit_count,
+			"invariant": target_units <= 0 or (unit_count_min == target_units and unit_count_max == target_units and final_unit_count == target_units)
+		},
+		"unit_injection_hash": str(unit_scale_setup.get("injection_hash", "")),
+		"lane_setup_hash": str(unit_scale_setup.get("lane_setup_hash", "")),
+		"renderer_pool_telemetry": renderer_pool_end,
+		"renderer_pool_hash": renderer_pool_hash,
 		"match": _match_summary(state, tick_index),
 		"average_frame_ms": collection.get("average_ms"),
 		"median_frame_ms": collection.get("median_ms"),
@@ -982,6 +1029,211 @@ func _bot_isolation_evidence() -> Dictionary:
 		"profiles_hash": PERF_DETERMINISTIC_HASH.hash_variant(profiles)
 	}
 
+func _prepare_unit_scale_fixture(arena: Node, sim_runner: Node, state: GameState, scenario_def: Dictionary) -> Dictionary:
+	var target_units: int = int(scenario_def.get("target_units", 0))
+	var expected_pool_capacity: int = int(scenario_def.get("expected_pool_capacity", 0))
+	if target_units <= 0 or expected_pool_capacity <= 0 or target_units > expected_pool_capacity:
+		return {"pass": false, "reason": "target_units_out_of_approved_range"}
+	if bool(scenario_def.get("capacity_bypass_allowed", true)):
+		return {"pass": false, "reason": "capacity_bypass_policy_not_locked"}
+	var expected_lanes: int = int(scenario_def.get("initial_lanes", 0))
+	if expected_lanes <= 0:
+		return {"pass": false, "reason": "accepted_lane_setup_missing"}
+	var lane_wait: Dictionary = await _wait_for_built_lanes(state, sim_runner, expected_lanes, int(scenario_def.get("lane_build_timeout_ms", 3000)))
+	if not bool(lane_wait.get("pass", false)):
+		return lane_wait
+	if _runtime_unit_count(state) != 0:
+		return {"pass": false, "reason": "unit_scale_setup_not_empty_before_injection"}
+	var unit_system: Object = sim_runner.get("unit_system") if sim_runner != null else null
+	if unit_system == null or not unit_system.has_method("spawn_unit"):
+		return {"pass": false, "reason": "public_unit_spawn_unavailable"}
+	var lanes: Array = state.lanes.duplicate()
+	lanes.sort_custom(func(a: Variant, b: Variant) -> bool:
+		return int((a as LaneData).id) < int((b as LaneData).id)
+	)
+	var lane_rows: Array = []
+	var spawn_directions: Array = []
+	for lane_any in lanes:
+		if not (lane_any is LaneData):
+			continue
+		var lane: LaneData = lane_any as LaneData
+		var source_id: int = int(lane.a_id) if bool(lane.send_a) else int(lane.b_id) if bool(lane.send_b) else -1
+		var destination_id: int = int(lane.b_id) if source_id == int(lane.a_id) else int(lane.a_id)
+		var source_hive: HiveData = state.find_hive_by_id(source_id)
+		if source_id <= 0 or destination_id <= 0 or source_hive == null or int(source_hive.owner_id) <= 0:
+			continue
+		var direction: int = 1 if source_id == int(lane.a_id) else -1
+		lane_rows.append({
+			"lane_id": int(lane.id),
+			"generation": int(lane.generation),
+			"from_id": source_id,
+			"to_id": destination_id,
+			"owner_id": int(source_hive.owner_id),
+			"direction": direction,
+			"build_t": snappedf(float(lane.build_t), 0.001),
+			"built": lane.is_built()
+		})
+		spawn_directions.append({"lane": lane, "from": source_id, "to": destination_id, "owner": int(source_hive.owner_id), "dir": direction})
+	if spawn_directions.is_empty():
+		return {"pass": false, "reason": "no_built_outgoing_lane"}
+	var renderer_pool_before: Dictionary = _unit_renderer_pool_snapshot(arena)
+	if int(renderer_pool_before.get("total_pooled_objects", 0)) != expected_pool_capacity:
+		return {"pass": false, "reason": "renderer_pool_not_prewarmed", "renderer_pool_before": renderer_pool_before}
+	if int(renderer_pool_before.get("pool_expansions", -1)) != int(scenario_def.get("expected_pool_expansions", -2)):
+		return {"pass": false, "reason": "renderer_pool_expansion_baseline_invalid", "renderer_pool_before": renderer_pool_before}
+	if int(renderer_pool_before.get("pool_misses", -1)) != 0:
+		return {"pass": false, "reason": "renderer_pool_miss_baseline_invalid", "renderer_pool_before": renderer_pool_before}
+	var injection_records: Array = []
+	for unit_index in range(target_units):
+		var direction_row: Dictionary = spawn_directions[unit_index % spawn_directions.size()] as Dictionary
+		var lane: LaneData = direction_row.get("lane") as LaneData
+		var progress: float = 0.1 + 0.8 * (float((unit_index * 37) % 997) / 996.0)
+		var direction: int = int(direction_row.get("dir", 1))
+		var lane_t: float = progress if direction > 0 else 1.0 - progress
+		var unit: Dictionary = {
+			"id": unit_index + 1,
+			"owner_id": int(direction_row.get("owner", 0)),
+			"amount": 1,
+			"lane_id": int(lane.id),
+			"lane_generation": int(lane.generation),
+			"a_id": int(lane.a_id),
+			"b_id": int(lane.b_id),
+			"lane_key": state.lane_key(int(lane.a_id), int(lane.b_id)),
+			"from_id": int(direction_row.get("from", -1)),
+			"to_id": int(direction_row.get("to", -1)),
+			"dir": direction,
+			"t": lane_t,
+			"arrive_source": "lane"
+		}
+		if not bool(unit_system.call("spawn_unit", unit, false)):
+			return {
+				"pass": false,
+				"reason": "public_unit_spawn_rejected_at_%d" % unit_index,
+				"accepted_units": _runtime_unit_count(state),
+				"capacity_bypass_used": false
+			}
+		injection_records.append({
+			"id": int(unit.get("id", 0)),
+			"lane_id": int(unit.get("lane_id", -1)),
+			"lane_generation": int(unit.get("lane_generation", 0)),
+			"from_id": int(unit.get("from_id", -1)),
+			"to_id": int(unit.get("to_id", -1)),
+			"owner_id": int(unit.get("owner_id", 0)),
+			"dir": int(unit.get("dir", 0)),
+			"t": snappedf(float(unit.get("t", 0.0)), 0.000001)
+		})
+	if arena.has_method("mark_render_dirty"):
+		arena.call("mark_render_dirty", "perf_unit_scale_injection")
+	# With SimRunner paused there is no sim-tick signal to publish the dirty
+	# production render model, so the harness explicitly performs that publish.
+	if arena.has_method("_push_render_model"):
+		arena.call("_push_render_model")
+	var renderer_wait: Dictionary = await _wait_for_renderer_unit_count(arena, target_units, int(scenario_def.get("renderer_ready_timeout_ms", 3000)))
+	if not bool(renderer_wait.get("pass", false)):
+		return renderer_wait
+	var actual_units: int = _runtime_unit_count(state)
+	var renderer_pool_after_injection: Dictionary = _unit_renderer_pool_snapshot(arena)
+	return {
+		"pass": actual_units == target_units and int(renderer_pool_after_injection.get("active_pooled_objects", -1)) == target_units,
+		"reason": "" if actual_units == target_units and int(renderer_pool_after_injection.get("active_pooled_objects", -1)) == target_units else "injected_unit_count_mismatch",
+		"target_units": target_units,
+		"actual_units": actual_units,
+		"public_spawn_api": "UnitSystem.spawn_unit",
+		"capacity_bypass_used": false,
+		"lane_wait": lane_wait,
+		"renderer_wait": renderer_wait,
+		"lane_rows": lane_rows,
+		"lane_setup_hash": PERF_DETERMINISTIC_HASH.hash_variant(lane_rows),
+		"injection_hash": PERF_DETERMINISTIC_HASH.hash_variant(injection_records),
+		"injection_record_count": injection_records.size(),
+		"renderer_pool_before": renderer_pool_before,
+		"renderer_pool_after_injection": renderer_pool_after_injection
+	}
+
+func _wait_for_built_lanes(state: GameState, sim_runner: Node, expected_lanes: int, timeout_ms: int) -> Dictionary:
+	var started_ms: int = Time.get_ticks_msec()
+	var observed_frames: int = 0
+	var lane_system: Object = sim_runner.get("lane_system") if sim_runner != null else null
+	if lane_system == null or not lane_system.has_method("tick_lane_fronts"):
+		return {"pass": false, "reason": "production_lane_system_unavailable"}
+	while Time.get_ticks_msec() - started_ms <= timeout_ms:
+		# Advance only the production lane-build subsystem during setup. Full simulation
+		# remains paused, so no incidental units can contaminate the static fixture.
+		lane_system.call("tick_lane_fronts", SIM_TICK_INTERVAL_SEC)
+		var built_count: int = 0
+		for lane_any in state.lanes:
+			if lane_any is LaneData and (lane_any as LaneData).is_built() and not bool((lane_any as LaneData).establish_a) and not bool((lane_any as LaneData).establish_b):
+				built_count += 1
+		if state.lanes.size() == expected_lanes and built_count == expected_lanes:
+			return {
+				"pass": true,
+				"reason": "",
+				"expected_lanes": expected_lanes,
+				"actual_lanes": state.lanes.size(),
+				"built_lanes": built_count,
+				"condition_wait_frames": observed_frames,
+				"timeout_ms": timeout_ms,
+				"fixed_sleep_used": false
+			}
+		observed_frames += 1
+		await process_frame
+	return {
+		"pass": false,
+		"reason": "lane_build_condition_timeout",
+		"expected_lanes": expected_lanes,
+		"actual_lanes": state.lanes.size(),
+		"condition_wait_frames": observed_frames,
+		"timeout_ms": timeout_ms,
+		"fixed_sleep_used": false
+	}
+
+func _wait_for_renderer_unit_count(arena: Node, target_units: int, timeout_ms: int) -> Dictionary:
+	var started_ms: int = Time.get_ticks_msec()
+	var observed_frames: int = 0
+	while Time.get_ticks_msec() - started_ms <= timeout_ms:
+		var snapshot: Dictionary = _unit_renderer_pool_snapshot(arena)
+		if int(snapshot.get("active_pooled_objects", -1)) == target_units:
+			return {
+				"pass": true,
+				"reason": "",
+				"target_units": target_units,
+				"active_pooled_objects": target_units,
+				"condition_wait_frames": observed_frames,
+				"timeout_ms": timeout_ms,
+				"fixed_sleep_used": false
+			}
+		observed_frames += 1
+		await process_frame
+	return {
+		"pass": false,
+		"reason": "renderer_unit_count_condition_timeout",
+		"target_units": target_units,
+		"renderer_pool": _unit_renderer_pool_snapshot(arena),
+		"condition_wait_frames": observed_frames,
+		"timeout_ms": timeout_ms,
+		"fixed_sleep_used": false
+	}
+
+func _runtime_unit_count(state: GameState) -> int:
+	if state == null:
+		return -1
+	return (state.units_by_lane.get("_all", []) as Array).size()
+
+func _unit_renderer_pool_snapshot(arena: Node) -> Dictionary:
+	var renderer: Node = arena.get_node_or_null("PoolsRoot/UnitRenderer") if arena != null else null
+	if renderer == null or not renderer.has_method("get_pool_telemetry_snapshot"):
+		return {}
+	return (renderer.call("get_pool_telemetry_snapshot") as Dictionary).duplicate(true)
+
+func _stable_pool_identity(snapshot: Dictionary) -> Dictionary:
+	var out: Dictionary = {}
+	for key in [
+		"pool_hits", "pool_misses", "pool_expansions", "runtime_instantiates_avoided",
+		"active_pooled_objects", "available_pooled_objects", "total_pooled_objects", "peak_pooled_objects"
+	]:
+		out[key] = int(snapshot.get(key, -1))
+	return out
+
 func _issue_commands_for_tick(arena: Node, state: GameState, scenario_def: Dictionary, tick: int) -> Array:
 	var schedule: Array = scenario_def.get("command_schedule", []) as Array
 	if not schedule.is_empty():
@@ -1130,6 +1382,13 @@ func _scenario_definitions(
 			scenarios = [_phase1_normal_match_pilot_scenario()]
 		"phase1_normal_match":
 			scenarios = [_phase1_normal_match_catalog_scenario(catalog_fixtures_by_id, catalog_common)]
+		"phase1_unit_scale":
+			scenarios = [
+				_phase1_unit_scale_catalog_scenario("UNIT_SCALE_050_V1", catalog_fixtures_by_id, catalog_common),
+				_phase1_unit_scale_catalog_scenario("UNIT_SCALE_100_V1", catalog_fixtures_by_id, catalog_common),
+				_phase1_unit_scale_catalog_scenario("UNIT_SCALE_200_V1", catalog_fixtures_by_id, catalog_common),
+				_phase1_unit_scale_catalog_scenario("UNIT_SCALE_400_V1", catalog_fixtures_by_id, catalog_common)
+			]
 		"phase0_collector_calibration":
 			scenarios = _phase0_collector_calibration_scenarios()
 		"phase0_isolation":
@@ -1383,6 +1642,49 @@ func _phase1_normal_match_catalog_scenario(catalog_fixtures_by_id: Dictionary, c
 	scenario["expected_counts"] = expected_counts
 	var cadence: Dictionary = (catalog_common.get("deterministic_windowed_cadence", {}) as Dictionary).duplicate(true)
 	cadence["simulation_active"] = true
+	scenario["cadence"] = cadence
+	scenario["performance_gating"] = true
+	scenario["baseline_candidate"] = bool(fixture.get("baseline_candidate", false))
+	return scenario
+
+func _phase1_unit_scale_catalog_scenario(fixture_id: String, catalog_fixtures_by_id: Dictionary, catalog_common: Dictionary) -> Dictionary:
+	var fixture: Dictionary = catalog_fixtures_by_id.get(fixture_id, {}) as Dictionary
+	if fixture.is_empty():
+		return {}
+	var production_map: Dictionary = catalog_common.get("production_map", {}) as Dictionary
+	var expected_counts: Dictionary = (production_map.get("expected_counts", {}) as Dictionary).duplicate(true)
+	expected_counts["active_lanes"] = 0
+	expected_counts["units"] = 0
+	var scenario: Dictionary = _scenario_def(
+		fixture_id,
+		str(production_map.get("path", "")),
+		12.0,
+		int(fixture.get("seed", 0)),
+		[],
+		2,
+		0,
+		1
+	)
+	scenario["fixture_id"] = fixture_id
+	scenario["fixture_version"] = int(fixture.get("fixture_version", 1))
+	scenario["fixture_catalog_status"] = str(fixture.get("status", ""))
+	scenario["measurement_profile"] = "static_windowed_deterministic"
+	scenario["catalog_fixture_registered"] = true
+	scenario["content_kind"] = "production_map"
+	scenario["content_identity"] = "sha256:%s" % str(production_map.get("sha256", ""))
+	scenario["camera_policy"] = "production_map_fit"
+	scenario["repetitions"] = int(catalog_common.get("repetitions", 3))
+	scenario["target_units"] = int(fixture.get("target_units", 0))
+	scenario["initial_lanes"] = int(fixture.get("initial_lanes", 0))
+	scenario["lane_build_timeout_ms"] = int(fixture.get("lane_build_timeout_ms", 0))
+	scenario["renderer_ready_timeout_ms"] = int(fixture.get("renderer_ready_timeout_ms", 0))
+	scenario["capacity_bypass_allowed"] = bool(fixture.get("capacity_bypass_allowed", true))
+	scenario["expected_pool_capacity"] = int(fixture.get("expected_pool_capacity", 0))
+	scenario["expected_pool_expansions"] = int(fixture.get("expected_pool_expansions", -1))
+	scenario["command_schedule"] = []
+	scenario["expected_counts"] = expected_counts
+	var cadence: Dictionary = (catalog_common.get("deterministic_windowed_cadence", {}) as Dictionary).duplicate(true)
+	cadence["simulation_active"] = false
 	scenario["cadence"] = cadence
 	scenario["performance_gating"] = true
 	scenario["baseline_candidate"] = bool(fixture.get("baseline_candidate", false))
@@ -2194,6 +2496,12 @@ func _fixture_identity_payload(scenario_def: Dictionary) -> Dictionary:
 		"initial_lanes": int(scenario_def.get("initial_lanes", 0)),
 		"initial_swarms": int(scenario_def.get("initial_swarms", 0)),
 		"initial_barracks_routes": int(scenario_def.get("initial_barracks_routes", 0)),
+		"target_units": int(scenario_def.get("target_units", 0)),
+		"lane_build_timeout_ms": int(scenario_def.get("lane_build_timeout_ms", 0)),
+		"renderer_ready_timeout_ms": int(scenario_def.get("renderer_ready_timeout_ms", 0)),
+		"capacity_bypass_allowed": bool(scenario_def.get("capacity_bypass_allowed", true)),
+		"expected_pool_capacity": int(scenario_def.get("expected_pool_capacity", 0)),
+		"expected_pool_expansions": int(scenario_def.get("expected_pool_expansions", -1)),
 		"command_interval_ticks": int(scenario_def.get("command_interval_ticks", 0)),
 		"command_selector_version": str(scenario_def.get("command_selector_version", "")),
 		"expected_command_count_exact": int(scenario_def.get("expected_command_count_exact", -1)),
@@ -2243,6 +2551,8 @@ func _determinism_evidence(scenarios: Array) -> Dictionary:
 				"tick_count",
 				"measured_tick_count"
 			])
+		if int(first_repetition.get("target_units", 0)) > 0:
+			fields.append_array(["unit_injection_hash", "lane_setup_hash", "renderer_pool_hash"])
 		var mismatches: Array = []
 		if repetitions.size() < required_repetitions:
 			mismatches.append("repetition_count:%d<%d" % [repetitions.size(), required_repetitions])
@@ -2271,6 +2581,69 @@ func _determinism_evidence(scenarios: Array) -> Dictionary:
 		return str(a.get("fixture_id", "")) < str(b.get("fixture_id", ""))
 	)
 	return {"pass": all_pass, "fixtures": fixture_rows}
+
+func _unit_scale_diagnostic(scenarios: Array) -> Dictionary:
+	var by_target: Dictionary = {}
+	for scenario_any in scenarios:
+		if typeof(scenario_any) != TYPE_DICTIONARY:
+			continue
+		var scenario: Dictionary = scenario_any as Dictionary
+		var target: int = int(scenario.get("target_units", 0))
+		if target <= 0:
+			continue
+		if not by_target.has(target):
+			by_target[target] = []
+		(by_target[target] as Array).append(scenario)
+	var targets: Array = by_target.keys()
+	targets.sort()
+	var rows: Array = []
+	var rendered_objects_monotonic: bool = true
+	var active_pooled_objects_monotonic: bool = true
+	var average_frame_ms_monotonic: bool = true
+	var previous_objects: float = -INF
+	var previous_active_pooled_objects: int = -1
+	var previous_average_ms: float = -INF
+	for target_any in targets:
+		var target: int = int(target_any)
+		var repetitions: Array = by_target.get(target, []) as Array
+		var average_sum: float = 0.0
+		var p95_sum: float = 0.0
+		var rendered_objects_peak: int = 0
+		var active_pooled_objects: int = 0
+		for scenario_any in repetitions:
+			var scenario: Dictionary = scenario_any as Dictionary
+			average_sum += float(scenario.get("average_frame_ms", 0.0))
+			p95_sum += float(scenario.get("p95_frame_ms", 0.0))
+			rendered_objects_peak = maxi(rendered_objects_peak, int((scenario.get("render_monitor_peaks", {}) as Dictionary).get("rendered_objects", 0)))
+			active_pooled_objects = maxi(active_pooled_objects, int((scenario.get("renderer_pool_telemetry", {}) as Dictionary).get("active_pooled_objects", 0)))
+		var denominator: float = maxf(1.0, float(repetitions.size()))
+		var average_ms: float = average_sum / denominator
+		var p95_ms: float = p95_sum / denominator
+		if float(rendered_objects_peak) < previous_objects:
+			rendered_objects_monotonic = false
+		if active_pooled_objects < previous_active_pooled_objects or active_pooled_objects != target:
+			active_pooled_objects_monotonic = false
+		if average_ms < previous_average_ms:
+			average_frame_ms_monotonic = false
+		previous_objects = float(rendered_objects_peak)
+		previous_active_pooled_objects = active_pooled_objects
+		previous_average_ms = average_ms
+		rows.append({
+			"target_units": target,
+			"repetitions": repetitions.size(),
+			"average_frame_ms_mean": average_ms,
+			"p95_frame_ms_mean": p95_ms,
+			"rendered_objects_peak": rendered_objects_peak,
+			"active_pooled_objects": active_pooled_objects
+		})
+	return {
+		"status": "DIAGNOSTIC_ONLY",
+		"rows": rows,
+		"rendered_objects_monotonic": rendered_objects_monotonic,
+		"active_pooled_objects_monotonic": active_pooled_objects_monotonic,
+		"average_frame_ms_monotonic": average_frame_ms_monotonic,
+		"affects_suite_pass": false
+	}
 
 func _collector_calibration_evidence(scenarios: Array) -> Dictionary:
 	var by_level: Dictionary = {"OFF": [], "MINIMAL": [], "FULL": []}
@@ -2450,6 +2823,11 @@ func _parse_args() -> Dictionary:
 		elif arg == "--scenario" and i + 1 < args.size():
 			i += 1
 			out["scenario"] = str(args[i])
+		elif arg.begins_with("--repetitions="):
+			out["repetitions"] = int(arg.trim_prefix("--repetitions="))
+		elif arg == "--repetitions" and i + 1 < args.size():
+			i += 1
+			out["repetitions"] = int(args[i])
 		elif arg.begins_with("--gates="):
 			out["gates"] = arg.trim_prefix("--gates=")
 		elif arg == "--gates" and i + 1 < args.size():

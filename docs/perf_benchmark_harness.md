@@ -262,4 +262,4 @@ Historical result files remain untouched and retain their original meaning. Unve
 
 ## Phase 1 status
 
-The Phase 0 evidence package and exit verification remain recorded in [swarmfront_performance_harness_v1.md](swarmfront_performance_harness_v1.md), with the formal recommendation `PHASE 0 READY WITH LIMITATIONS`. Phase 1 design and P1-A are complete. P1-B, the deterministic windowed execution adapter, is next. Multiplayer 3- and 4-player fixtures remain deferred until their production behavior and tests are established.
+The Phase 0 evidence package and exit verification remain recorded in [swarmfront_performance_harness_v1.md](swarmfront_performance_harness_v1.md), with the formal recommendation `PHASE 0 READY WITH LIMITATIONS`. Phase 1 Gates P1-A through P1-E are complete: the fixture registry, deterministic windowed adapter, static fixtures, normal-match profiles, and exact 50/100/200/400 static unit-scale matrix are implemented. P1-F clean-tree candidate baselines and the Phase 1 exit package are next. Multiplayer 3- and 4-player fixtures remain deferred until their production behavior and tests are established.

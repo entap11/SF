@@ -1,6 +1,6 @@
 # Swarmfront Performance Harness Phase 1 Plan
 
-Status: `P1-D COMPLETE — P1-E NEXT`
+Status: `P1-E COMPLETE — P1-F NEXT`
 
 Phase 0 is complete with limitations. Phase 1 begins with the four approved fixture families below. This plan is derived from the current Godot project, not from an abstract benchmark design. It does not approve baselines, gameplay changes, 3-/4-player fixtures, or multi-map/multi-stage async fixtures.
 
@@ -211,6 +211,15 @@ Pass evidence:
 
 Stop if lane construction times out, an injection is rejected, or the target cannot be represented by both the production active-unit limit and the renderer pool.
 
+Implemented evidence:
+
+- all four registered fixtures create exactly two accepted production lanes, wait on the production lane-build condition with a 3-second hard timeout, and use no fixed sleep;
+- deterministic injection uses public `UnitSystem.spawn_unit` with capacity bypass explicitly prohibited;
+- every 50/100/200/400 target remains exact from measurement start through measurement end across three repetitions;
+- the production 400-node renderer pool has zero misses and zero expansions, including the 400-unit boundary with no nodes remaining available;
+- lane, injection, pool, camera, cadence, fixture, and final-state identities are stable across repetitions;
+- the full twelve-run matrix passes performance, schema, backend isolation, scenario isolation, and determinism gates; workload monotonicity remains diagnostic-only.
+
 ### P1-F — Candidate baselines and Phase 1 exit
 
 Run all implemented profiles from a clean worktree on a recorded environment. Produce comparison-compatible candidate artifacts, run regression gates, and review diagnostics before explicitly approving baselines.
@@ -241,4 +250,4 @@ Phase 0: complete with documented limitations.
 
 Phase 1 design: complete. The catalog, production map hash, fixture matrix, and current Phase 0 validator contract have been checked against the repository.
 
-Phase 1 implementation: P1-A through P1-D complete. The next executable increment is P1-E, the static unit-scale matrix.
+Phase 1 implementation: P1-A through P1-E complete. The next executable increment is P1-F, clean-tree candidate baselines and the Phase 1 exit package.

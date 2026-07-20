@@ -347,6 +347,18 @@ static func _validate_fixture(
 		var capacity: int = mini(int(UNIT_SYSTEM.MAX_ACTIVE_UNITS), int(UNIT_RENDERER.UNIT_POOL_SIZE_TOTAL))
 		if target <= 0 or target > capacity:
 			errors.append("unit_scale_target_exceeds_capacity:%s" % fixture_id)
+		if int(fixture.get("initial_lanes", 0)) != 2:
+			errors.append("unit_scale_initial_lanes_not_approved:%s" % fixture_id)
+		if int(fixture.get("lane_build_timeout_ms", 0)) != 3000:
+			errors.append("unit_scale_lane_timeout_not_approved:%s" % fixture_id)
+		if int(fixture.get("renderer_ready_timeout_ms", 0)) != 3000:
+			errors.append("unit_scale_renderer_timeout_not_approved:%s" % fixture_id)
+		if bool(fixture.get("capacity_bypass_allowed", true)):
+			errors.append("unit_scale_capacity_bypass_must_be_false:%s" % fixture_id)
+		if int(fixture.get("expected_pool_capacity", 0)) != capacity:
+			errors.append("unit_scale_pool_capacity_not_approved:%s" % fixture_id)
+		if int(fixture.get("expected_pool_expansions", -1)) != 0:
+			errors.append("unit_scale_pool_expansions_not_zero:%s" % fixture_id)
 	match fixture_id:
 		"EMPTY_ARENA_V1":
 			_validate_expected_counts(fixture, fixture_id, {
