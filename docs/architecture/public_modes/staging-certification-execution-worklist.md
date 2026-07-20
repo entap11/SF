@@ -106,6 +106,9 @@ rollback target unambiguous.
 
 ### Repository work
 
+- [x] Add a redacted repository/environment preflight at
+  `scripts/dev/run_staging_certification_preflight.sh`; it prints credential
+  presence only and fails if any capability is enabled or malformed.
 - [ ] Add an evidence table for service name, provider, region, source SHA,
   build/artifact digest, prior rollback revision, and health URL class.
 - [ ] Add the selected Godot build number plus map, ruleset, simulation, and

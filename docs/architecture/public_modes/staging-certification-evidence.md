@@ -127,6 +127,10 @@ alert destination, retention, and rollback targets here after P0 exits.
 - This work machine has no Render CLI/API identity and no VS/Rank database or
   staging endpoint variables present.
 - No repository-visible VS or match-authority deployment environment was found.
+- `scripts/dev/run_staging_certification_preflight.sh` passes the repository and
+  local environment checks, reports all local capability variables absent with
+  false code defaults, and reports credential presence only as absent. A
+  deliberate `VS_ENABLE_PUBLIC_1V1=true` test fails closed as required.
 
 These findings are inventory inputs only. P1 cannot pass until a credentialed
 operator confirms provider settings, service identities, rollback targets,
