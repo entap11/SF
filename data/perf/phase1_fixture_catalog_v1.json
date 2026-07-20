@@ -135,7 +135,7 @@
       "expected_command_count": 4,
       "expected_command_types": ["attack", "swarm"],
       "pilot_accepted_command_hash": "b46681f7890f5cc2b7f99b6662e13666db00c8a2e679ed7e02bfaa42e2c78516",
-      "pilot_canonical_final_state_hash": "ee84e0d4491b403c5f69cda788b6950ecb9784dae3c3cb2165406628ef48705a",
+      "pilot_canonical_final_state_hash": "a5ecc365afeb95e4a338140771fa9e04fd22157f095900f467c20a54b3dacfa8",
       "timing": {
         "warmup_ticks": 20,
         "measurement_ticks": 100,
