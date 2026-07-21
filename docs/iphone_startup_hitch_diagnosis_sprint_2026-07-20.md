@@ -300,12 +300,31 @@ Symbolicated samples expose two additional synchronous boot targets that must re
 2. UnitRenderer `_ready` spends 211.456 ms constructing the fixed 400-node presentation pool in `_pool_build()`. A later controlled variant may phase or resize that presentation allocation, but it must guarantee required capacity before interactivity and must not alter authoritative unit state or simulation timing.
 3. To narrow the exact deferred owner beyond engine-level GDScript symbols, add bounded markers around individual Arena deferred callbacks and nonessential post-add scans. Move work only after one callback is shown to own the same interval.
 
-The next recommended experiment is the SpriteRegistry on-demand texture-load variant because the trace directly identifies manifest-wide image decoding and the change can remain presentation-only and deterministic. It is expected to remove the 305 ms Lane `_ready` cost; it must not be credited with fixing the distinct 259 ms final-frame microhang unless that same signature also moves in the paired device trace.
+### SpriteRegistry on-demand-load experiment
+
+Commit `7a5bf57b0135804d3328d78364bda984686591c8` implemented the controlled SpriteRegistry experiment. Manifest paths and construction metadata remained eagerly parsed and deterministic, while `has_tex()` and `get_tex()` loaded and cached only the requested texture key. Existing atlas regions, slice construction, colorkey/alpha handling, missing-resource behavior, skin cache invalidation, hive prewarm, and public lookup semantics were preserved. A focused smoke test proved that metadata reads load zero textures, one request creates one cache entry, shared-path siblings remain lazy, repeated requests reuse the cached object, skin changes clear loaded entries, and all 88 manifest keys still resolve.
+
+The exact clean device build used tree `d6ff6a3ebf6abd74ca0e65ccd4fdcc23533fc348`, PCK SHA-256 `6bfd958f1d524a92327518564a6f176a91971f2a8e654ee0272debac1d6b2197`, and executable SHA-256 `dfce550c43d527ae4bd8ecb013d2e1a8b75184692f122b159e1f75e20fa8cd7a`. The copied evidence report is `artifacts/startup_hitch_diagnostic/evidence/variant-sprite-lazy-01.json`; it completed one physical iPhone warm diagnostic and one soak round with zero failed rounds, passed protected-state integrity, and recorded no interactive hitch. External thermal/power fields were not captured, so this is a single physical diagnostic comparison rather than a full controlled-matrix result.
+
+| Boundary or outcome | Renderer-marker build | Lazy-load variant | Change |
+| --- | ---: | ---: | ---: |
+| Lane `_ready` | 305.264 ms | 23.965 ms | -281.299 ms (-92.1%) |
+| Hive-ready to UnitRenderer-ready | 211.456 ms | 291.352 ms | +79.896 ms |
+| Match added to deferred queue drained | 480.814 ms | 651.883 ms | +171.069 ms |
+| Arena presentation visible | 2529.068 ms | 2713.801 ms | +184.733 ms |
+| Maximum rendered frame | 141.916 ms | 142.287 ms | +0.371 ms |
+| Second retained boot frame | 116.667 ms | 124.973 ms | +8.306 ms |
+| First canonical tick | 2.304 ms | 2.018 ms | -0.286 ms |
+| Interactive hitches | 0 | 0 | unchanged |
+
+Decision: reject the lazy-load variant as a candidate fix. It proves the 305 ms Lane-ready interval came from eager manifest loading, but it redistributes resource work into UnitRenderer and later deferred startup, delays presentation, and leaves the exact 142 ms signature unchanged. The experiment must remain in history for reproducibility but must not remain enabled at the branch tip or ship.
+
+The next controlled step is bounded instrumentation around individual Arena deferred callbacks and post-add scans inside the 259 ms `CallQueue::flush` interval. That work directly targets the unchanged maximum instead of moving resource loading between startup boundaries.
 
 Not yet claimed:
 
 - repeatability across the full controlled cold/warm matrix;
-- before/after device improvement from a candidate optimization;
+- an accepted before/after device improvement from a candidate optimization;
 - removal of the 259 ms deferred-call microhang;
 - 150-second post-fix soak or Release Readiness completion;
 - final pass/hold recommendation.
