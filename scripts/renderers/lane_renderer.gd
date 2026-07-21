@@ -51,9 +51,9 @@ const LANE_SEGMENT_KEY := "lane.segment"
 const LANE_CONNECTOR_KEY := "lane.connector"
 const LANE_TEX_KEY := "lane.points"
 const LANE_FALLBACK_PATH := "res://assets/sprites/sf_skin_v1/lane_white_5space.png"
+const LANE_FALLBACK_REGION := Rect2(0.0, 376.0, 1536.0, 232.0)
 const LANE_SEGMENT_TARGET_PX := 84.0
 const LANE_STRIP_TEXTURE_MIN_WIDTH_PX := 1024.0
-const LANE_TEXTURE_TRIM_LUMA_THRESHOLD := 0.70
 const LANE_SEGMENT_SCALE := 1.0
 const LANE_CONNECTOR_SCALE := 0.75
 const LANE_MAX_SEGMENTS := 64
@@ -124,8 +124,6 @@ var _lane_candidates_visible: bool = false
 var _lane_flash_expire_by_id: Dictionary = {}
 var _lane_tex: Texture2D = null
 var _lane_connector_tex: Texture2D = null
-var _lane_tex_has_alpha: bool = false
-var _lane_connector_tex_has_alpha: bool = false
 var _lane_nodes_by_key: Dictionary = {}
 var _lane_key_by_id: Dictionary = {}
 var _lane_sprite_root: Node2D = null
@@ -1226,16 +1224,20 @@ func _load_lane_textures() -> void:
 	var registry := SpriteRegistry.get_instance()
 	if registry != null:
 		var resolved: Dictionary = CosmeticThemeDB.resolve_lane_texture(registry)
-		tex = _unwrap_atlas(resolved.get("texture", null) as Texture2D)
+		# The sprite manifest owns immutable trim geometry. Preserve its
+		# AtlasTexture so boot never needs a GPU readback or pixel scan.
+		tex = resolved.get("texture", null) as Texture2D
 		tex_path = str(resolved.get("path", ""))
 		tex_key = str(resolved.get("key", LANE_TEX_KEY))
 	if tex == null and ResourceLoader.exists(LANE_FALLBACK_PATH):
-		tex = ResourceLoader.load(LANE_FALLBACK_PATH) as Texture2D
+		var fallback_source := ResourceLoader.load(LANE_FALLBACK_PATH) as Texture2D
+		if fallback_source != null:
+			var fallback_atlas := AtlasTexture.new()
+			fallback_atlas.atlas = fallback_source
+			fallback_atlas.region = LANE_FALLBACK_REGION
+			tex = fallback_atlas
 		tex_path = LANE_FALLBACK_PATH
-	var raw_size := Vector2i.ZERO
-	if tex != null:
-		raw_size = Vector2i(tex.get_width(), tex.get_height())
-		tex = _trim_texture(tex)
+	var raw_size := _source_texture_size(tex)
 	if tex != null and not _lane_tex_logged:
 		_lane_tex_logged = true
 		SFLog.info("LANE_TEX_RESOLVE_OK", {
@@ -1250,16 +1252,15 @@ func _load_lane_textures() -> void:
 		})
 	_lane_tex = tex
 	_lane_connector_tex = tex
-	_lane_tex_has_alpha = _texture_has_alpha(_lane_tex)
-	_lane_connector_tex_has_alpha = _lane_tex_has_alpha
 
-func _unwrap_atlas(tex: Texture2D) -> Texture2D:
+func _source_texture_size(tex: Texture2D) -> Vector2i:
+	if tex == null:
+		return Vector2i.ZERO
 	if tex is AtlasTexture:
 		var at := tex as AtlasTexture
 		if at.atlas is Texture2D:
-			return at.atlas as Texture2D
-		return null
-	return tex
+			return Vector2i(at.atlas.get_width(), at.atlas.get_height())
+	return Vector2i(tex.get_width(), tex.get_height())
 
 func _ensure_lane_sprite_root() -> void:
 	if _lane_sprite_root != null and is_instance_valid(_lane_sprite_root):
@@ -1299,59 +1300,6 @@ func _lane_segment_len() -> float:
 	# We want enough segments to visualize a moving front_t (impact point).
 	# Using texture width makes n collapse to 1 when the lane texture is large.
 	return LANE_SEGMENT_TARGET_PX
-
-func _texture_has_alpha(tex: Texture2D) -> bool:
-	if tex == null:
-		return false
-	var img := tex.get_image()
-	if img == null:
-		return false
-	var fmt := img.get_format()
-	return fmt in [Image.FORMAT_RGBA8, Image.FORMAT_RGBAF, Image.FORMAT_RGBAH]
-
-func _trim_texture(tex: Texture2D) -> Texture2D:
-	if tex == null:
-		return null
-	var img := tex.get_image()
-	if img == null:
-		return tex
-
-	var used := img.get_used_rect()
-	if used.size == img.get_size():
-		var bright_used := _bright_lane_used_rect(img)
-		if bright_used.size.x > 0 and bright_used.size.y > 0:
-			used = bright_used
-	# If the image is basically empty or already tight, bail.
-	if used.size.x <= 0 or used.size.y <= 0:
-		return tex
-	if used.size == img.get_size():
-		return tex
-
-	var atlas := AtlasTexture.new()
-	atlas.atlas = tex
-	atlas.region = used
-	return atlas
-
-func _bright_lane_used_rect(img: Image) -> Rect2i:
-	var min_x: int = img.get_width()
-	var min_y: int = img.get_height()
-	var max_x: int = -1
-	var max_y: int = -1
-	for y in range(img.get_height()):
-		for x in range(img.get_width()):
-			var c: Color = img.get_pixel(x, y)
-			if c.a <= 0.01:
-				continue
-			var lum: float = (c.r * 0.299) + (c.g * 0.587) + (c.b * 0.114)
-			if lum < LANE_TEXTURE_TRIM_LUMA_THRESHOLD:
-				continue
-			min_x = mini(min_x, x)
-			min_y = mini(min_y, y)
-			max_x = maxi(max_x, x)
-			max_y = maxi(max_y, y)
-	if max_x < min_x or max_y < min_y:
-		return Rect2i()
-	return Rect2i(min_x, min_y, (max_x - min_x) + 1, (max_y - min_y) + 1)
 
 func _get_lane_colorkey_material() -> ShaderMaterial:
 	if _lane_colorkey_material != null:
