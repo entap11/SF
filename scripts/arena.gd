@@ -644,6 +644,7 @@ func _ready() -> void:
 	})
 	SFLog.trace("CURRENT CAMERA", {"camera": get_viewport().get_camera_2d()})
 	await get_tree().process_frame
+	_startup_hitch_mark_once("arena_ready_continuation_started")
 	var cam := $Camera2D
 	var vcam := get_viewport().get_camera_2d()
 	SFLog.trace("ARENA CAM", {"arena_cam": cam, "viewport_cam": vcam})
@@ -705,13 +706,31 @@ func _ready() -> void:
 	call_deferred("_start_match_flow_deferred")
 	_log_fit_state("ready")
 	mark_render_dirty("ready")
+	var startup_scan_started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_post_add_map_like_scan_started")
 	_dump_map_like_nodes("after_clear_ready")
+	_startup_hitch_callback_completed("arena_post_add_map_like_scan", startup_scan_started_usec)
+	startup_scan_started_usec = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_post_add_name_scan_started")
 	_debug_scan_names()
+	_startup_hitch_callback_completed("arena_post_add_name_scan", startup_scan_started_usec)
+	startup_scan_started_usec = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_post_add_renderer_scan_started")
 	_dump_map_renderers("boot")
+	_startup_hitch_callback_completed("arena_post_add_renderer_scan", startup_scan_started_usec)
+	startup_scan_started_usec = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_post_add_viewport_texture_scan_started")
 	_dump_viewports_and_textures()
+	_startup_hitch_callback_completed("arena_post_add_viewport_texture_scan", startup_scan_started_usec)
+	startup_scan_started_usec = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_post_add_script_tree_scan_started")
 	_dump_tree_with_scripts("/root/DevMapRunner")
+	_startup_hitch_callback_completed("arena_post_add_script_tree_scan", startup_scan_started_usec)
 	# (moved to top of _ready())
+	startup_scan_started_usec = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_post_add_canvas_script_scan_started")
 	_list_canvasitems_with_scripts("/root/DevMapRunner/Arena")
+	_startup_hitch_callback_completed("arena_post_add_canvas_script_scan", startup_scan_started_usec)
 	_startup_hitch_mark("arena_ready_completed")
 
 
@@ -727,6 +746,19 @@ func _startup_hitch_mark(marker_name: String, detail: Dictionary = {}) -> void:
 	var diagnostic: Node = _startup_hitch_diagnostic()
 	if diagnostic != null and diagnostic.has_method("mark_event"):
 		diagnostic.call("mark_event", marker_name, detail)
+
+
+func _startup_hitch_mark_once(marker_name: String, detail: Dictionary = {}) -> void:
+	var diagnostic: Node = _startup_hitch_diagnostic()
+	if diagnostic != null and diagnostic.has_method("mark_once"):
+		diagnostic.call("mark_once", marker_name, detail)
+
+
+func _startup_hitch_callback_completed(marker_prefix: String, started_usec: int, outcome: String = "completed") -> void:
+	_startup_hitch_mark_once("%s_completed" % marker_prefix, {
+		"duration_ms": snappedf(float(Time.get_ticks_usec() - started_usec) / 1000.0, 0.001),
+		"outcome": outcome
+	})
 
 func _configure_map_hex_background() -> void:
 	_ensure_map_mm_background_art()
@@ -972,11 +1004,17 @@ func restart_match_flow_for_shell_launch() -> void:
 	_start_match_flow()
 
 func _start_match_flow_deferred() -> void:
+	_startup_hitch_mark_once("arena_deferred_match_flow_scheduled")
 	await get_tree().process_frame
+	_startup_hitch_mark_once("arena_deferred_match_flow_first_frame_resumed")
 	await get_tree().process_frame
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_match_flow_second_frame_resumed")
 	if not is_inside_tree():
+		_startup_hitch_callback_completed("arena_deferred_match_flow", started_usec, "outside_tree")
 		return
 	_start_match_flow()
+	_startup_hitch_callback_completed("arena_deferred_match_flow", started_usec)
 
 func _apply_tutorial_low_pressure_scenario() -> void:
 	if OpsState == null or not OpsState.has_method("set_bot_profile"):
@@ -3384,8 +3422,11 @@ func _layout_prematch_ad_surface() -> void:
 	_prematch_ad_surface.size = ad_size
 
 func _ensure_in_game_ad_surface() -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_in_game_ad_started")
 	var hud_root: Control = _resolve_hud_root()
 	if hud_root == null:
+		_startup_hitch_callback_completed("arena_deferred_in_game_ad", started_usec, "missing_hud_root")
 		return
 	if _in_game_ad_surface == null or not is_instance_valid(_in_game_ad_surface):
 		var existing: Node = hud_root.get_node_or_null("InGameHudAdSurface")
@@ -3394,6 +3435,7 @@ func _ensure_in_game_ad_surface() -> void:
 		else:
 			var created_any: Variant = AdSurfaceScript.new()
 			if not (created_any is Control):
+				_startup_hitch_callback_completed("arena_deferred_in_game_ad", started_usec, "invalid_surface")
 				return
 			_in_game_ad_surface = created_any as Control
 			_in_game_ad_surface.name = "InGameHudAdSurface"
@@ -3404,6 +3446,7 @@ func _ensure_in_game_ad_surface() -> void:
 	_in_game_ad_surface.z_index = IN_GAME_AD_HUD_Z_INDEX
 	_layout_in_game_ad_surface()
 	_snap_power_bar_to_map_top("in_game_ad_surface_ready")
+	_startup_hitch_callback_completed("arena_deferred_in_game_ad", started_usec)
 
 func _layout_in_game_ad_surface() -> void:
 	if _in_game_ad_surface == null:
@@ -7500,10 +7543,13 @@ func _on_viewport_size_changed() -> void:
 	_snap_power_bar_to_map_top("viewport_resize")
 
 func _resize_world_viewport() -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_world_viewport_resize_started")
 	var tree: SceneTree = get_tree()
 	var wvc: Control = _world_viewport_cache.resolve_container(tree) if _world_viewport_cache != null else null
 	var sv: SubViewport = _world_viewport_cache.resolve_subviewport(tree) if _world_viewport_cache != null else null
 	if wvc == null or sv == null:
+		_startup_hitch_callback_completed("arena_deferred_world_viewport_resize", started_usec, "missing_viewport")
 		return
 	var old_size: Vector2i = sv.size
 	var target: Vector2 = wvc.size
@@ -7516,6 +7562,7 @@ func _resize_world_viewport() -> void:
 		"sv_old": old_size,
 		"sv_new": new_size
 	})
+	_startup_hitch_callback_completed("arena_deferred_world_viewport_resize", started_usec)
 
 func _ensure_playfield_outline() -> PlayfieldOutline:
 	if is_instance_valid(_playfield_outline):
@@ -8307,15 +8354,20 @@ func _runtime_telemetry_overlay_enabled() -> bool:
 	return OS.get_environment("SF_RUNTIME_TELEMETRY_OVERLAY").strip_edges() == "1"
 
 func _ensure_runtime_telemetry_overlay() -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_runtime_telemetry_started")
 	if not _runtime_telemetry_overlay_enabled():
 		if _runtime_telemetry_overlay != null and is_instance_valid(_runtime_telemetry_overlay):
 			_runtime_telemetry_overlay.visible = false
+		_startup_hitch_callback_completed("arena_deferred_runtime_telemetry", started_usec, "disabled")
 		return
 	if _runtime_telemetry_overlay != null and is_instance_valid(_runtime_telemetry_overlay):
 		_runtime_telemetry_overlay.visible = true
+		_startup_hitch_callback_completed("arena_deferred_runtime_telemetry", started_usec, "reused")
 		return
 	var parent: Control = _resolve_hud_root()
 	if parent == null:
+		_startup_hitch_callback_completed("arena_deferred_runtime_telemetry", started_usec, "missing_hud_root")
 		return
 	var panel := PanelContainer.new()
 	panel.name = "RuntimeTelemetryOverlay"
@@ -8351,6 +8403,7 @@ func _ensure_runtime_telemetry_overlay() -> void:
 	_runtime_telemetry_label = label
 	_position_runtime_telemetry_overlay()
 	_update_runtime_telemetry_overlay(true)
+	_startup_hitch_callback_completed("arena_deferred_runtime_telemetry", started_usec)
 
 func _position_runtime_telemetry_overlay() -> void:
 	if _runtime_telemetry_overlay == null or not is_instance_valid(_runtime_telemetry_overlay):
@@ -8359,17 +8412,23 @@ func _position_runtime_telemetry_overlay() -> void:
 	_runtime_telemetry_overlay.position = Vector2(12.0, top_px + 12.0)
 
 func _ensure_pvp_debug_overlay() -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_pvp_overlay_started")
 	if _pvp_debug_overlay != null and is_instance_valid(_pvp_debug_overlay):
+		_startup_hitch_callback_completed("arena_deferred_pvp_overlay", started_usec, "reused")
 		return
 	var parent: Node = _resolve_pvp_debug_overlay_parent()
 	if parent == null:
+		_startup_hitch_callback_completed("arena_deferred_pvp_overlay", started_usec, "missing_parent")
 		return
 	var existing: Control = parent.get_node_or_null("PvpDebugOverlay") as Control
 	if existing != null:
 		_pvp_debug_overlay = existing
+		_startup_hitch_callback_completed("arena_deferred_pvp_overlay", started_usec, "reused")
 		return
 	var overlay_any: Variant = PvpDebugOverlayScript.new()
 	if not (overlay_any is Control):
+		_startup_hitch_callback_completed("arena_deferred_pvp_overlay", started_usec, "invalid_overlay")
 		return
 	var overlay: Control = overlay_any as Control
 	overlay.name = "PvpDebugOverlay"
@@ -8383,6 +8442,7 @@ func _ensure_pvp_debug_overlay() -> void:
 	overlay.z_index = 4095
 	parent.add_child(overlay)
 	_pvp_debug_overlay = overlay
+	_startup_hitch_callback_completed("arena_deferred_pvp_overlay", started_usec)
 
 func _resolve_pvp_debug_overlay_parent() -> Node:
 	var hud_root: Control = _resolve_hud_root()
@@ -8587,14 +8647,19 @@ func mark_render_dirty(reason: String = "") -> void:
 		queue_redraw()
 
 func _debug_camera(tag: String) -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_debug_camera_started", {"tag": tag})
 	if debug_system == null:
+		_startup_hitch_callback_completed("arena_deferred_debug_camera", started_usec, "missing_debug_system")
 		return
 	var v := get_viewport()
 	if v == null:
+		_startup_hitch_callback_completed("arena_deferred_debug_camera", started_usec, "missing_viewport")
 		return
 	var active := v.get_camera_2d()
 	var ours: Camera2D = camera if camera != null else $Camera2D
 	if ours == null:
+		_startup_hitch_callback_completed("arena_deferred_debug_camera", started_usec, "missing_camera")
 		return
 	debug_system.debug_camera(
 		tag,
@@ -8604,6 +8669,7 @@ func _debug_camera(tag: String) -> void:
 		ours.global_position,
 		ours.zoom
 	)
+	_startup_hitch_callback_completed("arena_deferred_debug_camera", started_usec)
 
 func _update_win_overlay() -> void:
 	if win_overlay == null:
@@ -8639,12 +8705,16 @@ func cam_set(tag: String, pos: Vector2, zoom: Vector2) -> void:
 	SFLog.trace("CAM_SET", {"tag": tag, "pos": pos, "zoom": zoom})
 
 func _debug_scan_cameras() -> void:
+	_startup_hitch_mark_once("arena_deferred_camera_scan_scheduled")
 	await get_tree().process_frame
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_camera_scan_resumed")
 	var cams: Array = []
 	_scan_cameras(get_tree().root, cams)
 	SFLog.trace("CAMERA2D COUNT", {"count": cams.size()})
 	for c in cams:
 		SFLog.trace(" - ", {"path": _node_path_for_log(c), "current": c.is_current(), "enabled": c.enabled})
+	_startup_hitch_callback_completed("arena_deferred_camera_scan", started_usec)
 
 func _scan_cameras(node: Node, out: Array) -> void:
 	if node is Camera2D:
@@ -9492,7 +9562,10 @@ func _nearest_canvas_layer(n: Node) -> CanvasLayer:
 	return null
 
 func _debug_canvas_space() -> void:
+	_startup_hitch_mark_once("arena_deferred_canvas_scan_scheduled")
 	await get_tree().process_frame
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_canvas_scan_resumed")
 	var lr := $MapRoot/LaneRenderer
 	var hr := $MapRoot/HiveRenderer
 	var lr_cl := _nearest_canvas_layer(lr)
@@ -9505,6 +9578,7 @@ func _debug_canvas_space() -> void:
 		"under": hr_cl != null,
 		"layer": hr_cl.layer if hr_cl else -999
 	})
+	_startup_hitch_callback_completed("arena_deferred_canvas_scan", started_usec)
 
 func _log_fit_state(tag: String) -> void:
 	if debug_system == null:
