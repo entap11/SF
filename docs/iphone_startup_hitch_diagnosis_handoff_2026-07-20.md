@@ -6,7 +6,7 @@ Branch: `codex/iphone-startup-hitch-diagnosis`
 
 Diagnostic source commit: `2c27ac363ffcea658b2fe1415d6b882540329110`
 
-Status: **PHYSICAL BASELINE AND FOCUSED CPU/METAL ATTRIBUTION COMPLETE — FIRST CONTROLLED SMOOTHING VARIANT VALIDATED ON DEVICE**
+Status: **PHYSICAL BASELINE AND FOCUSED CPU/METAL ATTRIBUTION COMPLETE — TWO CONTROLLED SMOOTHING VARIANTS VALIDATED ON DEVICE**
 
 ## Outcome
 
@@ -21,6 +21,8 @@ Separately, the same Metal trace contains a real 87.267 ms gap in application pr
 The first controlled source variant removes the debug-only `Texture2D.get_image()` call from `HiveVisual._hive_tex_debug()`. It preserves the log's texture metadata but reports alpha as `not_sampled_runtime`, avoiding a synchronous GPU readback while constructing a `log_once` argument. No gameplay rule, timing, or authoritative state is changed.
 
 Three accepted warm launches of the exact signed variant produced no interactive hitch, unchanged protected-state hashes, and canonical tick timing within the baseline range. A comparison Metal trace covering the requested-map transition contains no sampled `get_image`, `texture_get_data`, `texture_2d_get`, or `vkDeviceWaitIdle` stack. This supports the targeted readback attribution. The trace was attached after process launch and did not export app-owned Core Animation/GPU interval rows, so it is supporting rather than standalone proof.
+
+The second controlled variant removes another deterministic boot cost from `LaneRenderer._ready()`. The renderer previously read back the 1536×1024 lane texture, queried its image bounds, and could inspect all 1,572,864 pixels in GDScript to rediscover an immutable crop. The exact crop `(0, 376, 1536, 232)` now lives in the sprite manifest and resolves directly as an `AtlasTexture`; the dead runtime alpha probes were removed as well. Three accepted warm device runs reduced median child-scene `_ready` time by 66.390 ms and median scene-request-to-visible time by 141.621 ms. The median maximum rendered frame remained effectively unchanged, so this is a measured startup-latency reduction, not yet a fix for the remaining approximately 142 ms worst boot frame.
 
 ## Device and build
 
@@ -38,6 +40,8 @@ Three accepted warm launches of the exact signed variant produced no interactive
 All accepted reports completed their diagnostic windows, passed protected-state integrity, and reported zero failed soak rounds.
 
 The smoothing variant was built from clean commit `108150f79045d711d593609ff543b1b49d91fb91` (tree `62573d381c9e33b4ec934e32a55836151dbe150c`). Its build manifest is `artifacts/startup_hitch_diagnostic/device_build_variant_hive_debug_readback/build_manifest.json`; PCK SHA-256 is `979d22433d69c8954c5d8225d4cc258a0fdbeb5ffbb906eb180b7cf504ace9e7`, and executable SHA-256 is `0a0febbc1178517dd33d3220eeacb7776615897ae6f303aa6dddca8671142ccf`.
+
+The lane-metadata variant was built from clean commit `8b06970f23227e9e2cf216915cb3ce8ce9276376` (tree `01700aa2bef9c13e3318a9334865ca9abe40a29c`). Its build manifest is `artifacts/startup_hitch_diagnostic/device_build_variant_lane_metadata/build_manifest.json`; PCK SHA-256 is `792ecd7850badd38736684e79b03e509ee6e510aff66ba4dbfa5d41cce669eee`, and executable SHA-256 is `30e607ba017c7014df29cfa9502504dfbf434f2bfa27f8b96d857a73427d4568`.
 
 ## Controlled physical baseline
 
@@ -157,7 +161,7 @@ Project `get_image()` call sites in production scripts are:
 
 `LaneRenderer` loads and retains its lane texture during `_ready`, and `UnitRenderer` prewarms its default unit keys during `_ready`; those facts reduce, but do not eliminate, their likelihood for the later occurrence. The trace's outer signal path and timing make `_hive_tex_debug()` the strongest candidate, but native sampling does not expose the GDScript function name. The controlled variant therefore changes only that debug path first and uses a repeat trace plus accepted device reports to test the attribution.
 
-## Controlled smoothing variant validation
+## First controlled smoothing variant validation
 
 The signed `hive_debug_no_texture_readback` build was validated in three accepted warm runs on the same iPhone and fixture:
 
@@ -179,6 +183,38 @@ Accepted reports:
 
 The comparison trace is `artifacts/startup_hitch_diagnostic/traces/iphone16pro-metal-system-variant-hive-debug-01.trace`. It covered the requested-map transition, remained thermally Nominal, and reported no potential hangs. Its Time Profiler export has no sampled texture-readback/device-idle stack. Because Instruments attached approximately 9.5 seconds after launch, the exported app Core Animation and GPU-submission tables contain no rows. The trace run's companion diagnostic JSON also could not be copied, so the trace is not counted as a fourth accepted diagnostic run; the three reports above are the accepted measurement set.
 
+## Second controlled boot-preparation variant validation
+
+Commit `8b06970` moves the immutable lane crop into `skin_manifest.json`, preserves the resulting `AtlasTexture` in `LaneRenderer`, and removes runtime `get_image()`, `get_used_rect()`, alpha-format probing, and the nested per-pixel trim scan from lane boot. The manifest crop was generated with the renderer's previous alpha/luminance rules, so lane geometry is unchanged.
+
+The exact signed build was primed once after installation, then validated in three accepted warm runs on the same iPhone and fixture:
+
+| Run | Maximum rendered frame | Interactive hitches | First / maximum canonical tick | Protected state |
+| --- | ---: | ---: | ---: | --- |
+| `variant-lane-metadata-01` | 148.273 ms | 0 | 1.597 / 2.569 ms | Pass |
+| `variant-lane-metadata-02` | 142.114 ms | 0 | 1.944 / 2.775 ms | Pass |
+| `variant-lane-metadata-03` | 141.744 ms | 0 | 2.211 / 2.475 ms | Pass |
+
+All six hitches remained pre-presentation boot events. Interactive-hitch occurrence was 0/3, all protected-state hashes were unchanged, and the worst canonical tick was 2.775 ms.
+
+Compared with the three-run parent variant:
+
+| Metric | Parent median | Lane-metadata median | Change |
+| --- | ---: | ---: | ---: |
+| Child scene instantiated to Arena `_ready` entry | 636.913 ms | 570.523 ms | −66.390 ms (−10.4%) |
+| Match-scene request to Arena presentation visible | 2667.728 ms | 2526.107 ms | −141.621 ms (−5.3%) |
+| Per-run maximum rendered frame | 142.152 ms | 142.114 ms | −0.038 ms (effectively unchanged) |
+
+This validates removal of meaningful synchronous boot work, but it does not move the worst-frame envelope. The next variant must target a different part of the scene/resource/first-lane-activity boundary rather than broadening this lane change.
+
+Accepted reports:
+
+- `artifacts/startup_hitch_diagnostic/evidence/variant-lane-metadata-01.json`
+- `artifacts/startup_hitch_diagnostic/evidence/variant-lane-metadata-02.json`
+- `artifacts/startup_hitch_diagnostic/evidence/variant-lane-metadata-03.json`
+
+One attempted second run failed during iOS audio initialization and produced no diagnostic report. It is retained as `variant-lane-metadata-02-rejected-audio-init.console.log` and is not evidence.
+
 ## Attribution decision
 
 Confidence by claim:
@@ -190,20 +226,22 @@ Confidence by claim:
 - **Medium:** the 79.631 ms diagnostic event is an engine scheduling/frame-delta discontinuity at the prematch-to-running transition.
 - **High:** the comparison variant removes the later sampled readback stack without changing protected state or canonical tick timing.
 - **Medium-high:** `HiveVisual._hive_tex_debug()` was the source of the later readback. The controlled result and stack absence support this attribution, while the attach-mode trace lacks app-owned presentation interval rows.
+- **High:** lane texture crop discovery was deterministic synchronous boot work; moving it to manifest metadata reduced median child-scene readiness by 66.390 ms without changing authority or lane geometry.
+- **High:** the remaining approximately 142 ms maximum boot frame is not explained by lane texture crop discovery alone.
 
 ## Recommended next work
 
 Preserve authoritative OpsState/SimState and all gameplay timing while continuing the audit:
 
-1. Stage unavoidable scene/resource/image preparation before Arena presentation, addressing the remaining approximately 142 ms warm boot-frame median and the multi-second synchronous construction boundary. Do not add a false loading delay; readiness must correspond to completed preparation.
-2. Add a bounded process-boundary probe around prematch completion, simulation activation, and the first few interactive `_process` callbacks to distinguish a real callback pause from a large Godot `delta` value if the 79.631 ms activation anomaly recurs.
-3. Keep the remaining production `get_image()` sites out of post-input paths. If another readback occurs, add bounded one-shot timing, then move required alpha/trim work to imported alpha-ready assets or precomputed metadata.
-4. Expand the variant validation set only if a release-level occurrence estimate is needed. The current three runs establish a clean targeted check but are not powered as a full comparative baseline.
+1. Add bounded markers around child renderer `_ready`, post-add deferred work, and first lane activity, then run one focused Time Profiler capture to identify the owner of the remaining approximately 142 ms maximum boot frame.
+2. Separately test an explicit match-scene readiness boundary. The threaded scene request currently gets a 900 ms allowance, while accepted runs require approximately 1082–1159 ms to report the resource loaded; avoid falling back to synchronous loading just before the threaded request completes.
+3. Add a bounded process-boundary probe around prematch completion, simulation activation, and the first few interactive `_process` callbacks to distinguish a real callback pause from a large Godot `delta` value if the 79.631 ms activation anomaly recurs.
+4. Keep the remaining production `get_image()` sites out of post-input paths. If another readback occurs, move required alpha/trim work to imported alpha-ready assets or precomputed metadata.
 
 Do not change target FPS, VSync, graphics defaults, simulation order, gameplay rules, map content, or state authority as part of subsequent smoothing work.
 
 ## Repository and artifact state
 
-The diagnostic collector and protocol remain as implemented in the diagnostic source commit. The readback smoothing change is committed as `108150f79045d711d593609ff543b1b49d91fb91`. Generated apps, JSON evidence, raw traces, and exported trace tables are intentionally Git-ignored. Rejected locked-device attempts are retained with `rejected-device-locked` in their names and must not be treated as evidence.
+The diagnostic collector and protocol remain as implemented in the diagnostic source commit. The readback smoothing change is committed as `108150f79045d711d593609ff543b1b49d91fb91`; the lane boot-metadata change is committed as `8b06970f23227e9e2cf216915cb3ce8ce9276376`. Generated apps, JSON evidence, raw traces, and exported trace tables are intentionally Git-ignored. Rejected locked-device or incomplete runtime attempts must not be treated as evidence.
 
 The original operating protocol remains in `docs/iphone_startup_hitch_diagnosis_sprint_2026-07-20.md`.
