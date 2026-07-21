@@ -19,6 +19,7 @@ const LaneVisualHierarchyScript: Script = preload("res://scripts/renderers/lane_
 const COLORKEY_SHADER := preload("res://shaders/sf_colorkey_alpha.gdshader")
 const LANE_BAND_SHADER := preload("res://shaders/lane_band.gdshader")
 const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
+const StartupHitchDiagnosticScript := preload("res://scripts/dev/startup_hitch_diagnostic.gd")
 
 @export var debug_lane_seg_overlay: bool = false
 @export var debug_draw_magenta_x: bool = false
@@ -171,6 +172,11 @@ var _lane_grab_edge_rail_b: Line2D = null
 var _buff_target_lane_probes: Dictionary = {}
 var _buff_target_lane_generation: int = 0
 var _buff_target_next_path_revision: int = 1
+var _startup_hitch_probe_active: bool = false
+var _startup_hitch_first_process_probed: bool = false
+var _startup_hitch_model_probe_count: int = 0
+var _startup_hitch_anchor_probe_count: int = 0
+var _startup_hitch_rebuild_probe_count: int = 0
 
 static func is_lane_visual_hierarchy_enabled() -> bool:
 	return bool(LaneVisualHierarchyScript.call("is_enabled"))
@@ -613,6 +619,7 @@ func _make_lane_segment_sprite(from: Vector2, to: Vector2, tex: Texture2D) -> Sp
 	return sprite
 
 func _ready() -> void:
+	_startup_hitch_probe_active = _startup_hitch_mark("lane_ready_started")
 	SFLog.allow_tag("RENDER_PROCESS_HEARTBEAT")
 	SFLog.allow_tag("RENDER_AUDIT_LANES")
 	SFLog.allow_tag("LANE_ENDPOINTS")
@@ -630,12 +637,18 @@ func _ready() -> void:
 	set_process(USE_LANE_SPRITES and show_lane_sprites)
 	_lane_candidates_visible = false
 	_request_rebuild("ready")
+	if _startup_hitch_probe_active:
+		_startup_hitch_mark("lane_ready_completed")
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_PREDELETE or what == NOTIFICATION_EXIT_TREE:
 		_clear_buff_target_lane_probes("renderer_teardown")
 
 func _process(delta: float) -> void:
+	var probe_first_process: bool = _startup_hitch_probe_active and not _startup_hitch_first_process_probed
+	if probe_first_process:
+		_startup_hitch_first_process_probed = true
+		_startup_hitch_mark("lane_first_process_started", {"delta_ms": snappedf(delta * 1000.0, 0.001)})
 	var process_t0_us: int = Time.get_ticks_usec()
 	if USE_LANE_SPRITES and show_lane_sprites:
 		_update_lane_visuals(delta)
@@ -646,6 +659,10 @@ func _process(delta: float) -> void:
 		queue_redraw()
 	_audit_render_maybe_flush()
 	_record_process_heartbeat(process_t0_us)
+	if probe_first_process:
+		_startup_hitch_mark("lane_first_process_completed", {
+			"duration_ms": snappedf(float(Time.get_ticks_usec() - process_t0_us) / 1000.0, 0.001)
+		})
 
 func _record_process_heartbeat(process_t0_us: int) -> void:
 	var now_ms: int = Time.get_ticks_msec()
@@ -705,6 +722,14 @@ func bind_state(state_ref: GameState) -> void:
 	queue_redraw()
 
 func set_model(rm: Dictionary) -> void:
+	var probe_index: int = _startup_hitch_model_probe_count + 1
+	var probe_model: bool = _startup_hitch_probe_active and probe_index <= 2 and _startup_hitch_mark(
+		"lane_set_model_%02d_started" % probe_index,
+		{"incoming_lane_count": _startup_hitch_lane_count(rm)}
+	)
+	if probe_model:
+		_startup_hitch_model_probe_count = probe_index
+	var probe_started_usec: int = Time.get_ticks_usec() if probe_model else 0
 	model = rm
 	var sample_sim_us: int = int(round(float(model.get("sim_time_s", 0.0)) * 1000000.0))
 	var map_id_for_cache: String = str(rm.get("map_id", rm.get("id", "")))
@@ -756,6 +781,11 @@ func set_model(rm: Dictionary) -> void:
 	var active_sig: String = _compute_active_lane_signature()
 	if active_sig != _last_sig:
 		_request_rebuild("state_changed")
+	if probe_model:
+		_startup_hitch_mark("lane_set_model_%02d_completed" % probe_index, {
+			"duration_ms": snappedf(float(Time.get_ticks_usec() - probe_started_usec) / 1000.0, 0.001),
+			"lane_count": _startup_hitch_lane_count(model)
+		})
 
 func set_hive_nodes(dict: Dictionary) -> void:
 	var next_sig: int = _compute_hive_nodes_sig(dict)
@@ -803,6 +833,14 @@ func _schedule_anchor_snapshot_rebuild(reason: String) -> void:
 	call_deferred("_rebuild_anchor_snapshot_deferred", reason)
 
 func _rebuild_anchor_snapshot_deferred(reason: String) -> void:
+	var probe_index: int = _startup_hitch_anchor_probe_count + 1
+	var probe_anchor: bool = _startup_hitch_probe_active and probe_index <= 2 and _startup_hitch_mark(
+		"lane_anchor_snapshot_%02d_started" % probe_index,
+		{"reason": reason, "hive_count": hive_nodes_by_id.size()}
+	)
+	if probe_anchor:
+		_startup_hitch_anchor_probe_count = probe_index
+	var probe_started_usec: int = Time.get_ticks_usec() if probe_anchor else 0
 	_pending_snapshot_rebuild = false
 	_anchor_world_by_hive_id.clear()
 	for key_any in hive_nodes_by_id.keys():
@@ -821,6 +859,11 @@ func _rebuild_anchor_snapshot_deferred(reason: String) -> void:
 		"count": _anchor_world_by_hive_id.size(),
 		"reason": reason
 	})
+	if probe_anchor:
+		_startup_hitch_mark("lane_anchor_snapshot_%02d_completed" % probe_index, {
+			"duration_ms": snappedf(float(Time.get_ticks_usec() - probe_started_usec) / 1000.0, 0.001),
+			"anchor_count": _anchor_world_by_hive_id.size()
+		})
 
 func mark_lane_changed(lane_id: int) -> void:
 	_last_changed_lane_id = lane_id
@@ -1560,11 +1603,24 @@ func _request_rebuild(reason: String) -> void:
 	call_deferred("_flush_rebuild")
 
 func _flush_rebuild() -> void:
+	var probe_index: int = _startup_hitch_rebuild_probe_count + 1
+	var probe_rebuild: bool = _startup_hitch_probe_active and probe_index <= 4 and _startup_hitch_mark(
+		"lane_rebuild_%02d_started" % probe_index,
+		{"reason": _rebuild_req_reason, "lane_count": _startup_hitch_lane_count(model)}
+	)
+	if probe_rebuild:
+		_startup_hitch_rebuild_probe_count = probe_index
+	var probe_started_usec: int = Time.get_ticks_usec() if probe_rebuild else 0
 	_rebuild_pending = false
 	_lane_endpoints_logged_this_rebuild = false
 	_anchor_proof_logged_this_rebuild = false
 	var sig := _compute_active_lane_signature()
 	if sig == _last_sig:
+		if probe_rebuild:
+			_startup_hitch_mark("lane_rebuild_%02d_completed" % probe_index, {
+				"duration_ms": snappedf(float(Time.get_ticks_usec() - probe_started_usec) / 1000.0, 0.001),
+				"skipped": true
+			})
 		return
 	_last_sig = sig
 	if AUDIT_RENDER or DEBUG_LANES:
@@ -1578,6 +1634,19 @@ func _flush_rebuild() -> void:
 			"unit_lift_y_px": EdgeVisual.UNIT_LIFT_Y_PX
 		}, "", 250)
 	_rebuild_lane_sprites_now()
+	if probe_rebuild:
+		_startup_hitch_mark("lane_rebuild_%02d_completed" % probe_index, {
+			"duration_ms": snappedf(float(Time.get_ticks_usec() - probe_started_usec) / 1000.0, 0.001),
+			"skipped": false,
+			"lane_node_count": _lane_nodes_by_key.size()
+		})
+
+func _startup_hitch_mark(marker_name: String, detail: Dictionary = {}) -> bool:
+	return StartupHitchDiagnosticScript.mark_tree_event(get_tree(), marker_name, detail)
+
+func _startup_hitch_lane_count(source: Dictionary) -> int:
+	var lanes_any: Variant = source.get("lanes", [])
+	return (lanes_any as Array).size() if typeof(lanes_any) == TYPE_ARRAY else 0
 
 func _compute_active_lane_signature() -> String:
 	var parts: Array[String] = []

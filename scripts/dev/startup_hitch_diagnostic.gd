@@ -11,6 +11,31 @@ const MAX_HITCHES: int = 64
 const GROUP_NAME: StringName = &"startup_hitch_diagnostic"
 const PerfIsolationGuard := preload("res://scripts/tests/perf/perf_isolation_guard.gd")
 
+const READY_PROBE_LABEL_BY_SCRIPT: Dictionary = {
+	"res://scripts/renderers/floor_renderer.gd": "floor_renderer",
+	"res://scripts/renderers/arena_polish_layer.gd": "arena_polish_layer",
+	"res://scripts/renderers/tower_ground_glow_renderer.gd": "tower_ground_glow_renderer",
+	"res://scripts/renderers/barracks_ground_glow_renderer.gd": "barracks_ground_glow_renderer",
+	"res://scripts/renderers/lane_renderer.gd": "lane_renderer",
+	"res://scripts/renderers/tower_renderer.gd": "tower_renderer",
+	"res://scripts/renderers/barracks_renderer.gd": "barracks_renderer",
+	"res://scripts/renderers/hive_renderer.gd": "hive_renderer",
+	"res://scripts/renderers/unit_renderer.gd": "unit_renderer",
+	"res://scripts/renderers/wall_renderer.gd": "wall_renderer"
+}
+const READY_PROBE_NODE_NAMES: Dictionary = {
+	"FloorRenderer": true,
+	"ArenaPolishLayer": true,
+	"TowerGroundGlowRenderer": true,
+	"BarracksGroundGlowRenderer": true,
+	"LaneRenderer": true,
+	"TowerRenderer": true,
+	"BarracksRenderer": true,
+	"HiveRenderer": true,
+	"UnitRenderer": true,
+	"WallRenderer": true
+}
+
 const MARKER_ORDER: Array[String] = [
 	"diagnostic_invoked",
 	"match_scene_load_requested",
@@ -83,6 +108,8 @@ var _maximum_observed_frame_ms: float = 0.0
 var _maximum_observed_tick_ms: float = 0.0
 var _protected_state_before_hash: String = ""
 var _protected_state_after_hash: String = ""
+var _tree_probe_connected: bool = false
+var _post_add_probe_scheduled: bool = false
 
 
 static func activation_check(is_debug_build: bool, args: Array) -> Dictionary:
@@ -101,6 +128,19 @@ static func requested_for_current_debug_process() -> bool:
 	return bool(activation_check(OS.is_debug_build(), OS.get_cmdline_user_args()).get("allowed", false))
 
 
+static func mark_tree_event(tree: SceneTree, marker_name: String, detail: Dictionary = {}) -> bool:
+	if tree == null or marker_name.is_empty():
+		return false
+	var diagnostic_nodes: Array[Node] = tree.get_nodes_in_group(GROUP_NAME)
+	if diagnostic_nodes.is_empty():
+		return false
+	var diagnostic: Node = diagnostic_nodes.back()
+	if diagnostic == null or not is_instance_valid(diagnostic) or not diagnostic.has_method("mark_event"):
+		return false
+	diagnostic.call("mark_event", marker_name, detail)
+	return true
+
+
 func configure(config: Dictionary) -> bool:
 	if not OS.is_debug_build():
 		return false
@@ -117,6 +157,7 @@ func configure(config: Dictionary) -> bool:
 	_active = true
 	_completed = false
 	add_to_group(GROUP_NAME)
+	_arm_tree_probes()
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	set_process(true)
 	mark_once("diagnostic_invoked", {
@@ -163,6 +204,9 @@ func mark_event(marker_name: String, detail: Dictionary = {}) -> void:
 		"simulation_tick": _simulation_tick(),
 		"detail": detail.duplicate(true)
 	})
+	if marker_name == "match_scene_added" and not _post_add_probe_scheduled:
+		_post_add_probe_scheduled = true
+		call_deferred("_record_post_add_deferred_queue_drained")
 
 
 func record_sim_tick(tick_ms: float, phase_timings: Dictionary, simulation_tick: int) -> void:
@@ -192,6 +236,7 @@ func complete(reason: String = "completed") -> Dictionary:
 	_completed = true
 	_active = false
 	set_process(false)
+	_disarm_tree_probes()
 	_protected_state_after_hash = PerfIsolationGuard.protected_state_hash(get_tree())
 	_report = _build_report(reason)
 	_write_report(_report)
@@ -202,6 +247,66 @@ func complete(reason: String = "completed") -> Dictionary:
 		_count_interactive_hitches()
 	])
 	return _report.duplicate(true)
+
+
+func _arm_tree_probes() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null or _tree_probe_connected:
+		return
+	var callback := Callable(self, "_on_tree_node_added")
+	if not tree.node_added.is_connected(callback):
+		tree.node_added.connect(callback)
+	_tree_probe_connected = true
+
+
+func _disarm_tree_probes() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null or not _tree_probe_connected:
+		return
+	var callback := Callable(self, "_on_tree_node_added")
+	if tree.node_added.is_connected(callback):
+		tree.node_added.disconnect(callback)
+	_tree_probe_connected = false
+
+
+func _on_tree_node_added(node: Node) -> void:
+	if not _active or _completed or node == null:
+		return
+	if not READY_PROBE_NODE_NAMES.has(str(node.name)):
+		return
+	var script: Script = node.get_script() as Script
+	if script == null:
+		return
+	var script_path: String = script.resource_path
+	var label: String = str(READY_PROBE_LABEL_BY_SCRIPT.get(script_path, ""))
+	if label.is_empty():
+		return
+	var marker_name: String = "%s_ready_completed" % label
+	var path: String = str(node.get_path()) if node.is_inside_tree() else str(node.name)
+	var callback := Callable(self, "_on_probed_node_ready").bind(marker_name, path, script_path)
+	if not node.ready.is_connected(callback):
+		node.ready.connect(callback, CONNECT_ONE_SHOT)
+
+
+func _on_probed_node_ready(marker_name: String, path: String, script_path: String) -> void:
+	mark_once(marker_name, {
+		"path": path,
+		"script": script_path
+	})
+
+
+func _record_post_add_deferred_queue_drained() -> void:
+	if not _active or _completed:
+		return
+	mark_once("post_add_deferred_queue_drained")
+	await get_tree().process_frame
+	if not _active or _completed:
+		return
+	mark_once("post_add_first_process_frame_completed")
+	await get_tree().process_frame
+	if not _active or _completed:
+		return
+	mark_once("post_add_second_process_frame_completed")
 
 
 func report_snapshot() -> Dictionary:

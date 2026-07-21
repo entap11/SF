@@ -27,6 +27,10 @@ func _run() -> void:
 		"route": "smoke"
 	})), "debug diagnostic should configure")
 	diagnostic.set_process(false)
+	_expect(
+		StartupHitchDiagnosticScript.mark_tree_event(self, "static_tree_probe", {"source": "smoke"}),
+		"renderers should be able to publish bounded diagnostic markers through the tree helper"
+	)
 	diagnostic.call("mark_once", "match_scene_load_requested", {"source": "smoke"})
 	diagnostic.call("_process", 0.016)
 	diagnostic.call("_process", 0.051)
@@ -37,6 +41,7 @@ func _run() -> void:
 	_expect(str(report.get("status", "")) == "COMPLETE", "report must complete")
 	_expect(bool((report.get("protected_state_integrity", {}) as Dictionary).get("pass", false)), "diagnostic must not mutate protected state")
 	_expect((report.get("markers", []) as Array).size() >= 5, "report must contain bounded startup markers")
+	_expect((report.get("markers", []) as Array).size() <= StartupHitchDiagnosticScript.MAX_MARKERS, "startup markers must remain capped")
 	var hitches: Array = report.get("hitches", []) as Array
 	_expect(hitches.size() == 2, "one rendered-frame and one tick hitch should be captured")
 	if hitches.size() == 2:
