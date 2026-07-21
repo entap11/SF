@@ -76,6 +76,7 @@ var _current_tick_phase_costs: Dictionary = {}
 var _last_tick_phase_costs: Dictionary = {}
 var _last_tick_hotspot_phase: String = ""
 var _last_tick_hotspot_ms: float = 0.0
+var _startup_hitch_diagnostic_node: Node = null
 
 func _ready() -> void:
 	set_process(true)
@@ -100,8 +101,21 @@ func _ready() -> void:
 		SFLog.allow_tag("SIM_TICK_PHASE")
 		SFLog.allow_tag("UNIT_ARRIVED")
 	_ensure_systems()
+	if OS.is_debug_build() and OS.get_cmdline_user_args().has("--startup-hitch-diagnostic"):
+		var diagnostic_nodes: Array[Node] = get_tree().get_nodes_in_group(&"startup_hitch_diagnostic")
+		_startup_hitch_diagnostic_node = diagnostic_nodes.back() if not diagnostic_nodes.is_empty() else null
 	_schedule_bind_structures("ready")
 	# Arena binds the authoritative OpsState-owned GameState via bind_state().
+
+
+func _startup_hitch_diagnostic() -> Node:
+	return _startup_hitch_diagnostic_node if is_instance_valid(_startup_hitch_diagnostic_node) else null
+
+
+func _startup_hitch_mark(marker_name: String, detail: Dictionary = {}) -> void:
+	var diagnostic: Node = _startup_hitch_diagnostic()
+	if diagnostic != null and diagnostic.has_method("mark_once"):
+		diagnostic.call("mark_once", marker_name, detail)
 
 func _ensure_systems() -> void:
 	if lane_system == null:
@@ -451,6 +465,7 @@ func _unhandled_input(event: InputEvent) -> void:
 func _tick(dt: float) -> void:
 	if state_ref == null:
 		return
+	_startup_hitch_mark("first_canonical_tick_started", {"simulation_tick_before": int(state_ref.tick)})
 	_current_tick_phase_costs.clear()
 	var tick_t0_us: int = Time.get_ticks_usec()
 	_log_sim_tick()
@@ -554,6 +569,9 @@ func _log_sim_tick() -> void:
 func _finalize_tick_profile(tick_t0_us: int) -> void:
 	var tick_ms: float = float(Time.get_ticks_usec() - tick_t0_us) / 1000.0
 	_finalize_phase_profile()
+	var startup_diagnostic: Node = _startup_hitch_diagnostic()
+	if startup_diagnostic != null and startup_diagnostic.has_method("record_sim_tick"):
+		startup_diagnostic.call("record_sim_tick", tick_ms, _last_tick_phase_costs.duplicate(true), int(state_ref.tick) if state_ref != null else -1)
 	if debug_sim_tick_log and tick_ms >= 5.0:
 		SFLog.warn("SIM_TICK_COST", {"dt_ms": snapped(tick_ms, 0.1)})
 	var now_ms: int = Time.get_ticks_msec()

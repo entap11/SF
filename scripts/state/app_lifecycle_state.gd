@@ -20,6 +20,10 @@ var _focus_lost_count: int = 0
 var _focus_gained_count: int = 0
 var _perf_harness_isolation: bool = false
 
+func _enter_tree() -> void:
+	if OS.is_debug_build() and OS.get_cmdline_user_args().has("--startup-hitch-diagnostic"):
+		_perf_harness_isolation = true
+
 func _notification(what: int) -> void:
 	handle_lifecycle_notification(what)
 
@@ -43,6 +47,9 @@ func handle_lifecycle_notification(what: int) -> bool:
 
 func set_perf_harness_isolation(enabled: bool) -> bool:
 	if not OS.is_debug_build():
+		return false
+	if not enabled and OS.get_cmdline_user_args().has("--startup-hitch-diagnostic"):
+		_perf_harness_isolation = true
 		return false
 	var tree: SceneTree = get_tree()
 	if enabled and (tree == null or not bool(tree.get_meta("sf_perf_harness_active", false))):

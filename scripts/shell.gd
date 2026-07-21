@@ -17,6 +17,7 @@ const BuffTargetingRuntimeGate := preload("res://scripts/shell_helpers/buff_targ
 const BuffTargetingPresentationConfig := preload("res://scripts/renderers/buff_targeting_presentation_config.gd")
 const BuffTargetingDeviceEvidenceCollectorScript := preload("res://scripts/dev/buff_targeting_device_evidence_collector.gd")
 const BuffTargetingDeviceHeavyFixtureScript := preload("res://scripts/dev/buff_targeting_device_heavy_fixture.gd")
+const StartupHitchDiagnosticScript := preload("res://scripts/dev/startup_hitch_diagnostic.gd")
 const TelemetryDashboardPanelScript := preload("res://scripts/ui/telemetry_dashboard_panel.gd")
 const PvpDebugOverlayScript: Script = preload("res://scripts/ui/pvp_debug_overlay.gd")
 const AdSurfaceScript: Script = preload("res://scripts/ui/ad_surface.gd")
@@ -154,6 +155,8 @@ static var _shell_ready_count: int = 0
 static var _shell_exit_count: int = 0
 
 var _arena_instance: Node = null
+var _startup_hitch_diagnostic: Node = null
+var _startup_hitch_analytics_isolated: bool = false
 var _dev_loader: CanvasItem = null
 var _dev_map_loader: CanvasItem = null
 var _last_power_bar_visible: int = -1
@@ -856,6 +859,7 @@ func _resolve_dev_map_loader_node() -> Node:
 	return _dev_loader
 
 func _exit_tree() -> void:
+	_finish_startup_hitch_diagnostic("shell_exit")
 	cancel_buff_pointer_session("shell_scene_exit")
 	_shell_exit_count += 1
 	_map_prewarm_generation += 1
@@ -1320,6 +1324,7 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 		tree.set_meta(TREE_META_TUTORIAL_SECTION, clean_tutorial_section)
 	_hide_arena_for_map_transition()
 	_request_match_scene_preload()
+	_startup_hitch_mark("map_prewarm_requested", {"map_path": map_path})
 	_request_map_prewarm(map_path)
 	await _wait_for_launch_prewarm(map_path, 900)
 	if _arena_instance == null:
@@ -1462,6 +1467,7 @@ func _apply_map_direct_to_arena(map_path: String) -> bool:
 		return false
 	var arena: Node2D = arena_node as Node2D
 	var result: Dictionary = _map_prewarm_result_for_path(map_path)
+	var model_source: String = "prewarmed" if not result.is_empty() else "synchronous_fallback"
 	if result.is_empty():
 		result = MAP_LOADER.load_map(map_path)
 	if not bool(result.get("ok", false)):
@@ -1474,8 +1480,14 @@ func _apply_map_direct_to_arena(map_path: String) -> bool:
 			"err": str(result.get("err", "unknown"))
 		})
 		return false
+	_startup_hitch_mark("map_model_ready", {"map_path": map_path, "source": model_source})
 	var model: Dictionary = result.get("data", {}) as Dictionary
+	_startup_hitch_mark("map_application_started", {"map_path": map_path})
 	MAP_APPLIER.apply_map(arena, model)
+	_startup_hitch_mark("map_application_completed", {
+		"map_path": map_path,
+		"hive_count": int((model.get("hives", []) as Array).size()) if typeof(model.get("hives", [])) == TYPE_ARRAY else -1
+	})
 	if arena.has_method("notify_map_built"):
 		arena.call("notify_map_built")
 	if arena.has_method("apply_camera_fit_next_frame"):
@@ -1509,21 +1521,26 @@ func _get_hive_count() -> int:
 func _ensure_game_instance() -> void:
 	if _arena_instance != null:
 		return
+	_startup_hitch_mark("match_scene_load_requested", {"path": game_scene_path, "source": "preload_or_cached"})
 	_request_match_scene_preload()
 	var packed := _get_preloaded_match_scene()
 	if packed == null:
+		_startup_hitch_mark("match_scene_load_requested", {"path": game_scene_path, "source": "synchronous_fallback"})
 		packed = load(game_scene_path) as PackedScene
 	if packed == null:
 		if SFLog.LOGGING_ENABLED:
 			push_error("SHELL: game_scene_path invalid: %s" % game_scene_path)
 		return
+	_startup_hitch_mark("match_scene_resource_loaded", {"path": game_scene_path})
 	var inst := packed.instantiate()
+	_startup_hitch_mark("match_scene_instantiated", {"path": game_scene_path})
 	_arena_instance = inst
 	if inst.has_method("start_game"):
 		inst.set("start_in_menu", true)
 		inst.set("enable_dev_map_loader", enable_dev_map_loader)
 		inst.set("show_dev_map_loader_in_game", show_dev_map_loader_in_game)
 	arena_root.add_child(inst)
+	_startup_hitch_mark("match_scene_added", {"path": game_scene_path})
 	var hud_layer: CanvasLayer = get_node_or_null("/root/Shell/HUDCanvasLayer") as CanvasLayer
 	var world_layer: CanvasLayer = inst.get_node_or_null("WorldCanvasLayer") as CanvasLayer
 	if hud_layer != null and world_layer != null and hud_layer.layer <= world_layer.layer:
@@ -1572,6 +1589,7 @@ func _stabilize_shell_camera_presentation() -> void:
 	await get_tree().process_frame
 	if arena_root != null:
 		arena_root.modulate.a = 1.0
+	_startup_hitch_mark("arena_presentation_visible")
 
 func _configure_shell_world_viewport_opening() -> void:
 	if _arena_instance == null:
@@ -4098,8 +4116,86 @@ func _shell_display_name_for_seat(seat: int) -> String:
 			return local_name
 	return "P%d" % seat_id
 
+
+func _startup_hitch_mark(marker_name: String, detail: Dictionary = {}) -> void:
+	if _startup_hitch_diagnostic == null or not is_instance_valid(_startup_hitch_diagnostic):
+		return
+	if _startup_hitch_diagnostic.has_method("mark_once"):
+		_startup_hitch_diagnostic.call("mark_once", marker_name, detail)
+
+
+func _begin_startup_hitch_diagnostic(config: Dictionary, map_path: String) -> bool:
+	if not OS.is_debug_build() or _startup_hitch_diagnostic != null:
+		return false
+	var tree: SceneTree = get_tree()
+	if tree == null or tree.root == null:
+		return false
+	tree.set_meta("sf_perf_harness_active", true)
+	var analytics: Node = tree.root.get_node_or_null("/root/AnalyticsClient")
+	if analytics == null \
+	or not analytics.has_method("set_perf_harness_isolation") \
+	or not bool(analytics.call("set_perf_harness_isolation", true)):
+		tree.remove_meta("sf_perf_harness_active")
+		push_error("STARTUP_HITCH_DIAGNOSTIC_REFUSED reason=analytics_isolation_unavailable")
+		return false
+	var app_lifecycle: Node = tree.root.get_node_or_null("/root/AppLifecycle")
+	if app_lifecycle == null \
+	or not app_lifecycle.has_method("set_perf_harness_isolation") \
+	or not bool(app_lifecycle.call("set_perf_harness_isolation", true)):
+		tree.remove_meta("sf_perf_harness_active")
+		push_error("STARTUP_HITCH_DIAGNOSTIC_REFUSED reason=lifecycle_isolation_unavailable")
+		return false
+	_startup_hitch_analytics_isolated = true
+	var diagnostic: Node = StartupHitchDiagnosticScript.new()
+	diagnostic.name = "StartupHitchDiagnostic"
+	tree.root.add_child(diagnostic)
+	var diagnostic_config: Dictionary = {
+		"route": "Shell._run_soak_perf",
+		"map_path": map_path,
+		"window_seconds": float(config.get("startup_hitch_window_seconds", StartupHitchDiagnosticScript.DEFAULT_WINDOW_SECONDS)),
+		"output_path": str(config.get("startup_hitch_output", StartupHitchDiagnosticScript.DEFAULT_OUTPUT_PATH)),
+		"launch_classification": str(config.get("startup_hitch_launch", "unspecified")),
+		"source_commit": str(config.get("startup_hitch_source_commit", "unavailable")),
+		"build_label": str(config.get("startup_hitch_build_label", "unavailable")),
+		"git_clean_state": "record_externally_at_build_time",
+		"backend_policy": "deny_all_while_sf_perf_harness_active",
+		"analytics_isolation": true,
+		"app_lifecycle_isolation": true,
+		"attribution_variant": "production_timing"
+	}
+	if not bool(diagnostic.call("configure", diagnostic_config)):
+		diagnostic.queue_free()
+		if _startup_hitch_analytics_isolated:
+			analytics.call("set_perf_harness_isolation", false)
+		_startup_hitch_analytics_isolated = false
+		tree.remove_meta("sf_perf_harness_active")
+		return false
+	_startup_hitch_diagnostic = diagnostic
+	SFLog.allow_tag("STARTUP_HITCH_DIAGNOSTIC")
+	SFLog.info("STARTUP_HITCH_DIAGNOSTIC", {
+		"status": "armed",
+		"map_path": map_path,
+		"window_seconds": diagnostic_config.get("window_seconds"),
+		"launch_classification": diagnostic_config.get("launch_classification")
+	})
+	return true
+
+
+func _finish_startup_hitch_diagnostic(reason: String) -> void:
+	if _startup_hitch_diagnostic != null and is_instance_valid(_startup_hitch_diagnostic):
+		if _startup_hitch_diagnostic.has_method("complete"):
+			_startup_hitch_diagnostic.call("complete", reason)
+	# This route always terminates the dedicated process. Preserve backend and
+	# analytics isolation through match teardown and autoload exit.
+
 func _maybe_start_soak_perf() -> bool:
-	var config: Dictionary = _parse_soak_perf_config(OS.get_cmdline_user_args())
+	var user_args: Array = OS.get_cmdline_user_args()
+	var activation: Dictionary = StartupHitchDiagnosticScript.activation_check(OS.is_debug_build(), user_args)
+	if bool(activation.get("requested", false)) and not bool(activation.get("allowed", false)):
+		push_error("STARTUP_HITCH_DIAGNOSTIC_REFUSED reason=%s" % str(activation.get("reason", "unknown")))
+		get_tree().quit(2)
+		return true
+	var config: Dictionary = _parse_soak_perf_config(user_args)
 	if not bool(config.get("enabled", false)):
 		return false
 	call_deferred("_run_soak_perf", config)
@@ -4114,7 +4210,13 @@ func _parse_soak_perf_config(args: Array) -> Dictionary:
 		"pairs": SOAK_DEFAULT_PAIR_COUNT,
 		"reapply_ms": SOAK_DEFAULT_REAPPLY_MS,
 		"start_timeout_ms": SOAK_DEFAULT_START_TIMEOUT_MS,
-		"profile_sim": false
+		"profile_sim": false,
+		"startup_hitch_diagnostic": false,
+		"startup_hitch_output": StartupHitchDiagnosticScript.DEFAULT_OUTPUT_PATH,
+		"startup_hitch_window_seconds": StartupHitchDiagnosticScript.DEFAULT_WINDOW_SECONDS,
+		"startup_hitch_launch": "unspecified",
+		"startup_hitch_source_commit": "unavailable",
+		"startup_hitch_build_label": "unavailable"
 	}
 	for arg_any in args:
 		var arg: String = str(arg_any)
@@ -4134,6 +4236,19 @@ func _parse_soak_perf_config(args: Array) -> Dictionary:
 			config["start_timeout_ms"] = max(1000, int(arg.trim_prefix("--soak-start-timeout-ms=")))
 		elif arg == "--soak-sim-profile":
 			config["profile_sim"] = true
+		elif arg == "--startup-hitch-diagnostic":
+			config["startup_hitch_diagnostic"] = true
+		elif arg.begins_with("--startup-hitch-output="):
+			config["startup_hitch_output"] = arg.trim_prefix("--startup-hitch-output=").strip_edges()
+		elif arg.begins_with("--startup-hitch-window-seconds="):
+			config["startup_hitch_window_seconds"] = clampf(float(arg.trim_prefix("--startup-hitch-window-seconds=")), 5.0, 60.0)
+		elif arg.begins_with("--startup-hitch-launch="):
+			var launch_kind: String = arg.trim_prefix("--startup-hitch-launch=").strip_edges().to_lower()
+			config["startup_hitch_launch"] = launch_kind if launch_kind in ["cold", "warm"] else "unspecified"
+		elif arg.begins_with("--startup-hitch-source-commit="):
+			config["startup_hitch_source_commit"] = arg.trim_prefix("--startup-hitch-source-commit=").strip_edges()
+		elif arg.begins_with("--startup-hitch-build-label="):
+			config["startup_hitch_build_label"] = arg.trim_prefix("--startup-hitch-build-label=").strip_edges()
 	return config
 
 func _run_soak_perf(config: Dictionary) -> void:
@@ -4162,6 +4277,12 @@ func _run_soak_perf(config: Dictionary) -> void:
 		SFLog.force_enable(prev_logging_enabled)
 		get_tree().quit(1)
 		return
+	if bool(config.get("startup_hitch_diagnostic", false)):
+		if not _begin_startup_hitch_diagnostic(config, map_path):
+			SFLog.LOG_LEVEL = prev_log_level
+			SFLog.force_enable(prev_logging_enabled)
+			get_tree().quit(2)
+			return
 	var soak_seconds: int = int(config.get("seconds", SOAK_DEFAULT_SECONDS))
 	var round_seconds: int = int(config.get("round_seconds", SOAK_DEFAULT_ROUND_SECONDS))
 	var pair_count: int = int(config.get("pairs", SOAK_DEFAULT_PAIR_COUNT))
@@ -4178,6 +4299,7 @@ func _run_soak_perf(config: Dictionary) -> void:
 	var boot_running_ok: bool = await _mvp_wait_for_phase(int(OpsState.MatchPhase.RUNNING), start_timeout_ms)
 	if not boot_running_ok:
 		SFLog.warn("SOAK_ERROR", {"round": 0, "reason": "initial_match_not_running"})
+		_finish_startup_hitch_diagnostic("initial_match_not_running")
 		SFLog.LOG_LEVEL = prev_log_level
 		SFLog.force_enable(prev_logging_enabled)
 		get_tree().quit(1)
@@ -4209,6 +4331,7 @@ func _run_soak_perf(config: Dictionary) -> void:
 		"failed_rounds": failed_rounds,
 		"elapsed_s": snapped(float(elapsed_ms) / 1000.0, 0.1)
 	})
+	_finish_startup_hitch_diagnostic("soak_completed")
 	SFLog.LOG_LEVEL = prev_log_level
 	SFLog.force_enable(prev_logging_enabled)
 	_stop_game()

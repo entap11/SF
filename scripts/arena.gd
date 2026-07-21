@@ -576,9 +576,14 @@ var _lifecycle_local_pause_active: bool = false
 var _lifecycle_local_pause_sim_was_running: bool = false
 var _lifecycle_local_pause_reason: String = ""
 
+func _enter_tree() -> void:
+	_startup_hitch_mark("arena_enter_tree")
+
+
 func _ready() -> void:
 	if Engine.is_editor_hint():
 		return
+	_startup_hitch_mark("arena_ready_entered")
 	_buff_presentation_epoch = "%d:%d" % [get_instance_id(), Time.get_ticks_usec()]
 	_restore_buff_activation_runtime_state()
 	_allow_camfit_log_tags()
@@ -707,6 +712,21 @@ func _ready() -> void:
 	_dump_tree_with_scripts("/root/DevMapRunner")
 	# (moved to top of _ready())
 	_list_canvasitems_with_scripts("/root/DevMapRunner/Arena")
+	_startup_hitch_mark("arena_ready_completed")
+
+
+func _startup_hitch_diagnostic() -> Node:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return null
+	var nodes: Array[Node] = tree.get_nodes_in_group(&"startup_hitch_diagnostic")
+	return nodes.back() if not nodes.is_empty() else null
+
+
+func _startup_hitch_mark(marker_name: String, detail: Dictionary = {}) -> void:
+	var diagnostic: Node = _startup_hitch_diagnostic()
+	if diagnostic != null and diagnostic.has_method("mark_event"):
+		diagnostic.call("mark_event", marker_name, detail)
 
 func _configure_map_hex_background() -> void:
 	_ensure_map_mm_background_art()
@@ -4396,6 +4416,7 @@ func _finish_prematch() -> void:
 		_audit_ops_write("input_locked_reason", "Arena._finish_prematch")
 		OpsState.input_locked_reason = ""
 	)
+	_startup_hitch_mark("prematch_completed")
 	if _prematch_overlay != null:
 		_prematch_overlay.visible = false
 	if _prematch_identity_card != null:
@@ -4403,6 +4424,7 @@ func _finish_prematch() -> void:
 	_clear_prematch_pulses()
 	_arm_camera_transition_lock("prematch_to_running")
 	_start_match_sim("prematch_complete")
+	_startup_hitch_mark("player_input_unlocked")
 	SFLog.warn("INPUT_UNLOCKED", {"reason": "prematch_complete"})
 
 func _begin_power_bar_reveal() -> void:
@@ -4415,9 +4437,17 @@ func _prewarm_render_assets() -> void:
 	_render_assets_prewarmed = true
 	var prewarm_t0_us: int = Time.get_ticks_usec()
 	if unit_renderer != null and unit_renderer.has_method("prewarm_pool"):
+		_startup_hitch_mark("unit_pool_prewarm_started")
 		unit_renderer.call("prewarm_pool")
+		_startup_hitch_mark("unit_pool_prewarm_completed", {
+			"pool": unit_renderer.call("get_pool_telemetry_snapshot") if unit_renderer.has_method("get_pool_telemetry_snapshot") else {}
+		})
 	if vfx_manager != null and vfx_manager.has_method("prewarm"):
+		_startup_hitch_mark("vfx_pool_prewarm_started")
 		vfx_manager.call("prewarm")
+		_startup_hitch_mark("vfx_pool_prewarm_completed", {
+			"pool": vfx_manager.call("get_pool_telemetry_snapshot") if vfx_manager.has_method("get_pool_telemetry_snapshot") else {}
+		})
 	var duration_ms: float = float(Time.get_ticks_usec() - prewarm_t0_us) / 1000.0
 	_publish_pool_runtime_telemetry({"match_prewarm_duration_ms": snappedf(duration_ms, 0.01)})
 
@@ -4469,6 +4499,7 @@ func _pool_runtime_telemetry_snapshot() -> Dictionary:
 func _start_match_sim(reason: String) -> void:
 	if _match_started:
 		return
+	_startup_hitch_mark("simulation_activation_requested", {"reason": reason})
 	_match_started = true
 	_post_match_analysis_summary.clear()
 	_post_match_stats_snapshot.clear()
@@ -8234,6 +8265,39 @@ func _authoritative_runtime_counts_snapshot() -> Dictionary:
 		"units_by_owner": units_by_owner,
 		"units_by_lane_count": units_by_lane_count
 	}
+
+
+func startup_hitch_diagnostic_snapshot() -> Dictionary:
+	var authority_counts: Dictionary = _authoritative_runtime_counts_snapshot()
+	if state != null:
+		authority_counts["hive_count"] = state.hives.size()
+		authority_counts["tower_count"] = state.towers.size()
+		authority_counts["barracks_count"] = state.barracks.size()
+	else:
+		authority_counts["hive_count"] = 0
+		authority_counts["tower_count"] = 0
+		authority_counts["barracks_count"] = 0
+	authority_counts["projectile_count"] = null
+	authority_counts["projectile_count_availability"] = "not_exposed_by_authoritative_state"
+	return {
+		"presentation_visible": _startup_hitch_effectively_visible(),
+		"prematch_overlay_visible": _prematch_overlay != null and is_instance_valid(_prematch_overlay) and _prematch_overlay.visible,
+		"authority_counts": authority_counts,
+		"pool_telemetry": _pool_runtime_telemetry_snapshot(),
+		"shader_material_warmup_state": "completed" if _render_assets_prewarmed else "not_started"
+	}
+
+
+func _startup_hitch_effectively_visible() -> bool:
+	if not is_inside_tree() or not is_visible_in_tree():
+		return false
+	var alpha: float = 1.0
+	var current: Node = self
+	while current != null:
+		if current is CanvasItem:
+			alpha *= (current as CanvasItem).modulate.a
+		current = current.get_parent()
+	return alpha > 0.01
 
 func _runtime_telemetry_overlay_enabled() -> bool:
 	if not show_runtime_telemetry_overlay:
