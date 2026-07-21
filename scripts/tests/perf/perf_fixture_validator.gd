@@ -3,9 +3,20 @@ extends RefCounted
 
 const MapLoader := preload("res://scripts/maps/map_loader.gd")
 
-const SUPPORTED_MODES: Array[String] = ["canonical_sim_headless", "layer_isolation_noncanonical", "render_windowed"]
+const SUPPORTED_MODES: Array[String] = [
+	"canonical_sim_headless",
+	"deterministic_windowed_presentation",
+	"static_windowed_deterministic",
+	"layer_isolation_noncanonical",
+	"render_windowed"
+]
 const SUPPORTED_FIXTURE_VERSIONS: Array[int] = [1]
-const SUPPORTED_COMMAND_KINDS: Array[String] = ["lane_intent_pair", "swarm_active_lane"]
+const SUPPORTED_COMMAND_KINDS: Array[String] = [
+	"lane_intent_pair",
+	"swarm_active_lane",
+	"exact_lane_intent",
+	"exact_swarm_intent"
+]
 const MAX_DURATION_SEC: float = 600.0
 const REQUIRED_GATE_KEYS: Array[String] = [
 	"target_fps",
@@ -53,6 +64,8 @@ static func validate_gate_config(gates: Dictionary) -> Dictionary:
 			errors.append("gate %s must be numeric" % key)
 		elif gates.has(key) and float(gates.get(key)) <= 0.0:
 			errors.append("gate %s must be greater than zero" % key)
+	if gates.has("hitch_threshold_ms") and (not _is_number(gates.get("hitch_threshold_ms")) or float(gates.get("hitch_threshold_ms", 0.0)) <= 0.0):
+		errors.append("gate hitch_threshold_ms must be a positive number when present")
 	for key in ["max_hitches", "warn_regression_percent", "fail_regression_percent"]:
 		if gates.has(key) and not _is_number(gates.get(key)):
 			errors.append("gate %s must be numeric" % key)
@@ -125,14 +138,102 @@ static func static_preflight(scenario: Dictionary, execution_mode: String) -> Di
 					errors.append("lane_intent_pair intent must be attack or feed")
 			elif command_kind == "swarm_active_lane" and command.has("salt") and not _is_number(command.get("salt")):
 				errors.append("swarm_active_lane salt must be numeric when present")
+			elif command_kind in ["exact_lane_intent", "exact_swarm_intent"]:
+				if not _is_number(command.get("src")) or int(command.get("src", 0)) <= 0:
+					errors.append("%s src must be a positive number" % command_kind)
+				if not _is_number(command.get("dst")) or int(command.get("dst", 0)) <= 0:
+					errors.append("%s dst must be a positive number" % command_kind)
+				elif int(command.get("src", 0)) == int(command.get("dst", 0)):
+					errors.append("%s src and dst must differ" % command_kind)
+				if command_kind == "exact_lane_intent" and not ["attack", "feed"].has(str(command.get("intent", ""))):
+					errors.append("exact_lane_intent intent must be attack or feed")
 	var camera_schedule_any: Variant = scenario.get("camera_schedule", [])
+	var cadence_any: Variant = scenario.get("cadence", {})
+	var scheduled_frame_limit: int = 0
+	if typeof(cadence_any) == TYPE_DICTIONARY:
+		var cadence: Dictionary = cadence_any as Dictionary
+		scheduled_frame_limit = int(cadence.get("warmup_frames", 0)) + int(cadence.get("measurement_frames", 0))
 	if typeof(camera_schedule_any) != TYPE_ARRAY:
 		errors.append("camera_schedule must be an Array when present")
-	elif not (camera_schedule_any as Array).is_empty():
-		errors.append("camera_schedule entries are not supported by Phase 0 fixtures")
+	else:
+		for camera_any in camera_schedule_any as Array:
+			if typeof(camera_any) != TYPE_DICTIONARY:
+				errors.append("every camera_schedule entry must be a Dictionary")
+				continue
+			var camera_entry: Dictionary = camera_any as Dictionary
+			if not _is_number(camera_entry.get("frame")) or int(camera_entry.get("frame", 0)) <= 0:
+				errors.append("camera_schedule frame must be positive")
+			elif scheduled_frame_limit <= 0 or int(camera_entry.get("frame", 0)) > scheduled_frame_limit:
+				errors.append("camera_schedule frame exceeds the deterministic cadence")
+			var position_any: Variant = camera_entry.get("position", [])
+			var zoom_any: Variant = camera_entry.get("zoom", [])
+			if not _numeric_pair(position_any):
+				errors.append("camera_schedule position must be a numeric pair")
+			if not _numeric_pair(zoom_any) or float((zoom_any as Array)[0]) <= 0.0 or float((zoom_any as Array)[1]) <= 0.0:
+				errors.append("camera_schedule zoom must be a positive numeric pair")
+	var ui_schedule_any: Variant = scenario.get("ui_schedule", [])
+	if typeof(ui_schedule_any) != TYPE_ARRAY:
+		errors.append("ui_schedule must be an Array when present")
+	else:
+		for ui_any in ui_schedule_any as Array:
+			if typeof(ui_any) != TYPE_DICTIONARY:
+				errors.append("every ui_schedule entry must be a Dictionary")
+				continue
+			var ui_entry: Dictionary = ui_any as Dictionary
+			if not _is_number(ui_entry.get("frame")) or int(ui_entry.get("frame", 0)) <= 0:
+				errors.append("ui_schedule frame must be positive")
+			elif scheduled_frame_limit <= 0 or int(ui_entry.get("frame", 0)) > scheduled_frame_limit:
+				errors.append("ui_schedule frame exceeds the deterministic cadence")
+			if str(ui_entry.get("path", "")).strip_edges().is_empty():
+				errors.append("ui_schedule path is required")
+			if typeof(ui_entry.get("visible")) != TYPE_BOOL:
+				errors.append("ui_schedule visible must be boolean")
 	for key in ["initial_lanes", "initial_swarms", "initial_barracks_routes", "commands_per_burst", "swarm_burst"]:
 		if int(scenario.get(key, 0)) < 0:
 			errors.append("%s cannot be negative" % key)
+	var lifecycle_profile: String = str(scenario.get("phase2_lifecycle_profile", "")).strip_edges()
+	if not lifecycle_profile.is_empty():
+		var lifecycle_cycles: int = int(scenario.get("lifecycle_required_cycles", 0))
+		if lifecycle_cycles < 2 or lifecycle_cycles > 10:
+			errors.append("lifecycle_required_cycles must be between 2 and 10")
+		if int(scenario.get("repetitions", 0)) != lifecycle_cycles:
+			errors.append("lifecycle repetitions must equal lifecycle_required_cycles")
+		var lifecycle_limits_any: Variant = scenario.get("lifecycle_limits", {})
+		if typeof(lifecycle_limits_any) != TYPE_DICTIONARY:
+			errors.append("lifecycle_limits must be a Dictionary")
+		else:
+			var lifecycle_limits: Dictionary = lifecycle_limits_any as Dictionary
+			for key in ["node_growth", "orphan_node_count", "object_growth", "resource_growth", "static_memory_growth_bytes", "report_payload_bytes"]:
+				if not _is_number(lifecycle_limits.get(key)) or int(lifecycle_limits.get(key, -1)) < 0:
+					errors.append("lifecycle limit %s must be a non-negative number" % key)
+	var content_kind: String = str(scenario.get("content_kind", "production_map"))
+	var expected_counts_any: Variant = scenario.get("expected_counts", {})
+	if typeof(expected_counts_any) != TYPE_DICTIONARY:
+		errors.append("expected_counts must be a Dictionary when present")
+		expected_counts_any = {}
+	if content_kind == "synthetic_scene":
+		if str(scenario.get("content_identity", "")).strip_edges().is_empty():
+			errors.append("synthetic content_identity is required")
+		if not str(scenario.get("map_path", "")).strip_edges().is_empty():
+			errors.append("synthetic fixture cannot declare a map_path")
+		var synthetic_counts: Dictionary = (expected_counts_any as Dictionary).duplicate(true)
+		for key_any in synthetic_counts.keys():
+			var key: String = str(key_any)
+			if not ["hives", "active_lanes", "units", "towers", "barracks", "structure_slots", "walls"].has(key):
+				errors.append("unsupported expected count: %s" % key)
+			elif not _is_number(synthetic_counts.get(key_any)) or int(synthetic_counts.get(key_any, -1)) < 0:
+				errors.append("expected count %s must be a non-negative number" % key)
+		return {
+			"ok": errors.is_empty(),
+			"errors": errors,
+			"map_path": "",
+			"map_content_hash": "",
+			"map_data": {},
+			"synthetic": true,
+			"expected_runtime_counts": synthetic_counts
+		}
+	if content_kind != "production_map":
+		errors.append("unsupported content_kind: %s" % content_kind)
 	var map_path: String = str(scenario.get("map_path", "")).strip_edges()
 	if map_path.is_empty():
 		errors.append("map_path is required")
@@ -149,10 +250,7 @@ static func static_preflight(scenario: Dictionary, execution_mode: String) -> Di
 		return {"ok": false, "errors": errors, "map_path": map_path, "map_content_hash": map_hash}
 	var map_data: Dictionary = load_result.get("data", {}) as Dictionary
 	var normalized_counts: Dictionary = counts_from_map_data(map_data)
-	var expected_counts_any: Variant = scenario.get("expected_counts", {})
-	if typeof(expected_counts_any) != TYPE_DICTIONARY:
-		errors.append("expected_counts must be a Dictionary when present")
-	else:
+	if typeof(expected_counts_any) == TYPE_DICTIONARY:
 		var expected_counts: Dictionary = expected_counts_any as Dictionary
 		for key in expected_counts.keys():
 			var clean_key: String = str(key)
@@ -193,9 +291,12 @@ static func validate_post_apply(expected_counts: Dictionary, actual_counts: Dict
 static func counts_from_map_data(map_data: Dictionary) -> Dictionary:
 	return {
 		"hives": _array_count(map_data.get("hives", [])),
+		"active_lanes": 0,
+		"units": 0,
 		"towers": _array_count(map_data.get("towers", [])),
 		"barracks": _array_count(map_data.get("barracks", [])),
-		"structure_slots": _array_count(map_data.get("structure_slots", []))
+		"structure_slots": _array_count(map_data.get("structure_slots", [])),
+		"walls": _array_count(map_data.get("walls", []))
 	}
 
 
@@ -207,9 +308,12 @@ static func runtime_counts(state: GameState, arena: Node) -> Dictionary:
 			current_map_data = map_data_any as Dictionary
 	return {
 		"hives": state.hives.size() if state != null else -1,
+		"active_lanes": state.lanes.size() if state != null else -1,
+		"units": _array_count(state.units_by_lane.get("_all", [])) if state != null else -1,
 		"towers": state.towers.size() if state != null else -1,
 		"barracks": state.barracks.size() if state != null else -1,
-		"structure_slots": _array_count(current_map_data.get("structure_slots", []))
+		"structure_slots": _array_count(current_map_data.get("structure_slots", [])) if not current_map_data.is_empty() else 0,
+		"walls": state.walls.size() if state != null else -1
 	}
 
 
@@ -230,6 +334,12 @@ static func _array_count(value: Variant) -> int:
 
 static func _is_number(value: Variant) -> bool:
 	return typeof(value) == TYPE_INT or typeof(value) == TYPE_FLOAT
+
+
+static func _numeric_pair(value: Variant) -> bool:
+	if typeof(value) != TYPE_ARRAY or (value as Array).size() != 2:
+		return false
+	return _is_number((value as Array)[0]) and _is_number((value as Array)[1])
 
 
 static func _failure(errors: Array[String]) -> Dictionary:

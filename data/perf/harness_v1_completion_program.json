@@ -1,0 +1,144 @@
+{
+  "program_schema": "sf_perf_harness_v1_completion_program_v1",
+  "program_version": 1,
+  "status": "COMPLETE",
+  "source_baseline_commit": "5588c4b9a390b36cc5fb67eb11003aaf44fa38b7",
+  "production_behavior_policy": "PRESERVE",
+  "optimization_policy": "MEASURE_ONLY",
+  "phase_order": [
+    "P2_A_PROGRAM_CONTRACT",
+    "P2_B_MOVING_UNIT_SCALE",
+    "P2_C_UPGRADE_AND_SWARM_STRESS",
+    "P2_D_BATTLEFIELD_UI_STRESS",
+    "P2_E_LIFECYCLE_SOAK",
+    "P2_F_FEATURE_ISOLATION",
+    "P2_G_BASELINES_AND_EXIT"
+  ],
+  "phases": [
+    {
+      "phase_id": "P2_A_PROGRAM_CONTRACT",
+      "status": "IMPLEMENTED",
+      "deliverables": [
+        "code-derived fixture and feature boundaries",
+        "fail-closed phase ordering",
+        "explicit exclusions and stop conditions"
+      ]
+    },
+    {
+      "phase_id": "P2_B_MOVING_UNIT_SCALE",
+      "status": "IMPLEMENTED",
+      "fixtures": [
+        "MOVING_UNIT_SCALE_050_V1",
+        "MOVING_UNIT_SCALE_100_V1",
+        "MOVING_UNIT_SCALE_200_V1",
+        "MOVING_UNIT_SCALE_400_V1"
+      ],
+      "required_evidence": [
+        "production UnitSystem movement path",
+        "exact starting scale",
+        "bounded unit-count evolution",
+        "stable commands and final-state hashes across three repetitions",
+        "pool misses and expansions remain zero",
+        "full cleanup and backend isolation"
+      ]
+    },
+    {
+      "phase_id": "P2_C_UPGRADE_AND_SWARM_STRESS",
+      "status": "IMPLEMENTED",
+      "fixtures": [
+        "HIVE_UPGRADE_STORM_V1",
+        "SUPER_SWARM_CHAIN_V1"
+      ],
+      "required_evidence": [
+        "production hive tier thresholds and renderer lifecycle",
+        "production swarm request, pickup, growth, and landing paths",
+        "fixed event schedule and concurrency bounds",
+        "identical event and final-state hashes across three repetitions",
+        "transition, swarm, VFX, node, and cleanup telemetry"
+      ]
+    },
+    {
+      "phase_id": "P2_D_BATTLEFIELD_UI_STRESS",
+      "status": "IMPLEMENTED",
+      "fixtures": [
+        "LATE_MATCH_V1",
+        "LANE_STRESS_V1",
+        "STRUCTURE_STRESS_V1",
+        "DISTRESS_STORM_V1",
+        "CAPTURE_STORM_V1",
+        "CAMERA_STRESS_V1",
+        "UI_STRESS_V1"
+      ],
+      "required_evidence": [
+        "production-backed map or explicitly synthetic identity",
+        "fixed command, transition, camera, and UI schedules",
+        "exact setup and peak concurrency counts",
+        "windowed-only renderer evidence",
+        "three-repetition determinism and cleanup"
+      ]
+    },
+    {
+      "phase_id": "P2_E_LIFECYCLE_SOAK",
+      "status": "IMPLEMENTED",
+      "fixtures": [
+        "LIFECYCLE_SOAK_V1"
+      ],
+      "required_evidence": [
+        "bounded repeated setup-run-cleanup cycles",
+        "stable protected-state and topology hashes",
+        "bounded sample retention",
+        "node, object, resource, pool, and memory trend evidence",
+        "interrupted cleanup recovery"
+      ]
+    },
+    {
+      "phase_id": "P2_F_FEATURE_ISOLATION",
+      "status": "IMPLEMENTED",
+      "required_evidence": [
+        "complete required feature inventory",
+        "PRESENT_ISOLATABLE, PRESENT_COUPLED, NOT_PRESENT, or FUTURE classification",
+        "exact control ownership",
+        "off, production, and exaggerated one-variable variants where safe",
+        "configuration restoration and comparison compatibility"
+      ]
+    },
+    {
+      "phase_id": "P2_G_BASELINES_AND_EXIT",
+      "status": "IMPLEMENTED",
+      "required_evidence": [
+        "all Phase 0, Phase 1, and Phase 2 gates pass",
+        "clean-tree eligible baseline candidates",
+        "comparison-compatible curated manifest",
+        "collector overhead and environment identity",
+        "external device workflow and unavailable-metric disclosure",
+        "final merge evaluation report"
+      ]
+    }
+  ],
+  "explicit_exclusions": [
+    "3-player fixtures",
+    "4-player fixtures",
+    "multi-map async fixtures",
+    "multi-stage async fixtures",
+    "production gameplay changes",
+    "production feature-default changes",
+    "performance optimization",
+    "public matchmaking",
+    "rank, economy, progression, analytics, telemetry, or leaderboard mutation"
+  ],
+  "external_evidence_only": [
+    "GPU stage attribution",
+    "Metal or mobile overdraw",
+    "shader occupancy",
+    "device thermals",
+    "device energy"
+  ],
+  "global_stop_conditions": [
+    "fixture requires changing production gameplay authority",
+    "deterministic setup cannot use a production path or an explicitly labeled synthetic descriptor",
+    "a run can mutate protected player or public state",
+    "release or backend isolation fails",
+    "cleanup or restoration cannot be proven",
+    "a required metric would have to be fabricated"
+  ]
+}

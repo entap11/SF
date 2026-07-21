@@ -90,9 +90,9 @@ static func restore(snapshot: Dictionary, tree: SceneTree, ops_state: Node) -> D
 	return verification
 
 
-static func release_fixture_state(snapshot: Dictionary, ops_state: Node) -> Dictionary:
-	if ops_state == null:
-		return {"released": false, "reason": "ops_state_missing"}
+static func release_fixture_state(snapshot: Dictionary, ops_state: Variant) -> Dictionary:
+	if ops_state == null or not is_instance_valid(ops_state):
+		return {"released": false, "reason": "ops_state_unavailable"}
 	var original_properties: Dictionary = snapshot.get("ops_properties", {}) as Dictionary
 	var original_state: Variant = original_properties.get("state")
 	var fixture_state: Variant = ops_state.get("state")
@@ -133,6 +133,18 @@ static func verify(snapshot: Dictionary, tree: SceneTree, ops_state: Node) -> Di
 	var before_hash: String = str(snapshot.get("before_hash", _fingerprint_hash(snapshot)))
 	var after_hash: String = _fingerprint_hash(after_snapshot)
 	var mismatches: Array[String] = []
+	var component_hashes_before: Dictionary = {}
+	var component_hashes_after: Dictionary = {}
+	var mismatched_components: Array[String] = []
+	for component in [
+		"project_settings", "audio_buses", "engine", "rendering_default_clear_color",
+		"tree_metadata", "ops_properties", "ops_rng_states", "shared_runtime_properties",
+		"protected_state", "tree_topology"
+	]:
+		component_hashes_before[component] = DeterministicHash.hash_variant(snapshot.get(component))
+		component_hashes_after[component] = DeterministicHash.hash_variant(after_snapshot.get(component))
+		if str(component_hashes_before.get(component, "")) != str(component_hashes_after.get(component, "")):
+			mismatched_components.append(component)
 	if after_hash != before_hash:
 		mismatches.append("global_state_fingerprint_mismatch")
 	var before_topology: Dictionary = snapshot.get("tree_topology", {}) as Dictionary
@@ -148,6 +160,9 @@ static func verify(snapshot: Dictionary, tree: SceneTree, ops_state: Node) -> Di
 		"before_protected_state": (snapshot.get("protected_state", {}) as Dictionary).duplicate(true),
 		"after_protected_state": (after_snapshot.get("protected_state", {}) as Dictionary).duplicate(true),
 		"mismatches": mismatches,
+		"mismatched_components": mismatched_components,
+		"component_hashes_before": component_hashes_before,
+		"component_hashes_after": component_hashes_after,
 		"before_topology": before_topology.duplicate(true),
 		"after_topology": after_topology.duplicate(true)
 	}

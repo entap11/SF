@@ -22,9 +22,13 @@ func _run() -> void:
 	var marker_value: Variant = get_meta("sf_perf_harness_active", false)
 	set_meta("sf_perf_harness_active", true)
 	var analytics: Node = root.get_node_or_null("/root/AnalyticsClient")
+	var app_lifecycle: Node = root.get_node_or_null("/root/AppLifecycle")
 	_expect(analytics != null and analytics.has_method("set_perf_harness_isolation"), "analytics isolation seam must exist")
+	_expect(app_lifecycle != null and app_lifecycle.has_method("set_perf_harness_isolation"), "AppLifecycle isolation seam must exist")
 	if analytics != null and analytics.has_method("set_perf_harness_isolation"):
 		_expect(bool(analytics.call("set_perf_harness_isolation", true)), "analytics isolation must activate under the harness marker")
+	if app_lifecycle != null and app_lifecycle.has_method("set_perf_harness_isolation"):
+		_expect(bool(app_lifecycle.call("set_perf_harness_isolation", true)), "AppLifecycle isolation must activate under the harness marker")
 	_test_backend_denial()
 	await _test_snapshot_restore(ops_state)
 	await _test_topology_detection(ops_state)
@@ -32,6 +36,8 @@ func _run() -> void:
 	_test_source_contracts()
 	if analytics != null and analytics.has_method("set_perf_harness_isolation"):
 		_expect(bool(analytics.call("set_perf_harness_isolation", false)), "analytics isolation must restore")
+	if app_lifecycle != null and app_lifecycle.has_method("set_perf_harness_isolation"):
+		_expect(bool(app_lifecycle.call("set_perf_harness_isolation", false)), "AppLifecycle isolation must restore")
 	if marker_existed:
 		set_meta("sf_perf_harness_active", marker_value)
 	else:
@@ -98,10 +104,20 @@ func _test_source_contracts() -> void:
 	_expect(runner.contains("func _finalize() -> void:"), "runner must expose a MainLoop shutdown cleanup path")
 	_expect(runner.contains("_recover_interrupted_repetition()"), "shutdown must recover any armed repetition snapshot")
 	_expect(runner.contains("_cleanup_entry_state()"), "shutdown must clear analytics isolation and the harness marker")
+	_expect(runner.contains("DisplayServer.window_move_to_foreground()"), "foreground diagnostic must explicitly request foreground presentation")
+	_expect(runner.contains("DisplayServer.window_is_focused()"), "foreground diagnostic must verify focus before measuring")
+	_expect(runner.contains("OS.is_in_low_processor_usage_mode()"), "foreground diagnostic must record low-processor mode")
 	_expect(runner.contains("PHASE0_ISOLATION_SENTINEL_V1"), "A-B-A sentinel fixture must remain registered")
 	_expect(runner.contains("PHASE0_ISOLATION_MUTATOR_V1"), "A-B-A mutator fixture must remain registered")
 	var analytics_source: String = FileAccess.get_file_as_string("res://scripts/state/analytics_client.gd")
 	_expect(analytics_source.contains("perf_harness_isolated"), "analytics client must retain the harness denial path")
+	var lifecycle_source: String = FileAccess.get_file_as_string("res://scripts/state/app_lifecycle_state.gd")
+	_expect(lifecycle_source.contains("_perf_harness_isolation"), "AppLifecycle must retain the harness notification isolation path")
+	var pacing_diagnostic_source: String = FileAccess.get_file_as_string("res://scripts/dev/run_perf_harness_pacing_diagnostic.sh")
+	_expect(pacing_diagnostic_source.contains("/usr/bin/open -n -F -W"), "foreground diagnostic must use a fresh LaunchServices app process")
+	_expect(pacing_diagnostic_source.contains("--perf-user-dir=${user_dir}"), "LaunchServices diagnostic must discover the unique Godot process")
+	_expect(pacing_diagnostic_source.contains("reason=godot_pid_undiscovered"), "LaunchServices diagnostic must fail closed without an actual Godot PID")
+	_expect(pacing_diagnostic_source.contains("reason=perf_user_dir_name_invalid"), "pacing diagnostic must validate the derived user-directory name before launch")
 
 
 func _expect(condition: bool, message: String) -> void:

@@ -1,12 +1,14 @@
 # Swarmfront Performance Harness v1 — Phase 0 Evidence
 
-Date: 2026-07-19  
-Scope: correctness, consolidation, and trustworthiness only  
+Date: 2026-07-19
+Scope: correctness, consolidation, and trustworthiness only
 Recommendation: `PHASE 0 READY WITH LIMITATIONS`
 
 ## Summary
 
 Phase 0 repaired and consolidated the existing benchmark infrastructure around `scripts/tests/perf_benchmark_suite.gd`. The canonical path now validates fixtures before Arena creation, runs the production `SimRunner._tick()` sequence, applies a real debug-only fixed seed, bounds collection, restores shared state after every repetition, blocks backend and analytics activity, emits schema-v2 comparison identities, and refuses incompatible or dirty baseline approval.
+
+Harness V1 completion evidence, the superseding clean baseline package, external-device workflow, limitations, and merge recommendation are recorded in [swarmfront_performance_harness_v1_exit.md](swarmfront_performance_harness_v1_exit.md). The final recommendation is `HARNESS V1 READY WITH LIMITATIONS`.
 
 The unversioned runner and fail-open comparator are now refusal shims. Rhythmic-lag isolation and soak testing remain separate forensic tools. No production optimization or broad fixture expansion was performed.
 
@@ -65,6 +67,8 @@ The unversioned runner and fail-open comparator are now refusal shims. Rhythmic-
 - Network-adjacent state can be isolated and restored, but a full network laboratory is deferred.
 
 ### Presence classification for deferred inventory
+
+Phase 2 supersedes this initial deferred sample with the validated 47-entry registry at `res://data/perf/feature_isolation_registry_v1.json`. The registry is authoritative for exact owners, classification, control kind, and off/production/exaggerated comparison safety; the table below remains the Phase 0 audit snapshot.
 
 | System | Classification | Note |
 | --- | --- | --- |

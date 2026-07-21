@@ -8,7 +8,8 @@ const UNIT_RENDERER := preload("res://scripts/renderers/unit_renderer.gd")
 
 const CATALOG_SCHEMA: String = "sf_perf_fixture_catalog_design_v1"
 const CATALOG_VERSION: int = 1
-const CATALOG_STATUS: String = "DESIGN_APPROVED_NOT_IMPLEMENTED"
+const CATALOG_STATUSES: Array[String] = ["DESIGN_APPROVED_NOT_IMPLEMENTED", "IMPLEMENTATION_IN_PROGRESS", "IMPLEMENTED"]
+const FIXTURE_STATUSES: Array[String] = ["DESIGN_APPROVED_NOT_IMPLEMENTED", "IMPLEMENTED"]
 const REQUIRED_RESULT_SCHEMA_VERSION: int = 3
 const REQUIRED_COLLECTION_LEVEL: String = "MINIMAL"
 const REQUIRED_REPETITIONS: int = 3
@@ -86,11 +87,15 @@ static func validate_catalog(catalog: Dictionary) -> Dictionary:
 		errors.append("catalog_schema_unsupported")
 	if int(catalog.get("catalog_version", 0)) != CATALOG_VERSION:
 		errors.append("catalog_version_unsupported")
-	if str(catalog.get("status", "")) != CATALOG_STATUS:
-		errors.append("catalog_status_not_design_approved")
+	if not CATALOG_STATUSES.has(str(catalog.get("status", ""))):
+		errors.append("catalog_status_unsupported")
 	_validate_baseline_policy(catalog.get("baseline_policy"), errors)
 	_validate_common(catalog.get("common"), errors)
 	_validate_fixtures(catalog.get("fixtures"), errors)
+	if str(catalog.get("status", "")) == "IMPLEMENTED":
+		for fixture_any in catalog.get("fixtures", []) as Array:
+			if typeof(fixture_any) == TYPE_DICTIONARY and str((fixture_any as Dictionary).get("status", "")) != "IMPLEMENTED":
+				errors.append("implemented_catalog_contains_unimplemented_fixture:%s" % str((fixture_any as Dictionary).get("fixture_id", "unknown")))
 	var deferred_any: Variant = catalog.get("deferred")
 	if typeof(deferred_any) != TYPE_ARRAY:
 		errors.append("deferred_not_array")
@@ -311,8 +316,8 @@ static func _validate_fixture(
 ) -> void:
 	if int(fixture.get("fixture_version", 0)) != 1:
 		errors.append("fixture_version_unsupported:%s" % fixture_id)
-	if str(fixture.get("status", "")) != CATALOG_STATUS:
-		errors.append("fixture_status_not_design_approved:%s" % fixture_id)
+	if not FIXTURE_STATUSES.has(str(fixture.get("status", ""))):
+		errors.append("fixture_status_unsupported:%s" % fixture_id)
 	if not _is_number(fixture.get("seed")):
 		errors.append("fixture_seed_invalid:%s" % fixture_id)
 	elif int(fixture.get("seed", 0)) != int(APPROVED_SEEDS.get(fixture_id, -1)):
@@ -346,6 +351,18 @@ static func _validate_fixture(
 		var capacity: int = mini(int(UNIT_SYSTEM.MAX_ACTIVE_UNITS), int(UNIT_RENDERER.UNIT_POOL_SIZE_TOTAL))
 		if target <= 0 or target > capacity:
 			errors.append("unit_scale_target_exceeds_capacity:%s" % fixture_id)
+		if int(fixture.get("initial_lanes", 0)) != 2:
+			errors.append("unit_scale_initial_lanes_not_approved:%s" % fixture_id)
+		if int(fixture.get("lane_build_timeout_ms", 0)) != 3000:
+			errors.append("unit_scale_lane_timeout_not_approved:%s" % fixture_id)
+		if int(fixture.get("renderer_ready_timeout_ms", 0)) != 3000:
+			errors.append("unit_scale_renderer_timeout_not_approved:%s" % fixture_id)
+		if bool(fixture.get("capacity_bypass_allowed", true)):
+			errors.append("unit_scale_capacity_bypass_must_be_false:%s" % fixture_id)
+		if int(fixture.get("expected_pool_capacity", 0)) != capacity:
+			errors.append("unit_scale_pool_capacity_not_approved:%s" % fixture_id)
+		if int(fixture.get("expected_pool_expansions", -1)) != 0:
+			errors.append("unit_scale_pool_expansions_not_zero:%s" % fixture_id)
 	match fixture_id:
 		"EMPTY_ARENA_V1":
 			_validate_expected_counts(fixture, fixture_id, {
@@ -360,9 +377,36 @@ static func _validate_fixture(
 		"NORMAL_MATCH_V1":
 			if str(fixture.get("command_selector_version", "")) != "sorted_candidate_pair_v1":
 				errors.append("normal_match_command_selector_not_approved")
-			if str(fixture.get("schedule_status", "")) != "PILOT_REQUIRED_BEFORE_FREEZE":
-				errors.append("normal_match_schedule_not_fail_closed")
+			if str(fixture.get("schedule_status", "")) != "FROZEN_AFTER_PILOT":
+				errors.append("normal_match_schedule_not_frozen")
+			_validate_normal_match_schedule(fixture, errors)
 			_validate_normal_match_timing(fixture.get("timing"), errors)
+
+
+static func _validate_normal_match_schedule(fixture: Dictionary, errors: Array[String]) -> void:
+	var approved_schedule: Array = [
+		{"tick": 5, "kind": "lane_intent_pair", "pair_index": 4, "intent": "attack"},
+		{"tick": 15, "kind": "swarm_active_lane", "salt": 0},
+		{"tick": 25, "kind": "lane_intent_pair", "pair_index": 5, "intent": "attack"},
+		{"tick": 35, "kind": "lane_intent_pair", "pair_index": 6, "intent": "attack"}
+	]
+	var approved_commands: Array = [
+		{"tick": 5, "type": "attack", "src": 2, "dst": 9, "schedule_index": 0},
+		{"tick": 15, "type": "swarm", "src": 2, "dst": 9, "schedule_index": 1},
+		{"tick": 25, "type": "attack", "src": 3, "dst": 8, "schedule_index": 2},
+		{"tick": 35, "type": "attack", "src": 3, "dst": 8, "schedule_index": 3}
+	]
+	if PERF_DETERMINISTIC_HASH.hash_variant(fixture.get("command_schedule", [])) != PERF_DETERMINISTIC_HASH.hash_variant(approved_schedule):
+		errors.append("normal_match_schedule_not_approved")
+	if PERF_DETERMINISTIC_HASH.hash_variant(fixture.get("expected_accepted_commands", [])) != PERF_DETERMINISTIC_HASH.hash_variant(approved_commands):
+		errors.append("normal_match_accepted_commands_not_approved")
+	if int(fixture.get("expected_command_count", 0)) != 4:
+		errors.append("normal_match_expected_command_count_invalid")
+	if PERF_DETERMINISTIC_HASH.hash_variant(fixture.get("expected_command_types", [])) != PERF_DETERMINISTIC_HASH.hash_variant(["attack", "swarm"]):
+		errors.append("normal_match_expected_command_types_invalid")
+	for hash_key in ["pilot_accepted_command_hash", "pilot_canonical_final_state_hash"]:
+		if str(fixture.get(hash_key, "")).length() != 64:
+			errors.append("normal_match_pilot_hash_invalid:%s" % hash_key)
 
 
 static func _validate_profiles(profiles_any: Variant, fixture_id: String, errors: Array[String]) -> void:

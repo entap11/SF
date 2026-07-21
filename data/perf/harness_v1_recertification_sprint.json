@@ -1,0 +1,106 @@
+{
+  "schema": "sf_perf_harness_v1_recertification_sprint_v2",
+  "version": 2,
+  "status": "HOST_DIAGNOSTIC_CONCLUDED",
+  "branch": "sprint/perf-harness-recertification",
+  "integration_source_commit": "a6e19247a5fa9992e96a8747e140ec9d700a9811",
+  "target_branch_commit": "b9c35e5e5b1d238c621fcb0fa39fdbdd72b5ad90",
+  "host_baseline_contract": {
+    "target_fps": 30,
+    "target_frame_ms": 33.5,
+    "hitch_threshold_ms": 41.67,
+    "p99_max_ms": 41.67,
+    "max_frame_ms": 55.0,
+    "max_hitches": 0
+  },
+  "failed_recertifications": [
+    {
+      "run_id": 29753338264,
+      "run_url": "https://github.com/entap11/SF/actions/runs/29753338264",
+      "artifact_id": 8467360262,
+      "artifact_name": "perf-harness-v1-recert-29753338264",
+      "artifact_digest": "sha256:998b57cd30345d9fa06c3615c61051e01a69276023896e8e2b9c87bc45498075",
+      "artifact_expires_at": "2026-10-18T15:02:14Z",
+      "source_commit": "a6e1924",
+      "git_dirty": false,
+      "godot": "4.2.2.stable.official.15073afe3",
+      "video_adapter": "Apple M2 Pro",
+      "failed_suite": "phase1_static_fixtures",
+      "failed_mode": "static_windowed_deterministic",
+      "scenario_repetitions": 6,
+      "hitch_count_total": 29,
+      "p99_ms_min": 41.393,
+      "p99_ms_max": 42.438,
+      "max_frame_ms": 43.072,
+      "integrity_pass": true,
+      "determinism_pass": true,
+      "isolation_pass": true,
+      "backend_isolation_pass": true,
+      "baseline_approval": "REFUSED"
+    },
+    {
+      "run_id": 29757697555,
+      "run_url": "https://github.com/entap11/SF/actions/runs/29757697555",
+      "artifact_id": 8468340109,
+      "artifact_name": "perf-harness-v1-recert-29757697555",
+      "artifact_digest": "sha256:821a85d0c8e9be64d4cbf354fa311bcd3506df16feca62265b4c45a0aa9db488",
+      "artifact_expires_at": "2026-10-18T16:00:34Z",
+      "source_commit": "a6e1924",
+      "git_dirty": false,
+      "godot": "4.2.2.stable.official.15073afe3",
+      "video_adapter": "Apple M2 Pro",
+      "failed_suite": "phase1_static_fixtures",
+      "failed_mode": "static_windowed_deterministic",
+      "scenario_repetitions": 6,
+      "hitch_count_total": 32,
+      "p99_ms_min": 41.577,
+      "p99_ms_max": 42.493,
+      "max_frame_ms": 46.386,
+      "integrity_pass": true,
+      "determinism_pass": true,
+      "isolation_pass": true,
+      "backend_isolation_pass": true,
+      "baseline_approval": "REFUSED"
+    }
+  ],
+  "diagnostic_conclusion": "repeatable macOS host window-pacing failure; correctness and isolation contracts pass; no host baseline may be promoted from these results",
+  "policy_boundary": {
+    "product_platform": "mobile_only",
+    "host_windowed_evidence": "exact-fingerprint debug-host regression and renderer diagnostic only",
+    "mobile_performance_evidence": "physical iOS or Android device capture",
+    "integration_effect": "host timing failures remain diagnostic and do not independently block harness integration",
+    "threshold_change": "NONE",
+    "baseline_promotion": "NONE"
+  },
+  "physical_ios_review": {
+    "status": "PASS_WITH_LIMITATIONS",
+    "source_commit": "eaea2fccc79b51591eb7acdf7c41dffcefdd6af4",
+    "device": "iPhone 16 Pro",
+    "os_version": "26.5.2 (23F84)",
+    "production_soak": "PASS",
+    "valid_instruments_captures": 2,
+    "thermal_state": "Nominal",
+    "evidence_json": "data/perf/harness_v1_ios_device_evidence.json",
+    "evidence_document": "docs/swarmfront_performance_harness_v1_ios_device_evidence.md",
+    "remaining_limitations": [
+      "direct selected-fixture matrix is not exposed in the exported iOS app",
+      "battery and energy evidence not collected",
+      "Android and additional iOS device classes not tested"
+    ]
+  },
+  "integration_recommendation": "HARNESS V1 READY WITH LIMITATIONS",
+  "required_integration_gates": [
+    "19 focused harness gates",
+    "curated package hash and self-comparison verification",
+    "authoritative-state boundary audit",
+    "exact-commit Release Readiness",
+    "explicit acceptance or collection of physical-device evidence"
+  ],
+  "guardrails": [
+    "do not retry until green without preserving every result",
+    "do not weaken host timing gates without an explicitly reviewed calibration decision",
+    "do not promote failed or dirty reports",
+    "do not represent host windowed results as mobile release-device performance",
+    "do not change gameplay or authoritative simulation state during recertification work"
+  ]
+}

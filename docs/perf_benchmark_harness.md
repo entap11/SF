@@ -157,10 +157,13 @@ Windowed renderer run:
 godot --path . \
   --script res://scripts/tests/perf_benchmark_suite.gd -- \
   --sf-perf-harness \
+  --perf-user-dir=SwarmfrontPerfHarnessV1Local \
   --suite=quick \
   --mode=render_windowed \
   --output=res://debug_reports/perf_benchmark_render_latest.json
 ```
+
+Use a dedicated `--perf-user-dir` namespace whenever another Swarmfront process may be open. The runner accepts only a short alphanumeric, dot, dash, or underscore name, creates the corresponding Godot user-data directory, and records the resolved namespace in `user_data_isolation`. This keeps live profile, progression, rank, and analytics files outside the harness fingerprint window. On Godot 4.2 windowed runs, changing the namespace after renderer startup can emit shader-cache save warnings during teardown; scenario results remain authoritative, while any protected-state, cleanup, or backend-isolation mismatch still fails the run.
 
 Compatible investigative comparison:
 
@@ -262,4 +265,4 @@ Historical result files remain untouched and retain their original meaning. Unve
 
 ## Phase 1 status
 
-The Phase 0 evidence package and exit verification remain recorded in [swarmfront_performance_harness_v1.md](swarmfront_performance_harness_v1.md), with the formal recommendation `PHASE 0 READY WITH LIMITATIONS`. Phase 1 design and P1-A are complete. P1-B, the deterministic windowed execution adapter, is next. Multiplayer 3- and 4-player fixtures remain deferred until their production behavior and tests are established.
+The Phase 0 evidence package remains recorded in [swarmfront_performance_harness_v1.md](swarmfront_performance_harness_v1.md). Phase 1 Gates P1-A through P1-F are complete, with approved clean-tree baselines under `data/perf/baselines/phase1/`. The formal environment, evidence, package, verification, diagnostics, limitations, and recommendation are in [swarmfront_performance_harness_phase1_exit.md](swarmfront_performance_harness_phase1_exit.md). Multiplayer 3- and 4-player fixtures remain deferred until their production behavior and tests are established.

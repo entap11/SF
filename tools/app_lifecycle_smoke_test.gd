@@ -28,6 +28,7 @@ func _initialize() -> void:
 	_test_background_foreground(lifecycle)
 	_test_focus_events(lifecycle)
 	_test_notification_router(lifecycle)
+	_test_perf_harness_isolation(lifecycle)
 	if not _failed:
 		print("APP_LIFECYCLE_SMOKE: PASS")
 	quit(1 if _failed else 0)
@@ -64,6 +65,43 @@ func _test_notification_router(lifecycle: Node) -> void:
 	_expect_true(bool(lifecycle.call("handle_lifecycle_notification", NOTIFICATION_APPLICATION_RESUMED)), "resume notification should be handled")
 	_expect_true(not bool(lifecycle.call("is_backgrounded")), "resume notification should mark foregrounded")
 	_expect_true(not bool(lifecycle.call("handle_lifecycle_notification", -999999)), "unknown notification should not be handled")
+
+func _test_perf_harness_isolation(lifecycle: Node) -> void:
+	var marker_existed: bool = has_meta("sf_perf_harness_active")
+	var marker_value: Variant = get_meta("sf_perf_harness_active", false)
+	set_meta("sf_perf_harness_active", true)
+	_expect_true(lifecycle.has_method("set_perf_harness_isolation"), "AppLifecycle should expose the harness isolation seam")
+	if not lifecycle.has_method("set_perf_harness_isolation"):
+		_restore_harness_marker(marker_existed, marker_value)
+		return
+	_expect_true(bool(lifecycle.call("set_perf_harness_isolation", true)), "AppLifecycle harness isolation should activate under the marker")
+	var before: Dictionary = lifecycle.call("get_snapshot") as Dictionary
+	var background_signals_before: int = _background_signal_count
+	var foreground_signals_before: int = _foreground_signal_count
+	var focus_signals_before: int = _focus_signal_count
+	var lifecycle_signals_before: int = _lifecycle_signal_count
+	_expect_true(bool(lifecycle.call("handle_lifecycle_notification", NOTIFICATION_APPLICATION_PAUSED)), "isolated pause notification should be consumed")
+	_expect_true(bool(lifecycle.call("handle_lifecycle_notification", NOTIFICATION_APPLICATION_RESUMED)), "isolated resume notification should be consumed")
+	_expect_true(bool(lifecycle.call("handle_lifecycle_notification", Node.NOTIFICATION_WM_WINDOW_FOCUS_OUT)), "isolated focus-out notification should be consumed")
+	_expect_true(bool(lifecycle.call("handle_lifecycle_notification", Node.NOTIFICATION_WM_WINDOW_FOCUS_IN)), "isolated focus-in notification should be consumed")
+	var after: Dictionary = lifecycle.call("get_snapshot") as Dictionary
+	_expect_eq(after, before, "isolated external notifications must not mutate lifecycle state")
+	_expect_eq(_background_signal_count, background_signals_before, "isolated pause must not emit background signals")
+	_expect_eq(_foreground_signal_count, foreground_signals_before, "isolated resume must not emit foreground signals")
+	_expect_eq(_focus_signal_count, focus_signals_before, "isolated focus changes must not emit focus signals")
+	_expect_eq(_lifecycle_signal_count, lifecycle_signals_before, "isolated notifications must not emit lifecycle signals")
+	_expect_true(bool(lifecycle.call("set_perf_harness_isolation", false)), "AppLifecycle harness isolation should restore")
+	_expect_true(bool(lifecycle.call("handle_lifecycle_notification", Node.NOTIFICATION_WM_WINDOW_FOCUS_OUT)), "focus-out should remain handled after isolation")
+	_expect_true(not bool(lifecycle.call("has_window_focus")), "focus-out should mutate normally after isolation")
+	_expect_true(bool(lifecycle.call("handle_lifecycle_notification", Node.NOTIFICATION_WM_WINDOW_FOCUS_IN)), "focus-in should remain handled after isolation")
+	_expect_true(bool(lifecycle.call("has_window_focus")), "focus-in should mutate normally after isolation")
+	_restore_harness_marker(marker_existed, marker_value)
+
+func _restore_harness_marker(existed: bool, value: Variant) -> void:
+	if existed:
+		set_meta("sf_perf_harness_active", value)
+	else:
+		remove_meta("sf_perf_harness_active")
 
 func _expect_true(value: bool, message: String) -> void:
 	if value:
