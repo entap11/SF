@@ -5,6 +5,7 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const HiveNodeScene := preload("res://scenes/hive/HiveNode.tscn")
 const HiveGrowthRules := preload("res://scripts/sim/hive_growth_rules.gd")
+const StartupHitchDiagnosticScript := preload("res://scripts/dev/startup_hitch_diagnostic.gd")
 const HiveDistressRules := preload("res://scripts/hive/hive_distress_rules.gd")
 const SpriteRegistry := preload("res://scripts/renderers/sprite_registry.gd")
 const CosmeticThemeDB := preload("res://scripts/cosmetics/cosmetic_theme_db.gd")
@@ -60,6 +61,7 @@ func setup(state_ref: Object, sel_ref: Object, arena_ref: Node2D) -> void:
 	_ensure_match_shadow_controller(true)
 	_connect_selection_signal()
 	_bind_app_lifecycle()
+	_startup_hitch_mark_once("hive_sprite_prewarm_scheduled")
 	call_deferred("_prewarm_hive_sprite_cache")
 	queue_redraw()
 
@@ -1009,10 +1011,24 @@ func _ensure_match_shadow_controller(reconfigure: bool = false) -> void:
 		_match_shadow_controller.call("configure")
 
 func _prewarm_hive_sprite_cache() -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("hive_sprite_prewarm_started")
 	var registry := _get_sprite_registry()
 	if registry == null:
+		_startup_hitch_mark_once("hive_sprite_prewarm_completed", {
+			"duration_ms": snappedf(float(Time.get_ticks_usec() - started_usec) / 1000.0, 0.001),
+			"outcome": "missing_registry"
+		})
 		return
+	var already_prewarmed: bool = bool(registry.get("_hive_textures_prewarmed"))
 	registry.prewarm_hive_textures()
+	_startup_hitch_mark_once("hive_sprite_prewarm_completed", {
+		"duration_ms": snappedf(float(Time.get_ticks_usec() - started_usec) / 1000.0, 0.001),
+		"outcome": "already_prewarmed" if already_prewarmed else "completed"
+	})
+
+func _startup_hitch_mark_once(marker_name: String, detail: Dictionary = {}) -> bool:
+	return StartupHitchDiagnosticScript.mark_tree_event_once(get_tree(), marker_name, detail)
 
 func _grid_to_world(gx: float, gy: float, cell: float) -> Vector2:
 	var cell_px := cell
