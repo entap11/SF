@@ -6,7 +6,7 @@ const DEFAULT_OUTPUT_PATH: String = "user://startup_hitch_diagnostic/startup_hit
 const DEFAULT_WINDOW_SECONDS: float = 20.0
 const DEFAULT_FRAME_HITCH_MS: float = 50.0
 const DEFAULT_TICK_HITCH_MS: float = 8.0
-const MAX_MARKERS: int = 96
+const MAX_MARKERS: int = 128
 const MAX_HITCHES: int = 64
 const GROUP_NAME: StringName = &"startup_hitch_diagnostic"
 const PerfIsolationGuard := preload("res://scripts/tests/perf/perf_isolation_guard.gd")
@@ -138,6 +138,19 @@ static func mark_tree_event(tree: SceneTree, marker_name: String, detail: Dictio
 	if diagnostic == null or not is_instance_valid(diagnostic) or not diagnostic.has_method("mark_event"):
 		return false
 	diagnostic.call("mark_event", marker_name, detail)
+	return true
+
+
+static func mark_tree_event_once(tree: SceneTree, marker_name: String, detail: Dictionary = {}) -> bool:
+	if tree == null or marker_name.is_empty():
+		return false
+	var diagnostic_nodes: Array[Node] = tree.get_nodes_in_group(GROUP_NAME)
+	if diagnostic_nodes.is_empty():
+		return false
+	var diagnostic: Node = diagnostic_nodes.back()
+	if diagnostic == null or not is_instance_valid(diagnostic) or not diagnostic.has_method("mark_once"):
+		return false
+	diagnostic.call("mark_once", marker_name, detail)
 	return true
 
 

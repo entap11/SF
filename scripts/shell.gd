@@ -1559,37 +1559,51 @@ func _ensure_game_instance() -> void:
 		" world=", world_layer.layer if world_layer != null else -1,
 		" wvp=", str(wvp.get_path()) if wvp != null else "<null>"
 	)
-	call_deferred("_sync_power_bar_buffer_placement")
+	call_deferred("_sync_power_bar_buffer_placement", "ensure_game")
 	_cache_dev_loader()
 
 func _enter_game() -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark("shell_enter_game_started")
 	if _arena_instance == null:
+		_startup_hitch_callback_completed("shell_enter_game", started_usec, "missing_arena")
 		return
 	_set_menu_state(false)
 	if arena_root != null:
 		arena_root.modulate.a = 0.0
 	_ensure_vs_frame_visible()
-	call_deferred("_sync_power_bar_buffer_placement")
-	call_deferred("_sync_buff_ui")
+	call_deferred("_sync_power_bar_buffer_placement", "enter_game")
+	call_deferred("_sync_buff_ui", "enter_game")
 	call_deferred("_stabilize_shell_camera_presentation")
 	if _arena_instance.has_method("start_game"):
 		_arena_instance.call_deferred("start_game")
+	_startup_hitch_callback_completed("shell_enter_game", started_usec)
 
 func _stabilize_shell_camera_presentation() -> void:
+	_startup_hitch_mark("shell_deferred_presentation_stabilize_scheduled")
 	if _arena_instance == null:
+		var missing_arena_started_usec: int = Time.get_ticks_usec()
 		if arena_root != null:
 			arena_root.modulate.a = 1.0
+		_startup_hitch_callback_completed("shell_deferred_presentation_stabilize", missing_arena_started_usec, "missing_arena")
 		return
 	await get_tree().process_frame
+	_startup_hitch_mark("shell_deferred_presentation_stabilize_first_frame_resumed")
 	await get_tree().process_frame
+	var fit_started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark("shell_deferred_presentation_stabilize_second_frame_resumed")
 	_configure_shell_world_viewport_opening()
 	var arena_node: Node = _resolve_runtime_arena_node()
 	if arena_node != null and arena_node.has_method("apply_camera_fit"):
 		arena_node.call("apply_camera_fit", "shell_present")
+	_startup_hitch_callback_completed("shell_deferred_presentation_fit", fit_started_usec)
 	await get_tree().process_frame
+	var reveal_started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark("shell_deferred_presentation_stabilize_third_frame_resumed")
 	if arena_root != null:
 		arena_root.modulate.a = 1.0
 	_startup_hitch_mark("arena_presentation_visible")
+	_startup_hitch_callback_completed("shell_deferred_presentation_stabilize", reveal_started_usec)
 
 func _configure_shell_world_viewport_opening() -> void:
 	if _arena_instance == null:
@@ -2222,17 +2236,24 @@ func _restart_arena_match_flow_for_shell_tutorial() -> void:
 	if arena_node != null and arena_node.has_method("restart_match_flow_for_shell_launch"):
 		arena_node.call("restart_match_flow_for_shell_launch")
 
-func _sync_buff_ui() -> void:
+func _sync_buff_ui(startup_probe_id: String = "") -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	var marker_prefix: String = "shell_deferred_%s_buff_ui" % startup_probe_id if not startup_probe_id.is_empty() else ""
+	if not marker_prefix.is_empty():
+		_startup_hitch_mark("%s_started" % marker_prefix)
 	if not _buff_targeting_runtime_enabled():
 		_set_buff_strip_visibility(false, false, false, false)
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "disabled")
 		return
 	if _player_buff_strip == null:
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "missing_player_strip")
 		return
 	if _arena_instance == null:
 		if _show_shell_async_prematch_buffers():
 			_show_buff_ui_placeholders()
 		else:
 			_set_buff_strip_visibility(false, false, false, false)
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "missing_arena")
 		return
 	var arena_node: Node = _resolve_runtime_arena_node()
 	if arena_node == null or not arena_node.has_method("get_buff_ui_snapshot"):
@@ -2240,15 +2261,18 @@ func _sync_buff_ui() -> void:
 			_show_buff_ui_placeholders()
 		else:
 			_set_buff_strip_visibility(false, false, false, false)
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "missing_snapshot_api")
 		return
 	var snap_v: Variant = arena_node.call("get_buff_ui_snapshot")
 	if typeof(snap_v) != TYPE_DICTIONARY:
 		if _show_shell_async_prematch_buffers():
 			_show_buff_ui_placeholders()
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "invalid_snapshot")
 		return
 	var snapshot: Dictionary = snap_v as Dictionary
 	if not bool(snapshot.get("buffs_enabled", false)):
 		_set_buff_strip_visibility(false, false, false, false)
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "buffs_disabled")
 		return
 	_player_buff_strip.visible = true
 	var active_pid: int = int(snapshot.get("active_player_id", 1))
@@ -2281,6 +2305,7 @@ func _sync_buff_ui() -> void:
 	else:
 		_hide_opponent_buff_strips()
 	_layout_buff_strip_positions()
+	_startup_hitch_callback_completed(marker_prefix, started_usec)
 
 func _show_buff_ui_placeholders() -> void:
 	_set_buff_strip_visibility(false, false, false, false)
@@ -3425,11 +3450,17 @@ func _hide_buff_drag_overlay(pointer_session_id: int = -1) -> void:
 		_buff_drag_overlay.texture = null
 	_buff_drag_overlay_session_id = 0
 
-func _sync_power_bar_buffer_placement() -> void:
+func _sync_power_bar_buffer_placement(startup_probe_id: String = "") -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	var marker_prefix: String = "shell_deferred_%s_power_bar" % startup_probe_id if not startup_probe_id.is_empty() else ""
+	if not marker_prefix.is_empty():
+		_startup_hitch_mark("%s_started" % marker_prefix)
 	if _arena_instance == null:
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "missing_arena")
 		return
 	var power_bar: Control = get_node_or_null(SHELL_POWER_BAR_PATH) as Control
 	if power_bar == null:
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "missing_power_bar")
 		return
 
 	# Editor-authoritative: PowerBarAnchor placement is authored in scene.
@@ -3440,6 +3471,7 @@ func _sync_power_bar_buffer_placement() -> void:
 		"bar_pos": power_bar.position,
 		"bar_size": power_bar.size
 	})
+	_startup_hitch_callback_completed(marker_prefix, started_usec)
 
 func _ensure_power_bar_anchor() -> Control:
 	if _arena_instance == null:
@@ -4122,6 +4154,15 @@ func _startup_hitch_mark(marker_name: String, detail: Dictionary = {}) -> void:
 		return
 	if _startup_hitch_diagnostic.has_method("mark_once"):
 		_startup_hitch_diagnostic.call("mark_once", marker_name, detail)
+
+
+func _startup_hitch_callback_completed(marker_prefix: String, started_usec: int, outcome: String = "completed") -> void:
+	if marker_prefix.is_empty():
+		return
+	_startup_hitch_mark("%s_completed" % marker_prefix, {
+		"duration_ms": snappedf(float(Time.get_ticks_usec() - started_usec) / 1000.0, 0.001),
+		"outcome": outcome
+	})
 
 
 func _begin_startup_hitch_diagnostic(config: Dictionary, map_path: String) -> bool:

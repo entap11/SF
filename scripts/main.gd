@@ -4,6 +4,7 @@ const MissNOutBannerRuntime := preload("res://scripts/main_helpers/miss_n_out_ba
 const BetaRuntimeBannerRuntime := preload("res://scripts/main_helpers/beta_runtime_banner_runtime.gd")
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MAP_APPLIER := preload("res://scripts/maps/map_applier.gd")
+const StartupHitchDiagnosticScript := preload("res://scripts/dev/startup_hitch_diagnostic.gd")
 
 const SHELL_BUFFER_LAYER_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer"
 const SHELL_BUFFER_ROOT_PATH: String = SHELL_BUFFER_LAYER_PATH + "/BufferRoot"
@@ -238,6 +239,8 @@ func _nearest_canvas_layer(node: Node) -> CanvasLayer:
 
 
 func start_game() -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	StartupHitchDiagnosticScript.mark_tree_event_once(get_tree(), "main_deferred_start_game_started")
 	var ui := get_node_or_null("UI")
 	var arena_node: Node = get_node_or_null("WorldCanvasLayer/WorldViewportContainer/WorldViewport/Arena")
 	var dml := get_node_or_null("UI/DevMapLoader")
@@ -261,6 +264,9 @@ func start_game() -> void:
 	# Defer fit until after visibility changes take effect.
 	if arena_node != null and arena_node.has_method("_fit_camera_to_viewport"):
 		arena_node.call_deferred("_fit_camera_to_viewport")
+	StartupHitchDiagnosticScript.mark_tree_event_once(get_tree(), "main_deferred_start_game_completed", {
+		"duration_ms": snappedf(float(Time.get_ticks_usec() - started_usec) / 1000.0, 0.001)
+	})
 
 func _process(_delta: float) -> void:
 	_miss_n_out_poll_accum += _delta

@@ -9229,20 +9229,27 @@ func apply_camera_fit_next_frame(reason: String = "") -> void:
 	call_deferred("_apply_camera_fit_deferred", reason, _camera_fit_request_serial)
 
 func _apply_camera_fit_deferred(reason: String, request_serial: int) -> void:
+	var marker_prefix: String = "arena_deferred_camera_fit_%02d" % request_serial
+	_startup_hitch_mark("%s_scheduled" % marker_prefix, {"reason": reason})
 	await get_tree().process_frame
+	_startup_hitch_mark("%s_first_frame_resumed" % marker_prefix, {"reason": reason})
 	await get_tree().process_frame
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark("%s_second_frame_resumed" % marker_prefix, {"reason": reason})
 	if request_serial != _camera_fit_request_serial:
 		SFLog.warn("CAMFIT_DEFER_DROP", {
 			"reason": reason,
 			"request_serial": request_serial,
 			"latest_serial": _camera_fit_request_serial
 		})
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "superseded")
 		return
 	SFLog.warn("CAMFIT_DEFER_APPLY", {
 		"reason": reason,
 		"request_serial": request_serial
 	})
 	apply_camera_fit(reason)
+	_startup_hitch_callback_completed(marker_prefix, started_usec)
 
 func apply_camera_fit(reason: String = "") -> bool:
 	if not _camera_fit_reason_allowed(reason):
@@ -9337,8 +9344,11 @@ func _apply_canon_camera_fit(tag: String) -> void:
 	apply_camera_fit(tag)
 
 func _fit_camera_to_viewport(tag: String = "fitcam", forced_bounds_world: Rect2 = Rect2(), forced_playfield_rect_px: Rect2 = Rect2()) -> bool:
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_main_camera_fit_started", {"tag": tag})
 	var cam: Camera2D = camera if camera != null else $Camera2D
 	if cam == null:
+		_startup_hitch_callback_completed("arena_deferred_main_camera_fit", started_usec, "missing_camera")
 		return false
 	var arena_rect: Rect2 = _arena_rect()
 	var arena_size: Vector2 = arena_rect.size
@@ -9355,6 +9365,7 @@ func _fit_camera_to_viewport(tag: String = "fitcam", forced_bounds_world: Rect2 
 	var world_px: Vector2 = map_bounds.size if map_bounds.size.x > 1.0 and map_bounds.size.y > 1.0 else Vector2(float(grid_w_local) * cell_px, float(grid_h_local) * cell_px)
 	var vp: Viewport = cam.get_viewport()
 	if vp == null:
+		_startup_hitch_callback_completed("arena_deferred_main_camera_fit", started_usec, "missing_viewport")
 		return false
 	var vp_size: Vector2 = vp.get_visible_rect().size
 	var cam_vp: Viewport = cam.get_viewport()
@@ -9375,10 +9386,13 @@ func _fit_camera_to_viewport(tag: String = "fitcam", forced_bounds_world: Rect2 
 		if container_size.x > 0.0 and container_size.y > 0.0:
 			visible_vp_size = container_size
 	if arena_size.x <= 0.0 or arena_size.y <= 0.0:
+		_startup_hitch_callback_completed("arena_deferred_main_camera_fit", started_usec, "invalid_arena_size")
 		return false
 	if vp_size.x <= 0.0 or vp_size.y <= 0.0:
+		_startup_hitch_callback_completed("arena_deferred_main_camera_fit", started_usec, "invalid_viewport_size")
 		return false
 	if visible_vp_size.x <= 0.0 or visible_vp_size.y <= 0.0:
+		_startup_hitch_callback_completed("arena_deferred_main_camera_fit", started_usec, "invalid_visible_size")
 		return false
 	var ui_insets: Dictionary = _ui_vertical_insets_px()
 	var top_ui_inset_px: float = float(ui_insets.get("top", 0.0))
@@ -9439,6 +9453,7 @@ func _fit_camera_to_viewport(tag: String = "fitcam", forced_bounds_world: Rect2 
 				"z": z_h,
 				"cam_zoom_now": cam.zoom
 			})
+			_startup_hitch_callback_completed("arena_deferred_main_camera_fit", started_usec, "fit_height")
 			return true
 	var pad: float = maxf(0.0, cam_fit_pad_px)
 	var vp_fit: Vector2 = Vector2(
@@ -9534,6 +9549,7 @@ func _fit_camera_to_viewport(tag: String = "fitcam", forced_bounds_world: Rect2 
 		"z": zoom_scalar,
 		"cam_zoom_now": cam.zoom
 	})
+	_startup_hitch_callback_completed("arena_deferred_main_camera_fit", started_usec)
 	return true
 
 func _sf_camfit_late_probe(cam: Camera2D, expected: Vector2) -> void:
