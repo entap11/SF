@@ -368,6 +368,29 @@ Decision: reject the instrumented Shell/Main paths as owners of the retained hit
 
 The next controlled step is paired instrumentation around `HiveRenderer._prewarm_hive_sprite_cache()` and `SpriteRegistry.prewarm_hive_textures()`, including bounded per-key texture/alpha-cache timing. `HiveRenderer.setup()` queues that prewarm before the already-exonerated Arena callbacks, making it the strongest remaining GDScript deferred-work candidate in the measured interval. Move, phase, or remove prewarm work only if the physical trace proves ownership.
 
+### Hive sprite-prewarm attribution
+
+Diagnostic commit `b20f77ebb1276d18975b57891b94981c42af219e` added a paired, first-occurrence-only `HiveRenderer` prewarm envelope, a paired `SpriteRegistry` prewarm envelope, and one bounded completion marker for each of the 15 hive tier/owner keys. The report cap increased from 128 to 160 but remains fixed; the physical report used 137 markers. Duplicate prewarm requests do not duplicate markers. No texture-loading order, gameplay state, simulation timing, or production callback scheduling changed.
+
+The exact clean device build used tree `4d274f34de91e850f6ef171d5975efe1b4976662`, PCK SHA-256 `fdea417a046be7abdb906770d20c55e16dcf1287aa48cc9d58f0cd454bb29f40`, and executable SHA-256 `f2a0d287dc92d9e14865e9ebab61383750549c1e86efae472c1e4359a7eedef1`. Its ignored build manifest is `artifacts/startup_hitch_diagnostic/device_build_variant_hive_prewarm_markers/build_manifest.json`, and its ignored physical report is `artifacts/startup_hitch_diagnostic/evidence/variant-hive-prewarm-01.json`.
+
+The single warm iPhone run completed the 20-second diagnostic window and its 25-second soak round with zero failed rounds, passed protected-state integrity, and recorded no interactive hitch. The maximum boot frame was 142.885 ms and the second retained boot frame was 122.967 ms, reproducing the established signature. The first canonical tick was 2.193 ms and the maximum canonical tick was 2.527 ms.
+
+| Measured boundary | Duration |
+| --- | ---: |
+| Full `HiveRenderer._prewarm_hive_sprite_cache()` callback | 215.974 ms |
+| Full `SpriteRegistry.prewarm_hive_textures()` loop | 215.953 ms |
+| Sum of the 15 individual `get_tex()` calls | 215.834 ms |
+| `hive.large.neutral` `get_tex()` | 215.705 ms |
+| Other 14 hive keys combined | 0.129 ms |
+| Delay from hive-prewarm completion to first Arena deferred callback | 0.011 ms |
+
+The first ten keys (all small and medium variants) each completed in 0.005–0.013 ms with four alpha-cache entries already present. `hive.large.neutral` alone took 215.705 ms and increased the alpha cache from four entries to five. The four remaining owner aliases for the same large texture then completed in 0.008–0.021 ms. The source `hive_large_flatop.png` is a 1254 x 1254 RGB PNG with no alpha channel, and all five large-hive manifest entries request the same black color key (`threshold=0.035`, `softness=0.018`). The measured boundary therefore contains the first large-hive `_ensure_alpha()` path: texture image acquisition, RGBA conversion, the per-pixel color-key loop, and `ImageTexture` creation. This run does not separate those sub-operations further.
+
+Decision: the retained deferred-call microhang now has a defined GDScript owner. The hive sprite prewarm accounts for the interval immediately before `arena_deferred_in_game_ad_started`, and 99.94% of its measured per-key time belongs to the first large-hive alpha-cache construction. Do not phase or merely move this work to another startup frame.
+
+The next controlled step is a single-asset alpha-ready experiment for `hive_large_flatop.png`: precompute the existing black color-key result offline, point the five large-hive keys at that alpha-bearing texture without runtime color-key metadata, and prove pixel/metadata equivalence before an exact iPhone before/after run. If that removes the retained 142 ms signature without visual, protected-state, canonical-tick, or interactive regression, apply the same import-time treatment to the small and medium hive sources separately.
+
 Not yet claimed:
 
 - repeatability across the full controlled cold/warm matrix;
