@@ -12,6 +12,7 @@ var _manifest_path: String = DEFAULT_MANIFEST_PATH
 var _loaded: bool = false
 var _textures_by_key: Dictionary = {}
 var _paths_by_key: Dictionary = {}
+var _texture_defs_by_key: Dictionary = {}
 var _meta_by_key: Dictionary = {}
 var _missing_keys: Dictionary = {}
 var _missing_keys_order: Array[String] = []
@@ -95,15 +96,11 @@ func set_skin(path_to_manifest: String) -> void:
 
 func has_tex(key: String) -> bool:
 	_ensure_loaded()
-	if not _textures_by_key.has(key):
-		return false
-	return _textures_by_key[key] != null
+	return _load_texture_for_key(key) != null
 
 func get_tex(key: String) -> Texture2D:
 	_ensure_loaded()
-	var tex: Texture2D = null
-	if _textures_by_key.has(key):
-		tex = _textures_by_key[key]
+	var tex: Texture2D = _load_texture_for_key(key)
 	if tex == null:
 		_mark_missing(key)
 	tex = _ensure_alpha(tex, key)
@@ -250,6 +247,7 @@ func _load_manifest(path: String) -> void:
 	_loaded = true
 	_textures_by_key.clear()
 	_paths_by_key.clear()
+	_texture_defs_by_key.clear()
 	_meta_by_key.clear()
 	_tex_alpha_cache.clear()
 	_hive_textures_prewarmed = false
@@ -334,6 +332,13 @@ func _load_manifest(path: String) -> void:
 		if tex_path.is_empty():
 			continue
 		_paths_by_key[key] = tex_path
+		_texture_defs_by_key[key] = {
+			"path": tex_path,
+			"slice": slice,
+			"layout": layout,
+			"region": region,
+			"has_region": has_region
+		}
 		_meta_by_key[key] = {
 			"scale": scale,
 			"offset": offset,
@@ -344,39 +349,54 @@ func _load_manifest(path: String) -> void:
 				"softness": colorkey_softness
 			}
 		}
-		var res: Resource = ResourceLoader.load(tex_path)
-		if res is Texture2D:
-			var base_tex: Texture2D = res
-			if has_region:
-				var region_tex := AtlasTexture.new()
-				region_tex.atlas = res
-				region_tex.region = region
-				base_tex = region_tex
-			var tex: Texture2D = base_tex
-			if not slice.is_empty():
-				var w := float(tex.get_width())
-				var h := float(tex.get_height())
-				var atlas := AtlasTexture.new()
-				atlas.atlas = tex
-				if layout == "vertical":
-					var half_h := h * 0.5
-					if slice == "top":
-						atlas.region = Rect2(0.0, 0.0, w, half_h)
-						tex = atlas
-					elif slice == "bottom":
-						atlas.region = Rect2(0.0, half_h, w, half_h)
-						tex = atlas
-				else:
-					var half_w := w * 0.5
-					if slice == "left":
-						atlas.region = Rect2(0.0, 0.0, half_w, h)
-						tex = atlas
-					elif slice == "right":
-						atlas.region = Rect2(half_w, 0.0, half_w, h)
-						tex = atlas
-			_textures_by_key[key] = tex
+
+func _load_texture_for_key(key: String) -> Texture2D:
+	if _textures_by_key.has(key):
+		return _textures_by_key.get(key, null) as Texture2D
+	var definition_v: Variant = _texture_defs_by_key.get(key, null)
+	if typeof(definition_v) != TYPE_DICTIONARY:
+		return null
+	var definition: Dictionary = definition_v as Dictionary
+	var tex_path: String = str(definition.get("path", ""))
+	if tex_path.is_empty():
+		return null
+	var res: Resource = ResourceLoader.load(tex_path)
+	if not res is Texture2D:
+		_textures_by_key[key] = null
+		return null
+	var base_tex: Texture2D = res as Texture2D
+	if bool(definition.get("has_region", false)):
+		var region_v: Variant = definition.get("region", Rect2())
+		if region_v is Rect2:
+			var region_tex := AtlasTexture.new()
+			region_tex.atlas = base_tex
+			region_tex.region = region_v as Rect2
+			base_tex = region_tex
+	var tex: Texture2D = base_tex
+	var slice: String = str(definition.get("slice", ""))
+	if not slice.is_empty():
+		var w := float(tex.get_width())
+		var h := float(tex.get_height())
+		var atlas := AtlasTexture.new()
+		atlas.atlas = tex
+		if str(definition.get("layout", "horizontal")) == "vertical":
+			var half_h := h * 0.5
+			if slice == "top":
+				atlas.region = Rect2(0.0, 0.0, w, half_h)
+				tex = atlas
+			elif slice == "bottom":
+				atlas.region = Rect2(0.0, half_h, w, half_h)
+				tex = atlas
 		else:
-			_textures_by_key[key] = null
+			var half_w := w * 0.5
+			if slice == "left":
+				atlas.region = Rect2(0.0, 0.0, half_w, h)
+				tex = atlas
+			elif slice == "right":
+				atlas.region = Rect2(half_w, 0.0, half_w, h)
+				tex = atlas
+	_textures_by_key[key] = tex
+	return tex
 
 func _mark_missing(key: String) -> void:
 	if _missing_keys.has(key):
