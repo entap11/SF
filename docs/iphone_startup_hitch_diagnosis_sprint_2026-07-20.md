@@ -321,6 +321,28 @@ Decision: reject the lazy-load variant as a candidate fix. It proves the 305 ms 
 
 The next controlled step is bounded instrumentation around individual Arena deferred callbacks and post-add scans inside the 259 ms `CallQueue::flush` interval. That work directly targets the unchanged maximum instead of moving resource loading between startup boundaries.
 
+### Arena deferred-callback attribution
+
+Diagnostic commit `72622b9da20aabe5b3a30bbb73244eb833547a1a` added paired, first-occurrence-only markers around the Arena `_ready` continuation, its six post-add diagnostic scans, all five immediate Arena deferred callbacks, and the camera/canvas/match-flow callbacks that resume across later process frames. The report cap increased from 64 to 96 but remains fixed; the physical report used 91 markers. No callback was moved, removed, or rescheduled, and no authoritative state or gameplay timing changed.
+
+The exact clean device build used tree `6f4db21b3bf5f03fa55d381789526c9cb1eae9b1`, PCK SHA-256 `4c16f6985c92038997d1f1c718af7373979ff71c18a1d51b6fa0a968c6d840ac`, and executable SHA-256 `8352d9514a91a6313d30a9405d002f89c7e4a8295992077239e2ee2796406de7`. Its ignored build manifest is `artifacts/startup_hitch_diagnostic/device_build_variant_arena_deferred/build_manifest.json`, and its ignored physical report is `artifacts/startup_hitch_diagnostic/evidence/variant-arena-deferred-01.json`.
+
+The single warm iPhone run completed one 25-second soak round with zero failed rounds, passed protected-state integrity, and recorded no interactive hitch. The maximum boot frame was 150.000 ms, consistent with the prior 141.916 ms signature rather than an improvement. External thermal and power fields were not captured, so the run is attribution evidence rather than a controlled-matrix timing claim.
+
+| Measured boundary | Duration |
+| --- | ---: |
+| Arena `_ready` continuation | 25.986 ms |
+| Six post-add diagnostic scans combined | 8.559 ms |
+| Five immediate Arena deferred callbacks combined | 0.988 ms |
+| Deferred camera scan after its frame resume | 1.489 ms |
+| Deferred canvas scan after its frame resume | 0.011 ms |
+| Deferred match-flow work after its second frame resume | 6.376 ms |
+| Unattributed interval after `post_add_first_process_frame_completed` and before the first Arena deferred callback | 213.239 ms |
+
+Decision: the Arena deferred callbacks and diagnostic scans do not own the retained hitch. Every immediate Arena deferred callback completed in less than 1 ms individually, and all six synchronous scans completed before the 213.239 ms interval began. The interval sits ahead of `arena_deferred_in_game_ad_started` in the same process frame, matching deferred work that Shell queued earlier during `_enter_game()`.
+
+The next controlled step is paired instrumentation around Shell `_sync_power_bar_buffer_placement`, `_sync_buff_ui`, `_stabilize_shell_camera_presentation`, and the deferred `Main.start_game` / camera-fit handoff. Move or remove work only after one of those earlier callbacks is shown to own the retained interval.
+
 Not yet claimed:
 
 - repeatability across the full controlled cold/warm matrix;
