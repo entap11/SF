@@ -1975,15 +1975,11 @@ func _hive_tex_debug(tex: Texture2D, key: String, scale: float, offset: Vector2)
 		region_rect = atlas.region
 		if atlas.atlas != null:
 			base_path = str(atlas.atlas.resource_path)
-	var img := tex.get_image() if tex != null else null
-	var alpha_info := "unknown"
-	if img != null:
-		alpha_info = str(img.get_format() in [
-			Image.FORMAT_RGBA8,
-			Image.FORMAT_RGBAF,
-			Image.FORMAT_RGBAH,
-			Image.FORMAT_RGBA4444
-		])
+	# Texture2D.get_image() is a synchronous GPU readback on the iOS Vulkan
+	# renderer. This string is evaluated before SFLog.log_once() can discard a
+	# duplicate, so sampling alpha here can stall an otherwise ordinary render
+	# model refresh. Runtime logging must stay metadata-only.
+	var alpha_info := "not_sampled_runtime"
 	return "key=%s scale=%s offset=%s tex=%s base_tex=%s w=%d h=%d region_enabled=%s region=%s alpha=%s" % [
 		key,
 		str(scale),
