@@ -343,6 +343,31 @@ Decision: the Arena deferred callbacks and diagnostic scans do not own the retai
 
 The next controlled step is paired instrumentation around Shell `_sync_power_bar_buffer_placement`, `_sync_buff_ui`, `_stabilize_shell_camera_presentation`, and the deferred `Main.start_game` / camera-fit handoff. Move or remove work only after one of those earlier callbacks is shown to own the retained interval.
 
+### Shell/Main deferred-boundary attribution
+
+Diagnostic commit `9f32078226df49173a8c130f423bb2c4b5d36f64` added paired, first-occurrence-only markers around Shell game entry, its tagged power-bar and buff-UI callbacks, the three-frame presentation stabilization, deferred `Main.start_game`, the initial Main camera fit, and both serial-numbered deferred Arena camera-fit requests. The report cap increased from 96 to 128 but remains fixed; the physical report used 117 markers. The instrumentation did not move, remove, or reschedule production work and did not change authoritative state or gameplay timing.
+
+The exact clean device build used tree `2e7c516879d6ef2b2922548ad0a658c96588c9f7`, PCK SHA-256 `4205bd79bd113cd88eaedc9f97432d70b8caeab36ea36e3060e95118ca29af44`, and executable SHA-256 `fc567428262c903ba0c71c82ee13441b79d7d1db7a93f4ed2f6c6b1931d75149`. Its ignored build manifest is `artifacts/startup_hitch_diagnostic/device_build_variant_shell_main_deferred/build_manifest.json`, and its ignored physical report is `artifacts/startup_hitch_diagnostic/evidence/variant-shell-main-deferred-01.json`.
+
+The single warm iPhone run completed the 20-second diagnostic window, passed protected-state integrity, and recorded no interactive hitch. The maximum boot frame was 150.000 ms and the second retained boot frame was 116.667 ms, reproducing the established signature. The first canonical tick was 1.513 ms and the maximum canonical tick was 2.464 ms. External thermal and power fields were not captured, so this remains attribution evidence rather than a controlled-matrix timing claim.
+
+| Measured boundary | Duration |
+| --- | ---: |
+| Shell `_enter_game` | 0.172 ms |
+| Shell ensure-game power-bar callback | 0.029 ms |
+| Shell enter-game power-bar callback | 0.013 ms |
+| Shell enter-game buff-UI callback | 0.009 ms |
+| Deferred `Main.start_game` | 0.350 ms |
+| Main initial camera fit | 0.043 ms |
+| Shell presentation fit after its second-frame resume | 1.371 ms |
+| Deferred camera-fit request 1 after its second-frame resume | 0.013 ms |
+| Deferred camera-fit request 2 after its second-frame resume | 0.041 ms |
+| Unattributed interval after both camera-fit first-frame resumes and before the first Arena deferred callback | 243.572 ms |
+
+Decision: reject the instrumented Shell/Main paths as owners of the retained hitch. All tagged callbacks are individually far below the 150 ms frame, and none spans the 243.572 ms interval. The interval begins after `post_add_first_process_frame_completed`, `shell_deferred_presentation_stabilize_first_frame_resumed`, and both deferred camera-fit first-frame resumes, then ends immediately before `arena_deferred_in_game_ad_started` in the same process frame.
+
+The next controlled step is paired instrumentation around `HiveRenderer._prewarm_hive_sprite_cache()` and `SpriteRegistry.prewarm_hive_textures()`, including bounded per-key texture/alpha-cache timing. `HiveRenderer.setup()` queues that prewarm before the already-exonerated Arena callbacks, making it the strongest remaining GDScript deferred-work candidate in the measured interval. Move, phase, or remove prewarm work only if the physical trace proves ownership.
+
 Not yet claimed:
 
 - repeatability across the full controlled cold/warm matrix;
