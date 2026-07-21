@@ -262,15 +262,51 @@ Implemented and locally exercised:
 - protected-state hashing;
 - run-level summary tooling.
 
-The 20-second headless integration run completed one 25-second soak round with zero failed rounds, captured the requested map's first canonical tick, and passed protected-state integrity. It observed 145.572 ms and 119.253 ms frames between requested-map application and presentation, both classified `PRE_INPUT_LOADING`; the first canonical tick was 2.219 ms. These numbers validate marker plumbing only. The summarizer correctly rejects that report as `not_physical_ios` and `headless`, so none of them is iPhone performance evidence.
+The 20-second headless integration run completed one 25-second soak round with zero failed rounds, captured the requested map's first canonical tick, and passed protected-state integrity. It observed 145.572 ms and 119.253 ms frames between requested-map application and presentation, both classified `PRE_INPUT_LOADING`; the first canonical tick was 2.219 ms. These numbers validate marker plumbing only. The summarizer correctly rejects that report as `not_physical_ios` and `headless`.
+
+## Focused renderer-boundary attribution
+
+Diagnostic commit `3615a4d7ff666d43fb353528995f2c620f85a708` added bounded, diagnostic-only renderer-ready, lane-operation, and post-add process-frame markers. The exact clean device build used tree `5ddc2cc411aa025e3e3bb215176eea495e7a184d`, PCK SHA-256 `d6a337127e695945759f10757fca1cab198832902c924908b917703331ebadc6`, and executable SHA-256 `3c14b4b962492b823866b3e773997722a560c332670e0536ff14e7c18325eba7`. Its ignored build manifest is `artifacts/startup_hitch_diagnostic/device_build_variant_renderer_markers/build_manifest.json`.
+
+The accepted physical-iPhone report is `artifacts/startup_hitch_diagnostic/evidence/variant-renderer-markers-trace-01.json`. It ran on iPhone 16 Pro (`iPhone17,1`), iOS 26.5.2, Godot 4.2.2, with a Nominal thermal state. It completed the soak with zero failed rounds, passed protected-state integrity, retained 58 markers and two pre-input hitches, and recorded:
+
+| Observation | Result |
+| --- | ---: |
+| Maximum rendered frame | 141.916 ms |
+| First canonical tick | 2.304 ms |
+| Maximum canonical tick | 4.036 ms |
+| Interactive hitches | 0 |
+| Lane `_ready` boundary | 305.264 ms |
+| UnitRenderer `_ready` boundary | 211.456 ms |
+| Match added to deferred queue drained | 480.814 ms |
+| Lane rebuild 1 / 2 | 0.010 / 0.007 ms |
+| Lane `set_model` 1 / 2 | 0.014 / 0.008 ms |
+| Lane anchor snapshot 1 | 0.042 ms |
+| Lane first `_process` | 0.006 ms |
+
+The matching focused Time Profiler trace is `artifacts/startup_hitch_diagnostic/traces/iphone16pro-time-profiler-renderer-markers-01.trace`; its exported sample table is `artifacts/startup_hitch_diagnostic/traces/iphone16pro-time-profiler-renderer-markers-01-time-profile.xml`. The trace remained Nominal and contains these main-thread intervals:
+
+| Trace interval | Duration | Attribution |
+| --- | ---: | --- |
+| Engine/application initialization | 1.351683 s | Before diagnostic ownership |
+| Match load request through deferred queue | 2.223201 s | Severe main-thread startup hang |
+| Final boot-frame envelope | 259.374 ms | GDScript/deferred-call microhang |
+
+The final 259.374 ms interval begins before `arena_ready_completed`, contains `first_lane_activity`, ends at the second post-add process-frame boundary, and is followed by presentation visibility. Of 255 main-thread samples in this interval, 251 ms are under `Main::iteration`, 243 ms under GDScript calls, and 215 ms under `CallQueue::flush`. This establishes CPU/GDScript deferred work as the owner of the remaining frame envelope. `first_lane_activity` is correlational; the measured lane model, anchor, rebuild, and first-process operations are all sub-millisecond and cannot own the 141.916 ms frame.
+
+Symbolicated samples expose two additional synchronous boot targets that must remain separate from the final-frame attribution:
+
+1. Lane `_ready` spends 305.264 ms under ResourceLoader, image decode/conversion, and texture update. `LaneRenderer._load_lane_textures()` obtains `SpriteRegistry`, whose current `_load_manifest()` loops through every sprite and calls `ResourceLoader.load()` eagerly. The narrow controlled variant is to parse and retain manifest metadata/paths, then load and cache only a requested key in `get_tex()`. Explicit bounded prewarm can remain for asset families that genuinely need it.
+2. UnitRenderer `_ready` spends 211.456 ms constructing the fixed 400-node presentation pool in `_pool_build()`. A later controlled variant may phase or resize that presentation allocation, but it must guarantee required capacity before interactivity and must not alter authoritative unit state or simulation timing.
+3. To narrow the exact deferred owner beyond engine-level GDScript symbols, add bounded markers around individual Arena deferred callbacks and nonessential post-add scans. Move work only after one callback is shown to own the same interval.
+
+The next recommended experiment is the SpriteRegistry on-demand texture-load variant because the trace directly identifies manifest-wide image decoding and the change can remain presentation-only and deterministic. It is expected to remove the 305 ms Lane `_ready` cost; it must not be credited with fixing the distinct 259 ms final-frame microhang unless that same signature also moves in the paired device trace.
 
 Not yet claimed:
 
-- any physical iPhone hitch duration or visibility result;
-- repeatability of 142 ms or 225 ms signatures;
-- Time Profiler or Metal attribution;
-- a candidate optimization;
-- before/after device improvement;
+- repeatability across the full controlled cold/warm matrix;
+- before/after device improvement from a candidate optimization;
+- removal of the 259 ms deferred-call microhang;
 - 150-second post-fix soak or Release Readiness completion;
 - final pass/hold recommendation.
 
