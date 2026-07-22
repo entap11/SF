@@ -400,3 +400,15 @@ Not yet claimed:
 - final pass/hold recommendation.
 
 No production threshold, gameplay rule, authority result, or shipping timing has been changed. No public deployment or rollout is part of this sprint.
+
+## Alpha-ready fix and startup readiness implementation — 2026-07-21
+
+The measured single-asset experiment is implemented locally. A deterministic build tool applies the exact former runtime black color-key algorithm to `hive_large_flatop.png` and writes `hive_large_flatop_alpha.png`. A focused test requires pixel-for-pixel RGBA equivalence, unchanged 1254×1254 dimensions, five alpha-ready manifest routes, and no large-hive runtime key metadata. The registry smoke also proves all 15 hive keys resolve and the large asset does not enter the runtime alpha-conversion cache.
+
+Startup presentation now has an explicit readiness boundary. The persistent loading cover appears before map validation/resource preparation, reports rotating arena-preparation stages, and stays opaque until the threaded match scene, map model, Arena initialization, renderer pools, and hive texture prewarm are ready. The old 900 ms allowance is replaced by a five-second guarded scene readiness wait; map completion alone can no longer trigger a premature synchronous scene fallback. The Arena is rendered once beneath the cover before release.
+
+The authoritative prematch duration and phase transitions are unchanged. While the readiness cover is active, Arena holds the prematch clock and does not play countdown audio. Once revealed, it runs at most one required VFX first-use warmup task per frame and will not unlock gameplay until that bounded queue is empty. Countdown audio loading occurs behind the cover. Nonessential in-game ad/debug construction is delayed 1.2 seconds after RUNNING and executes at most one queued task per frame.
+
+No second ad placement was added. The approved `handshake` prematch surface remains canonical; moving that single surface into the loading cover is a future presentation decision, not part of this performance change.
+
+Local deterministic and integration smokes pass, as do the unchanged startup diagnostic smoke, performance contract gates A through F, and Phase 2 gate G. These results establish implementation integrity only. The accepted performance claim still requires an exact physical-iPhone build and before/after capture from a clean commit.

@@ -139,39 +139,24 @@
       "softness": 0.018
     },
     "hive.large.neutral": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_large_flatop.png",
-      "scale": 1.95,
-      "key_color": "#000000",
-      "threshold": 0.035,
-      "softness": 0.018
+      "path": "res://assets/sprites/sf_skin_v1/hive_large_flatop_alpha.png",
+      "scale": 1.95
     },
     "hive.large.p1": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_large_flatop.png",
-      "scale": 1.95,
-      "key_color": "#000000",
-      "threshold": 0.035,
-      "softness": 0.018
+      "path": "res://assets/sprites/sf_skin_v1/hive_large_flatop_alpha.png",
+      "scale": 1.95
     },
     "hive.large.p2": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_large_flatop.png",
-      "scale": 1.95,
-      "key_color": "#000000",
-      "threshold": 0.035,
-      "softness": 0.018
+      "path": "res://assets/sprites/sf_skin_v1/hive_large_flatop_alpha.png",
+      "scale": 1.95
     },
     "hive.large.p3": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_large_flatop.png",
-      "scale": 1.95,
-      "key_color": "#000000",
-      "threshold": 0.035,
-      "softness": 0.018
+      "path": "res://assets/sprites/sf_skin_v1/hive_large_flatop_alpha.png",
+      "scale": 1.95
     },
     "hive.large.p4": {
-      "path": "res://assets/sprites/sf_skin_v1/hive_large_flatop.png",
-      "scale": 1.95,
-      "key_color": "#000000",
-      "threshold": 0.035,
-      "softness": 0.018
+      "path": "res://assets/sprites/sf_skin_v1/hive_large_flatop_alpha.png",
+      "scale": 1.95
     },
     "lane.mvp": "res://assets/sprites/sf_skin_v1/lane_mvp.png",
     "lane.points": {

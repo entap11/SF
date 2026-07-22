@@ -49,6 +49,8 @@ const SOAK_DEFAULT_ROUND_SECONDS: int = 300
 const SOAK_DEFAULT_PAIR_COUNT: int = 2
 const SOAK_DEFAULT_REAPPLY_MS: int = 1000
 const SOAK_DEFAULT_START_TIMEOUT_MS: int = 15000
+const MATCH_RESOURCE_READINESS_TIMEOUT_MS: int = 5000
+const ARENA_STARTUP_READINESS_TIMEOUT_MS: int = 8000
 const CTF_BOT_STAGE_MAP_PATH: String = "res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
 const TUTORIAL_CONTROLS_ID: String = "controls_v1"
 const TUTORIAL_CONTROLS_MAP_PATH: String = "res://maps/tutorial/MAP_tutorial_controls_v1__1p.json"
@@ -1313,8 +1315,13 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 			tree.remove_meta("tutorial_controls_followup_launch_pending")
 		else:
 			_clear_tutorial_controls_followup_tree_meta(tree)
+	var loading_coordinator: Node = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null and loading_coordinator.has_method("present_for_match_readiness"):
+		await loading_coordinator.call("present_for_match_readiness")
+	_set_match_loading_stage("map")
 	var mode_validation: Dictionary = _validate_launch_map_mode_contract(map_path, tree)
 	if not bool(mode_validation.get("ok", false)):
+		_hide_match_loading_cover()
 		_set_shell_status("Launch blocked. %s does not support this mode." % _map_display_name(map_path), "error")
 		_report_map_mode_contract_violation(str(mode_validation.get("mode", "")), map_path, str(mode_validation.get("reason", "invalid_map_mode")))
 		return
@@ -1322,11 +1329,14 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 	if tree != null:
 		tree.set_meta(TREE_META_TUTORIAL_ACTIVE, not clean_tutorial_section.is_empty())
 		tree.set_meta(TREE_META_TUTORIAL_SECTION, clean_tutorial_section)
+	_set_match_loading_stage("scene")
 	_hide_arena_for_map_transition()
 	_request_match_scene_preload()
 	_startup_hitch_mark("map_prewarm_requested", {"map_path": map_path})
+	_set_match_loading_stage("map")
 	_request_map_prewarm(map_path)
-	await _wait_for_launch_prewarm(map_path, 900)
+	await _wait_for_launch_prewarm(map_path, MATCH_RESOURCE_READINESS_TIMEOUT_MS)
+	_set_match_loading_stage("render")
 	if _arena_instance == null:
 		SFLog.info("APPLY_MAP_THEN_START_DEFERRED_NO_ARENA", {"map_path": map_path})
 		_pending_map_path = map_path
@@ -1341,6 +1351,7 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 	SFLog.info("MAP_APPLY_ENTRY", {"map_path": map_path})
 	if not _apply_map_direct_to_arena(map_path):
 		_show_arena_after_failed_map_transition()
+		_hide_match_loading_cover()
 		_set_shell_status("Launch failed while applying %s." % _map_display_name(map_path), "error")
 		SFLog.warn("MAP_APPLY_FAIL_WARN", {"map_path": map_path, "err": "direct_apply_failed"})
 		SFLog.error("MAP_APPLY_FAIL", {"map_path": map_path, "err": "direct_apply_failed"})
@@ -1445,6 +1456,7 @@ func _show_arena_after_failed_map_transition() -> void:
 	if arena_root == null:
 		return
 	arena_root.modulate.a = 1.0
+	_hide_match_loading_cover()
 
 func _report_map_mode_contract_violation(mode: String, path: String, reason: String) -> void:
 	var map_id: String = MAP_REGISTRY.map_id_from_path(path)
@@ -1585,6 +1597,7 @@ func _stabilize_shell_camera_presentation() -> void:
 		var missing_arena_started_usec: int = Time.get_ticks_usec()
 		if arena_root != null:
 			arena_root.modulate.a = 1.0
+		_hide_match_loading_cover()
 		_startup_hitch_callback_completed("shell_deferred_presentation_stabilize", missing_arena_started_usec, "missing_arena")
 		return
 	await get_tree().process_frame
@@ -1594,16 +1607,53 @@ func _stabilize_shell_camera_presentation() -> void:
 	_startup_hitch_mark("shell_deferred_presentation_stabilize_second_frame_resumed")
 	_configure_shell_world_viewport_opening()
 	var arena_node: Node = _resolve_runtime_arena_node()
+	_set_match_loading_stage("render")
+	await _wait_for_arena_startup_readiness(arena_node, ARENA_STARTUP_READINESS_TIMEOUT_MS)
 	if arena_node != null and arena_node.has_method("apply_camera_fit"):
 		arena_node.call("apply_camera_fit", "shell_present")
 	_startup_hitch_callback_completed("shell_deferred_presentation_fit", fit_started_usec)
 	await get_tree().process_frame
 	var reveal_started_usec: int = Time.get_ticks_usec()
 	_startup_hitch_mark("shell_deferred_presentation_stabilize_third_frame_resumed")
+	_set_match_loading_stage("final")
 	if arena_root != null:
 		arena_root.modulate.a = 1.0
+	await _release_match_loading_cover()
 	_startup_hitch_mark("arena_presentation_visible")
 	_startup_hitch_callback_completed("shell_deferred_presentation_stabilize", reveal_started_usec)
+
+func _wait_for_arena_startup_readiness(arena_node: Node, timeout_ms: int) -> bool:
+	if arena_node == null or not arena_node.has_method("is_startup_readiness_complete"):
+		return false
+	if OS.has_feature("server") or DisplayServer.get_name() == "headless":
+		return bool(arena_node.call("is_startup_readiness_complete"))
+	var deadline_ms: int = Time.get_ticks_msec() + maxi(0, timeout_ms)
+	while Time.get_ticks_msec() <= deadline_ms:
+		if bool(arena_node.call("is_startup_readiness_complete")):
+			_startup_hitch_mark("arena_startup_readiness_completed", arena_node.call("startup_readiness_snapshot") if arena_node.has_method("startup_readiness_snapshot") else {})
+			return true
+		await get_tree().process_frame
+	SFLog.warn("ARENA_STARTUP_READINESS_TIMEOUT", arena_node.call("startup_readiness_snapshot") if arena_node.has_method("startup_readiness_snapshot") else {})
+	return false
+
+func _set_match_loading_stage(stage: String) -> void:
+	var loading_coordinator: Node = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null and loading_coordinator.has_method("set_match_readiness_stage"):
+		loading_coordinator.call("set_match_readiness_stage", stage)
+
+func _release_match_loading_cover() -> void:
+	var loading_coordinator: Node = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null and loading_coordinator.has_method("is_match_transition_active") \
+	and bool(loading_coordinator.call("is_match_transition_active")) \
+	and loading_coordinator.has_method("release_after_match_ready"):
+		await loading_coordinator.call("release_after_match_ready")
+
+func _hide_match_loading_cover() -> void:
+	var loading_coordinator: Node = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null and loading_coordinator.has_method("is_match_transition_active") \
+	and bool(loading_coordinator.call("is_match_transition_active")) \
+	and loading_coordinator.has_method("hide_immediately"):
+		loading_coordinator.call("hide_immediately")
 
 func _configure_shell_world_viewport_opening() -> void:
 	if _arena_instance == null:
@@ -2104,6 +2154,8 @@ func _map_prewarm_result_for_path(map_path: String) -> Dictionary:
 	return _map_prewarm_result.duplicate(true)
 
 func _wait_for_launch_prewarm(map_path: String, timeout_ms: int) -> void:
+	if OS.has_feature("server") or DisplayServer.get_name() == "headless":
+		return
 	var deadline_ms: int = Time.get_ticks_msec() + maxi(0, timeout_ms)
 	while Time.get_ticks_msec() <= deadline_ms:
 		_finish_map_prewarm(false)
@@ -2111,7 +2163,7 @@ func _wait_for_launch_prewarm(map_path: String, timeout_ms: int) -> void:
 		var map_ready: bool = not _map_prewarm_result_for_path(map_path).is_empty()
 		if scene_ready and map_ready:
 			return
-		if not _map_prewarm_inflight and map_ready:
+		if scene_ready and not _map_prewarm_inflight:
 			return
 		await get_tree().process_frame
 

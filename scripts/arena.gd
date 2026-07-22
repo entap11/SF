@@ -212,6 +212,9 @@ const PREMATCH_IDENTITY_CARD_FADE_SEC: float = 0.25
 const PREMATCH_HIVE_FOCUS_START_MS: int = 5250
 const PREMATCH_HIVE_PULSE_SEC: float = 0.42
 const PREMATCH_COUNTDOWN_RETURN_MS: int = 3000
+const PREMATCH_WARMUP_BUDGET_USEC: int = 1500
+const POST_START_WORK_DELAY_MS: int = 1200
+const POST_START_WORK_BUDGET_USEC: int = 1500
 const PREMATCH_HIVE_FOCUS_ZOOM_MULT: float = 1.45
 const PREMATCH_TEAM_BUFFER_ALPHA: float = 0.22
 const MM_BACKGROUND_ART_TEXTURE: Texture2D = preload("res://assets/sprites/sf_skin_v1/mm_back_art.png")
@@ -246,6 +249,7 @@ var input_system: InputSystem
 var debug_system: DebugSystem
 var audio_system: AudioSystem
 var _prematch_countdown_sfx_player: AudioStreamPlayer = null
+var _prematch_countdown_stream: AudioStream = null
 var _tower_shot_sfx_counts: Dictionary = {}
 var _tower_shot_sfx_stream: AudioStream = null
 var _swarm_sfx_stream: AudioStream = null
@@ -366,6 +370,7 @@ var _tutorial_section2_controller: ArenaTutorialSection2Controller = ArenaTutori
 var _tutorial_section3_controller: ArenaTutorialSection3Controller = ArenaTutorialSection3Controller.new()
 var _prematch_remaining_ms_f: float = 0.0
 var _prematch_last_sec: int = -1
+var _prematch_countdown_sfx_started: bool = false
 var _prematch_records_faded: bool = false
 var _prematch_countdown_faded: bool = false
 var _power_bar_reveal_started: bool = false
@@ -548,6 +553,10 @@ var _dbg_last_event: String = ""
 var _dbg_last_event_ms: int = 0
 var _dbg_last_hitch_ms: int = 0
 var _render_assets_prewarmed: bool = false
+var _startup_readiness_initialized: bool = false
+var _prematch_warmup_tasks: Array[Dictionary] = []
+var _post_start_work_tasks: Array[Dictionary] = []
+var _post_start_work_not_before_msec: int = 0
 var _hb_last_ms: int = 0
 var _hb_frames: int = 0
 var _hb_max_frame_ms: float = 0.0
@@ -689,9 +698,7 @@ func _ready() -> void:
 	# before the simulation is allowed to run.
 	_ensure_timer_hud()
 	_ensure_progressive_counter_hud()
-	call_deferred("_ensure_in_game_ad_surface")
-	call_deferred("_ensure_runtime_telemetry_overlay")
-	call_deferred("_ensure_pvp_debug_overlay")
+	_prepare_post_start_work()
 	_configure_grid_spec(grid_w, grid_h)
 	_map_bounds_size = Vector2.ZERO
 	var arena_scale: Vector2 = global_transform.get_scale()
@@ -732,6 +739,7 @@ func _ready() -> void:
 	_list_canvasitems_with_scripts("/root/DevMapRunner/Arena")
 	_startup_hitch_callback_completed("arena_post_add_canvas_script_scan", startup_scan_started_usec)
 	_startup_hitch_mark("arena_ready_completed")
+	_startup_readiness_initialized = true
 
 
 func _startup_hitch_diagnostic() -> Node:
@@ -1621,7 +1629,8 @@ func _begin_prematch() -> void:
 		"phase": int(OpsState.match_phase),
 		"ms": int(OpsState.prematch_remaining_ms)
 	})
-	_play_prematch_countdown_sfx()
+	_prepare_prematch_countdown_sfx()
+	_prematch_countdown_sfx_started = false
 	_prematch_last_sec = -1
 	_prematch_records_faded = false
 	_prematch_countdown_faded = false
@@ -1631,6 +1640,7 @@ func _begin_prematch() -> void:
 	_prematch_countdown_return_started = false
 	_power_bar_reveal_started = false
 	_clear_prematch_pulses()
+	_prepare_prematch_warmup_tasks()
 	_apply_team_orientation_buffers()
 	_show_prematch_ui()
 	if sim_runner != null:
@@ -1642,8 +1652,8 @@ func _begin_prematch() -> void:
 func _play_prematch_countdown_sfx() -> void:
 	if not _is_game_sfx_enabled():
 		return
-	var stream: AudioStream = load(PREMATCH_COUNTDOWN_SOUND_PATH) as AudioStream
-	if stream == null:
+	_prepare_prematch_countdown_sfx()
+	if _prematch_countdown_stream == null:
 		if SFLog.LOGGING_ENABLED:
 			push_warning("PREMATCH_COUNTDOWN_SOUND_MISSING: " + PREMATCH_COUNTDOWN_SOUND_PATH)
 		return
@@ -1652,8 +1662,13 @@ func _play_prematch_countdown_sfx() -> void:
 		_prematch_countdown_sfx_player.name = "PrematchCountdownSfxPlayer"
 		add_child(_prematch_countdown_sfx_player)
 	_prematch_countdown_sfx_player.stop()
-	_prematch_countdown_sfx_player.stream = stream
+	_prematch_countdown_sfx_player.stream = _prematch_countdown_stream
 	_prematch_countdown_sfx_player.play()
+
+func _prepare_prematch_countdown_sfx() -> void:
+	if _prematch_countdown_stream != null or not _is_game_sfx_enabled():
+		return
+	_prematch_countdown_stream = load(PREMATCH_COUNTDOWN_SOUND_PATH) as AudioStream
 
 func _is_game_sfx_enabled() -> bool:
 	var tree: SceneTree = get_tree()
@@ -4382,6 +4397,12 @@ func _display_name_for_seat(seat: int, uid: String, is_cpu: bool) -> String:
 func _update_prematch_flow(delta: float) -> void:
 	if OpsState.match_phase != OpsState.MatchPhase.PREMATCH:
 		return
+	if _match_loading_cover_holds_countdown():
+		return
+	if not _prematch_countdown_sfx_started:
+		_prematch_countdown_sfx_started = true
+		_play_prematch_countdown_sfx()
+	_run_prematch_warmup_budget()
 	_prematch_remaining_ms_f = max(0.0, _prematch_remaining_ms_f - delta * 1000.0)
 	OpsState.sim_mutate("Arena._update_prematch_flow", func() -> void:
 		OpsState.set_prematch_remaining_ms(int(ceil(_prematch_remaining_ms_f)), "Arena._update_prematch_flow")
@@ -4418,7 +4439,7 @@ func _update_prematch_flow(delta: float) -> void:
 	# Apply one final fit during prematch so RUNNING does not need a visible camera correction.
 	if _prematch_remaining_ms_f <= float(PREMATCH_UI_CROSSFADE_MS) and not _prematch_final_fit_requested:
 		_prematch_final_fit_requested = true
-	if _prematch_remaining_ms_f <= 0.0 and not _prematch_countdown_faded:
+	if _prematch_remaining_ms_f <= 0.0 and _prematch_warmup_tasks.is_empty() and not _prematch_countdown_faded:
 		_prematch_countdown_faded = true
 		_fade_prematch_countdown()
 
@@ -4467,6 +4488,7 @@ func _finish_prematch() -> void:
 	_clear_prematch_pulses()
 	_arm_camera_transition_lock("prematch_to_running")
 	_start_match_sim("prematch_complete")
+	_arm_post_start_work()
 	_startup_hitch_mark("player_input_unlocked")
 	SFLog.warn("INPUT_UNLOCKED", {"reason": "prematch_complete"})
 
@@ -4493,6 +4515,86 @@ func _prewarm_render_assets() -> void:
 		})
 	var duration_ms: float = float(Time.get_ticks_usec() - prewarm_t0_us) / 1000.0
 	_publish_pool_runtime_telemetry({"match_prewarm_duration_ms": snappedf(duration_ms, 0.01)})
+
+func is_startup_readiness_complete() -> bool:
+	return bool(startup_readiness_snapshot().get("ready", false))
+
+func startup_readiness_snapshot() -> Dictionary:
+	var registry: SpriteRegistry = SpriteRegistry.get_instance()
+	var hive_textures_ready: bool = registry != null and bool(registry.get("_hive_textures_prewarmed"))
+	var map_ready: bool = state != null and state.hives != null and not state.hives.is_empty()
+	return {
+		"ready": _startup_readiness_initialized and _render_assets_prewarmed and hive_textures_ready and map_ready,
+		"arena_initialized": _startup_readiness_initialized,
+		"render_pools_ready": _render_assets_prewarmed,
+		"hive_textures_ready": hive_textures_ready,
+		"map_ready": map_ready,
+		"prematch_warmup_tasks": _prematch_warmup_tasks.size(),
+	}
+
+func queue_prematch_warmup_task(task_id: String, task: Callable) -> void:
+	if task.is_valid():
+		_prematch_warmup_tasks.append({"id": task_id, "callable": task})
+
+func _prepare_prematch_warmup_tasks() -> void:
+	_prematch_warmup_tasks.clear()
+	if vfx_manager == null or not vfx_manager.has_method("take_prematch_warmup_tasks"):
+		return
+	var tasks_any: Variant = vfx_manager.call("take_prematch_warmup_tasks")
+	if typeof(tasks_any) != TYPE_ARRAY:
+		return
+	for task_any in tasks_any as Array:
+		if typeof(task_any) != TYPE_DICTIONARY:
+			continue
+		var task: Dictionary = task_any as Dictionary
+		queue_prematch_warmup_task(str(task.get("id", "vfx")), task.get("callable", Callable()) as Callable)
+
+func _run_prematch_warmup_budget() -> void:
+	if _prematch_warmup_tasks.is_empty():
+		return
+	var started_usec: int = Time.get_ticks_usec()
+	var task: Dictionary = _prematch_warmup_tasks.pop_front()
+	var callback: Callable = task.get("callable", Callable()) as Callable
+	if callback.is_valid():
+		callback.call()
+	_startup_hitch_mark("prematch_warmup_task_completed", {
+		"id": str(task.get("id", "")),
+		"duration_usec": Time.get_ticks_usec() - started_usec,
+		"budget_usec": PREMATCH_WARMUP_BUDGET_USEC,
+	})
+
+func _match_loading_cover_holds_countdown() -> bool:
+	var loading_coordinator: Node = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	return loading_coordinator != null \
+		and loading_coordinator.has_method("is_match_transition_active") \
+		and bool(loading_coordinator.call("is_match_transition_active"))
+
+func _prepare_post_start_work() -> void:
+	_post_start_work_tasks.clear()
+	queue_post_start_work("in_game_ad_surface", Callable(self, "_ensure_in_game_ad_surface"))
+	queue_post_start_work("runtime_telemetry_overlay", Callable(self, "_ensure_runtime_telemetry_overlay"))
+	queue_post_start_work("pvp_debug_overlay", Callable(self, "_ensure_pvp_debug_overlay"))
+
+func queue_post_start_work(task_id: String, task: Callable) -> void:
+	if task.is_valid():
+		_post_start_work_tasks.append({"id": task_id, "callable": task})
+
+func _arm_post_start_work() -> void:
+	_post_start_work_not_before_msec = Time.get_ticks_msec() + POST_START_WORK_DELAY_MS
+
+func _run_post_start_work_budget() -> void:
+	if _post_start_work_tasks.is_empty() or Time.get_ticks_msec() < _post_start_work_not_before_msec:
+		return
+	var started_usec: int = Time.get_ticks_usec()
+	var task: Dictionary = _post_start_work_tasks.pop_front()
+	var callback: Callable = task.get("callable", Callable()) as Callable
+	if callback.is_valid():
+		callback.call()
+	_startup_hitch_mark("post_start_work_completed", {
+		"id": str(task.get("id", "")),
+		"duration_usec": Time.get_ticks_usec() - started_usec,
+		"budget_usec": POST_START_WORK_BUDGET_USEC,
+	})
 
 func _publish_pool_runtime_telemetry(extra: Dictionary = {}) -> void:
 	if OpsState == null or not OpsState.has_method("update_runtime_telemetry"):
@@ -8065,9 +8167,12 @@ func _tick_arena_heartbeat(delta: float) -> void:
 func _tick_arena_runtime(delta: float) -> void:
 	_enforce_camera_transition_lock()
 	_update_prematch_flow(delta)
+	if OpsState.match_phase == OpsState.MatchPhase.RUNNING:
+		_run_post_start_work_budget()
 	if OpsState.match_phase == OpsState.MatchPhase.PREMATCH \
 	and int(OpsState.prematch_remaining_ms) <= 0 \
 	and _prematch_countdown_faded \
+	and _prematch_warmup_tasks.is_empty() \
 	and (_prematch_countdown_label == null or _prematch_countdown_label.modulate.a <= 0.01) \
 	and bool(OpsState.input_locked):
 		SFLog.warn("PREMATCH_WATCHDOG_FINISH", {

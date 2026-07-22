@@ -44,6 +44,8 @@ func _init() -> void:
 
 	var alpha_cache: Dictionary = registry.get("_tex_alpha_cache") as Dictionary
 	_assert_true(alpha_cache.size() <= 3, "hive prewarm should convert each tier once")
+	for cache_key_any in alpha_cache.keys():
+		_assert_true(not str(cache_key_any).contains("hive_large_flatop_alpha.png"), "large hive should bypass runtime alpha conversion")
 
 	var report: Dictionary = diagnostic.call("complete", "smoke_complete") as Dictionary
 	var markers: Array = report.get("markers", []) as Array
@@ -71,6 +73,7 @@ func _init() -> void:
 		var completed_detail: Dictionary = (registry_completed[0] as Dictionary).get("detail", {}) as Dictionary
 		_assert_true(int(completed_detail.get("keys_attempted", 0)) == 15, "completion marker should retain attempted-key count")
 		_assert_true(int(completed_detail.get("keys_available", 0)) == 15, "completion marker should retain available-key count")
+		print("SPRITE_REGISTRY_HIVE_PREWARM_DURATION_MS: %.3f" % float(completed_detail.get("duration_ms", -1.0)))
 	_assert_true(bool((report.get("protected_state_integrity", {}) as Dictionary).get("pass", false)), "diagnostic markers must not mutate protected state")
 	hive_renderer.queue_free()
 	diagnostic.queue_free()

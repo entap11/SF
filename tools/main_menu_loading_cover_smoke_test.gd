@@ -30,6 +30,9 @@ func _run() -> void:
 	_expect(cover.layer >= 100, "loading cover should render above shell and menu UI", {"layer": cover.layer})
 	_expect(cover.has_method("present_for_main_menu"), "loading cover should support a guaranteed rendered presentation")
 	_expect(cover.has_method("release_after_main_menu_ready"), "loading cover should wait for explicit main-menu readiness")
+	_expect(cover.has_method("present_for_match_readiness"), "loading cover should support match readiness presentation")
+	_expect(cover.has_method("release_after_match_ready"), "loading cover should wait for explicit match readiness")
+	_expect(cover.has_method("set_match_readiness_stage"), "loading cover should expose truthful readiness stages")
 	_expect(cover.has_method("hide_immediately"), "loading cover should support failure cleanup")
 	_expect(float(cover.get("eye_fade_seconds")) <= 0.75, "logo eyes should reach visible brightness quickly", {
 		"eye_fade_seconds": cover.get("eye_fade_seconds")
@@ -37,6 +40,7 @@ func _run() -> void:
 	var black: ColorRect = cover.get_node_or_null("Black") as ColorRect
 	var signage: TextureRect = cover.get_node_or_null("Signage") as TextureRect
 	var logo_eyes: TextureRect = cover.get_node_or_null("LogoEyes") as TextureRect
+	var preparation_status: Label = cover.get_node_or_null("PreparationStatus") as Label
 	_expect(black != null and black.color == Color.BLACK, "loading cover should have an opaque black background")
 	_expect(black != null and black.mouse_filter == Control.MOUSE_FILTER_STOP, "loading cover should block input during transition")
 	_expect(signage != null and signage.texture != null, "loading cover should display the yellow signage")
@@ -55,6 +59,7 @@ func _run() -> void:
 		})
 		_expect(is_equal_approx(logo_eyes.anchor_left, 0.5) and is_equal_approx(logo_eyes.anchor_right, 0.5), "logo eyes should remain horizontally centered")
 		_expect(is_equal_approx(logo_eyes.anchor_top, 0.25) and is_equal_approx(logo_eyes.anchor_bottom, 0.25), "logo eyes should remain proportionally centered above the banner")
+	_expect(preparation_status != null, "loading cover should include a preparation status line")
 	get_root().add_child(cover)
 	await process_frame
 	cover.set("minimum_visible_seconds", 0.12)
@@ -80,6 +85,13 @@ func _run() -> void:
 	var visible_msec: int = Time.get_ticks_msec() - shown_at_msec
 	_expect(not cover.visible, "coordinator should hide cleanly after Main Menu reports readiness")
 	_expect(visible_msec >= 115, "coordinator should honor its minimum branding duration", {"visible_msec": visible_msec})
+	await cover.present_for_match_readiness()
+	_expect(cover.is_match_transition_active(), "match readiness presentation should identify its transition kind")
+	_expect(preparation_status != null and preparation_status.visible, "match readiness should show preparation copy")
+	cover.set_match_readiness_stage("render")
+	_expect(preparation_status != null and preparation_status.text == "Lighting up the hives...", "render stage should use truthful hive preparation copy")
+	await cover.release_after_match_ready()
+	_expect(not cover.visible, "match readiness cover should release cleanly")
 	cover.free()
 	var autoload_path: String = str(ProjectSettings.get_setting("autoload/MainMenuLoadingCoordinator", ""))
 	_expect(autoload_path == "*%s" % LOADING_COVER_SCENE_PATH, "loading cover should be registered as a persistent autoload", {

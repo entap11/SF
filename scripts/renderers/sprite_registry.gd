@@ -182,12 +182,11 @@ func _ensure_alpha(tex: Texture2D, key: String) -> Texture2D:
 	var colorkey: Dictionary = get_colorkey(key)
 	var colorkey_enabled: bool = bool(colorkey.get("enabled", false))
 	var auto_key_white: bool = _should_auto_key_white(key)
+	if not colorkey_enabled and not auto_key_white:
+		return tex
 	var cache_key: String = _alpha_cache_key(tex, key, colorkey, auto_key_white)
 	if _tex_alpha_cache.has(cache_key):
 		return _tex_alpha_cache[cache_key]
-	if not colorkey_enabled and not auto_key_white:
-		_tex_alpha_cache[cache_key] = tex
-		return tex
 
 	var img: Image = tex.get_image()
 	if img == null:
