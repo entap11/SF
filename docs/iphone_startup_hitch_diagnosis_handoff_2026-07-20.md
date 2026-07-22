@@ -6,7 +6,7 @@ Branch: `codex/iphone-startup-hitch-diagnosis`
 
 Diagnostic source commit: `2c27ac363ffcea658b2fe1415d6b882540329110`
 
-Status: **LARGE-HIVE OWNER FIXED LOCALLY — STARTUP READINESS PIPELINE IMPLEMENTED — DEVICE BEFORE/AFTER STILL REQUIRED**
+Status: **LARGE-HIVE OWNER REMOVED ON DEVICE — REMAINING BOOT FRAME COVERED — ACCEPTED DEVICE MATRIX BLOCKED BY IOS AUDIO INIT**
 
 ## Outcome
 
@@ -275,4 +275,32 @@ Focused local gates currently pass:
 - `startup_hitch_diagnostic_smoke_test.gd`
 - performance contract gates A through F and Phase 2 gate G
 
-The next work Codex should not broaden the implementation. Build this exact clean commit for the iPhone 16 Pro and repeat the same requested-map diagnostic fixture. The first acceptance question is whether `hive.large.neutral` and the full hive prewarm boundary collapse without visual differences. The second is whether the retained approximately 142/123 ms boot-frame signature moves below the sprint target or is wholly hidden behind the truthful noninteractive cover. Preserve protected-state hashes, canonical tick thresholds, ad placement policy, countdown duration, simulation timing, and authority. After a positive focused run, perform the exact before/after repetition matrix, unchanged 150-second soak, performance gates, and Release Readiness; Android P6 remains a separately reported hardware blocker.
+The implementation was committed as `8b0c2c074e3518ae30bbba9835912d8a3a9b3990` (tree `722892c82df792cf3161d81568cd9fda242d75e8`) and exercised on the iPhone 16 Pro. The focused device result and remaining acceptance work are recorded below. Do not broaden the implementation until the external audio-init condition is cleared and the exact build completes an accepted run. Preserve protected-state hashes, canonical tick thresholds, ad placement policy, countdown duration, simulation timing, and authority. Android P6 remains a separately reported hardware blocker.
+
+## 2026-07-21 physical-device result
+
+The exact clean implementation commit was exported and signed for the iPhone 16 Pro. Its Xcode project SHA-256 is `0c0e5ec2012d8a36682c13d1bfb827f76bb88cadf96e0a1f386f0939bb677482`, PCK SHA-256 is `49558ce194b7bb7cfe0f0f871f4abc846fa5d7f3d182cf948c8667db6270b6f4`, and signed executable SHA-256 is `96a56e57db0747831e91c3d06c6b7fff0f51371c6b26eee0c3dd1e1e4c9de729`.
+
+The focused run proves the targeted owner was removed:
+
+| Boundary | Before | Alpha-ready build | Change |
+| --- | ---: | ---: | ---: |
+| Full `SpriteRegistry.prewarm_hive_textures()` | 215.953 ms | 0.170 ms | -215.783 ms (-99.92%) |
+| `hive.large.neutral` | 215.705 ms | 0.003 ms | -215.702 ms (greater than -99.99%) |
+| `HiveRenderer._prewarm_hive_sprite_cache()` | 215.974 ms | 0.186 ms | -215.788 ms (-99.91%) |
+
+This did **not** remove the full worst-frame envelope. The focused build recorded a 144.725 ms maximum rendered frame versus 142.885 ms in the owner-attribution run. Both reported hitches were classified `PRE_INPUT_LOADING`, the readiness boundary completed before presentation, and there was no interactive hitch. The first canonical tick was 1.318 ms, the maximum canonical tick was 2.459 ms, protected-state integrity passed, and the 25-second soak completed one round with zero failures. Countdown VFX warmup slices measured 0.015 and 0.011 ms; the largest post-start slice was the in-game ad surface at 0.806 ms, followed by telemetry at 0.018 ms and PVP debug overlays at 0.028 ms.
+
+The copied reports are intentionally ignored artifacts:
+
+- `artifacts/startup_hitch_diagnostic/evidence/variant-large-hive-alpha-01.json`
+- `artifacts/startup_hitch_diagnostic/evidence/variant-large-hive-alpha-02.json`
+
+Neither is accepted matrix evidence. Run 01 supplied incorrect source-commit metadata and hit `AudioOutputUnitStart failed, code -50`; Run 02 used the correct commit but repeated the same iOS audio initialization failure. A third launch repeated the audio failure and was stopped. These runs are sufficient for narrow attribution because the bounded hive timings are direct and consistent, but they are not sufficient for release acceptance or broad timing claims.
+
+### Exact pickup point
+
+1. Resolve or eliminate the external iOS `AudioOutputUnitStart` code `-50` launch condition without changing the performance variant.
+2. Rebuild or reuse exact commit `8b0c2c074e3518ae30bbba9835912d8a3a9b3990`, verify its hashes, and repeat the requested-map focused run until all protocol acceptance conditions pass.
+3. If accepted, run the unchanged cold/warm comparison matrix, the 150-second soak, performance gates, and Release Readiness.
+4. Treat the remaining approximately 145 ms boot frame as a separate owner. It is currently behind the truthful noninteractive cover and is not an interactive defect; diagnose it further only if loading latency or release criteria justify another bounded attribution sprint.

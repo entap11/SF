@@ -2,7 +2,7 @@
 
 Date: 2026-07-20
 
-Status: **IN PROGRESS — diagnostic implementation and local validation complete; physical iPhone baseline pending**
+Status: **IN PROGRESS — TARGETED OWNER REMOVED ON IPHONE; ACCEPTED POST-FIX MATRIX BLOCKED BY IOS AUDIO INIT**
 
 Baseline: `main` at `1fb58f844fc3fd21159aa9c347e94aef8fb4288c`
 
@@ -411,4 +411,20 @@ The authoritative prematch duration and phase transitions are unchanged. While t
 
 No second ad placement was added. The approved `handshake` prematch surface remains canonical; moving that single surface into the loading cover is a future presentation decision, not part of this performance change.
 
-Local deterministic and integration smokes pass, as do the unchanged startup diagnostic smoke, performance contract gates A through F, and Phase 2 gate G. These results establish implementation integrity only. The accepted performance claim still requires an exact physical-iPhone build and before/after capture from a clean commit.
+Local deterministic and integration smokes pass, as do the unchanged startup diagnostic smoke, performance contract gates A through F, and Phase 2 gate G. These results establish implementation integrity only.
+
+### Focused physical result
+
+Commit `8b0c2c074e3518ae30bbba9835912d8a3a9b3990` (tree `722892c82df792cf3161d81568cd9fda242d75e8`) was exported from a clean detached worktree and installed on the iPhone 16 Pro. The build fingerprints are:
+
+- Xcode project SHA-256: `0c0e5ec2012d8a36682c13d1bfb827f76bb88cadf96e0a1f386f0939bb677482`
+- PCK SHA-256: `49558ce194b7bb7cfe0f0f871f4abc846fa5d7f3d182cf948c8667db6270b6f4`
+- signed executable SHA-256: `96a56e57db0747831e91c3d06c6b7fff0f51371c6b26eee0c3dd1e1e4c9de729`
+
+The correct-commit focused report measured the full hive registry prewarm at 0.170 ms, down from 215.953 ms (-99.92%), and `hive.large.neutral` at 0.003 ms, down from 215.705 ms (greater than -99.99%). The wrapper callback measured 0.186 ms. This directly validates the alpha-ready asset as the fix for the measured conversion owner.
+
+The maximum rendered frame remained 144.725 ms, compared with 142.885 ms in the attribution build. The change therefore removes the 216 ms GDScript conversion but does not eliminate the broader boot-frame envelope. Both report-window hitches were `PRE_INPUT_LOADING`; no interactive hitch was recorded. Arena readiness completed before presentation. The first canonical tick was 1.318 ms, the maximum canonical tick was 2.459 ms, protected state passed, and the 25-second soak completed one round with zero failures. Required countdown VFX slices measured 0.015 and 0.011 ms. Post-start slices measured 0.806 ms for the in-game ad surface, 0.018 ms for telemetry, and 0.028 ms for PVP debug overlays.
+
+This is physical attribution evidence, not an accepted post-fix run. The first report had incorrect source-commit metadata and an iOS `AudioOutputUnitStart failed, code -50` error. The correct-commit second report repeated the audio error. A third launch repeated it again and was stopped. The ignored reports remain at `artifacts/startup_hitch_diagnostic/evidence/variant-large-hive-alpha-01.json` and `variant-large-hive-alpha-02.json` for local audit only.
+
+Decision: retain the implementation. It removes the proven owner, gives the remaining boot work a truthful bounded noninteractive home, preserves countdown/game authority, and keeps post-start work well below a frame. Do not claim that the approximately 142–145 ms boot frame itself is fixed. Clear the audio-init condition, repeat the exact focused run, and only then perform the unchanged cold/warm matrix, 150-second soak, and Release Readiness. Android P6 remains blocked on unavailable hardware.
