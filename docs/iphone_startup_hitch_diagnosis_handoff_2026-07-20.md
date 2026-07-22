@@ -416,3 +416,85 @@ Two earlier exploratory reports are not the final evidence:
 3. Build and validate a matching custom **release** template before treating this as a shipping engine solution. The currently accepted artifact is a custom debug template for physical-device diagnosis.
 4. Decide the long-term engine path separately: carry the narrow Godot 4.2.2 patch with reproducible templates, upstream the lifecycle fix, or upgrade Godot after a complete migration comparison. Do not move this timing workaround into project GDScript.
 5. Treat the remaining approximately 142 ms covered boot frame as a separate owner. Reopen it only if loading-latency or release criteria require another bounded attribution sprint.
+
+## Post-fix matrix, readiness, and release-template follow-up — 2026-07-22
+
+### Outcome
+
+The deferred iOS audio-start patch remained clean in every retained physical-device diagnostic report and in a normal launch of the custom release build. No retained log emitted `AudioOutputUnitStart failed`. The build is nevertheless **not release-ready under the unchanged acceptance protocol**: a narrow 15-second harness start boundary prevented completion of the 10-cold-run matrix and prevented the 150-second production soak from reaching its measurement window.
+
+No gameplay rule, authoritative state, simulation timing, prematch duration, renderer, or input behavior was changed during this follow-up.
+
+### Partial physical-device matrix
+
+The fixed full-module debug build was exercised on an iPhone 16 Pro (`iPhone17,1`) running iOS 26.5.2. The ignored evidence directory is `artifacts/startup_hitch_diagnostic/evidence_audio_deferred_full_matrix/`.
+
+| Cohort | Accepted runs | Maximum-frame median | Maximum-frame P95/worst | First-tick median | First-tick P95/worst | Maximum-tick median | Maximum-tick P95/worst | Interactive hitch occurrence |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Warm | 10 | 133.819 ms | 142.183 ms | 1.422 ms | 1.540 ms | 2.610 ms | 2.990 ms | 0/10 |
+| Cold | 3 | 133.535 ms | 141.824 ms | 1.361 ms | 1.376 ms | 2.717 ms | 4.053 ms | 0/3 |
+| Combined | 13 | 133.789 ms | 142.183 ms | — | — | 2.631 ms | 4.053 ms | 0/13 |
+
+All 13 accepted reports completed with `COMPLETE` / `window_elapsed`, passed protected-state integrity, completed one 25-second soak round with zero failures, and recorded zero interactive hitches. All ten warm reports attributed their maximum frame to `arena_deferred_match_flow_scheduled`. The cold-minus-warm maximum-frame median delta was -0.284 ms.
+
+The partial summary is `partial_matrix_summary.json`, SHA-256 `9179a1324464a6ed2c4bd22caf65b2802ba78a031c90aab3733863214980296f`. It is useful diagnostic evidence, but it is not the controlled matrix acceptance result: only 3 of 10 required cold runs completed, and the external battery, Low Power Mode, and initial/final thermal fields were not captured. Those fields must be recorded when the matrix is rerun.
+
+### Acceptance-harness boundary
+
+The unchanged soak harness allows 15,000 ms for the initial match to reach running state. The visible prematch lasts 10,000 ms and remains held while the startup cover is active. Valid launches completed the prematch at approximately 14.875–14.950 seconds, leaving almost no scheduling margin. Later cover releases can therefore make an otherwise healthy launch fail with `initial_match_not_running` before gameplay measurement begins.
+
+After the three accepted cold runs, cold run 4 produced three consecutive observed `initial_match_not_running` attempts under the unchanged protocol. Two rejected reports were retained before any further testing:
+
+- `rejected-cold-04-initial-match-not-running-02.json`, SHA-256 `0fe1b7448a75bda8293052f002f96af17c4abed8391bad54ff3b6f21e1660961`, with presentation completion at 4809.029 ms.
+- `rejected-cold-04-initial-match-not-running-03.json`, SHA-256 `6b239beb0b5f8c27c834e311239a7f3f88894f706c6ccf3ba79d9cdeaf4460d6`, with presentation completion at 5555.484 ms.
+
+Both rejected reports still had zero interactive hitches and no native audio-start error, but neither reached canonical gameplay ticks. The first of the three observed failures was overwritten before it could be retained and is not represented as an artifact.
+
+Two attempts to run the unchanged 150-second production soak failed at the same pre-measurement boundary. No 150-second gameplay soak was therefore completed, and neither attempt is an acceptance result. The threshold was not extended, and the gameplay prematch duration was not shortened to make the test pass.
+
+### Local verification
+
+All 28 focused startup, lifecycle, performance, Phase 1, and Phase 2 tests passed after refreshing the local Godot import cache. The initial two texture-related attempts were environment-invalid because the imported `.ctex` cache did not yet exist; their clean reruns are the relevant results.
+
+The default Release Readiness gate also passed:
+
+- MVP smoke: 26 passed, 0 failed.
+- Matrix contracts: 15 passed, 0 failed, 13 skipped.
+- Boot routes: 8 passed, 0 failed, 5 skipped.
+- Soak routes: 3 passed, 0 failed, 0 skipped.
+- Final marker: `RELEASE_READINESS_PASS`.
+
+Logs are retained under `artifacts/startup_hitch_diagnostic/evidence_audio_deferred_full_matrix/local_gates/`. The local editor executable is Godot 4.2 stable (`4.2.stable.official.46dc27791`), not the exact 4.2.2 editor. The physical apps and custom engine libraries still use the exact patched Godot 4.2.2 source described below.
+
+### Matching custom release template
+
+A full-module arm64 release library was built from the same patched Godot 4.2.2 source with:
+
+```sh
+PYTHONPATH=/path/to/scons-local python3 -m SCons \
+  platform=ios \
+  target=template_release \
+  arch=arm64 \
+  -j8 \
+  CXXFLAGS=-Wno-module-import-in-extern-c \
+  module_raycast_enabled=yes
+```
+
+- Custom release device library SHA-256: `57fba584e0a550d3ec21a737cca298a8147e86d007566e2d6cabf89fa7ebe0d4`.
+- Combined debug/release template archive: `artifacts/startup_hitch_diagnostic/custom_godot_4_2_2_template/ios-deferred-audio-start-xcode26-full-debug-release.zip`.
+- Combined archive SHA-256: `57a7cfeeecd2eb485a6b7c1903fe7637d2d09ad27ae23bb673be826681ef973b`.
+- Custom debug device library SHA-256: `517916b03cbadfb612848b87b4df89c60b4ae34e86186f18ebc32fffaa9e5b82`.
+- The archive retained the official 4.2.2 release/debug simulator slices and passed `unzip -tq`.
+
+An Xcode Release configuration using that release library built and signed successfully. The installed app retained the exact-source PCK SHA-256 `42d9064e3dd746ca0f9b773f18b26ac41d86d793bd1275e221e1bdebdb722e2e`; its arm64 executable SHA-256 is `d28ceee50f69345f15c94d1d5109930022f8d269abd4d5babe693489d0faec17`. A normal physical-device launch remained alive for 15 seconds with no `AudioOutputUnitStart failed` console event.
+
+An attempted on-device release diagnostic-refusal probe was inconclusive because the reused export did not appear to consume the supplied user arguments and release logging suppressed normal project output. Do not count that probe as device evidence for the refusal policy. The local `startup_hitch_diagnostic_smoke_test` did pass and continues to verify that diagnostic activation is forbidden outside debug builds.
+
+### Defined stopping point and exact next step
+
+The audio-boundary investigation and paired debug/release template construction are complete. The remaining blocker is now a test-contract decision:
+
+1. Either explicitly revise the harness initial-match timeout—for example, to 20 seconds or to a bound defined relative to presentation completion and the 10-second prematch—then rebaseline the acceptance protocol and rerun the complete 10-cold/10-warm matrix plus the 150-second soak; or
+2. Retain the 15-second threshold and classify this build as blocked because valid covered startup can consume nearly the entire allowance before the match reaches running state.
+
+Do not change gameplay countdown or prematch behavior to satisfy the harness. If the harness contract is revised, rebuild/install the exact-source debug app, capture battery/Low Power Mode/thermal fields for every controlled cohort, require the native audio error to remain absent, and replace the partial summary with a complete matrix result. The separate long-term engine decision remains whether to carry the narrow 4.2.2 patch with reproducible templates, upstream it, or undertake a fully measured Godot upgrade.
