@@ -6,11 +6,13 @@ Branch: `codex/iphone-startup-hitch-diagnosis`
 
 Diagnostic source commit: `2c27ac363ffcea658b2fe1415d6b882540329110`
 
-Status: **LARGE-HIVE OWNER REMOVED ON DEVICE — REMAINING BOOT FRAME COVERED — ACCEPTED DEVICE MATRIX BLOCKED BY IOS AUDIO INIT**
+Status: **LARGE-HIVE OWNER REMOVED — IOS AUDIO START BOUNDARY FIXED IN CUSTOM 4.2.2 TEMPLATE — FOCUSED WARM DEVICE RUN ACCEPTED — MATRIX PENDING**
 
 ## Outcome
 
 The startup hitches reproduce on the iPhone 16 Pro. They are not caused by canonical simulation work, thermal pressure, the GPU, or a cold-only cache effect.
+
+The iOS audio-init blocker is now isolated and cleared for focused testing. A minimal empty Godot 4.2.2 app reproduced `AudioOutputUnitStart failed, code -50`, proving the error was outside Swarmfront. Godot 4.2.2 attempts to start CoreAudio before the iOS active lifecycle boundary; the unit later mixes successfully after focus activation. A custom 4.2.2 debug template now keeps focus/render activation immediate, suppresses only the premature native start, and starts audio 100 ms after `applicationDidBecomeActive`. The full-module template passed a minimal device probe and an exact-source focused Swarmfront run with no CoreAudio error, zero interactive hitches, unchanged protected state, and zero failed soak rounds. The tracked engine and Xcode 26 compatibility patches are recorded at the end of this handoff.
 
 The long boot interval is principally synchronous scene construction and resource work on the main thread, overlapping worker-thread GDScript/resource compilation. The strongest main-thread stacks are scene `_ready` propagation, synchronous `ResourceLoader` work, WebP decode, Variant/GDScript calls, and texture creation/update.
 
@@ -333,3 +335,84 @@ Keep performance commit `8b0c2c074e3518ae30bbba9835912d8a3a9b3990` unchanged whi
 4. If it still persists, install either a retained previously accepted Godot 4.2.2 artifact or a minimal empty Godot 4.2.2 iOS export with the same signing/device. If both fail, investigate the iPhone/iOS/Godot audio-session boundary. If only the current artifact fails, compare the exports, embedded PCK, `Info.plist`, entitlements, and project settings before changing gameplay code.
 5. Preserve the first full failing console and relevant iOS device log. Record active output route, attached Bluetooth/AirPlay devices, interruption/call/recording state, iOS version, app hash, and whether a plain launch reproduces.
 6. Do not weaken the performance acceptance protocol or hide the native error. Once audio starts cleanly, run the single focused performance validation; do not reopen the approximately 145 ms covered-frame investigation unless its existing regression guard fires.
+
+## Audio boundary resolution and accepted focused run — 2026-07-22
+
+### Root cause and isolation
+
+The bounded pickup procedure established all of the following:
+
+- A rebuilt exact-source Swarmfront app, a retained previously accepted app, and a one-node empty Godot 4.2.2 iOS app all emitted the same immediate `AudioOutputUnitStart failed, code -50` error. The empty app has no Swarmfront game, renderer, input, or audio content, so project code is excluded as the owner.
+- Changing the project mix rate to the device's 48 kHz hardware rate did not change the failure.
+- The active route was the built-in speaker with two output channels, a 48 kHz sample rate, and a 1024-frame/21.333 ms buffer. Explicit AVAudioSession category selection and activation both succeeded before Godot, but the early CoreAudio start still failed.
+- Despite that single early return code, the minimal probe's mixer clock advanced normally after the app became active. Godot 4.2.2's iOS focus path calls `audio_driver.start()` again from `applicationDidBecomeActive`, explaining why the app later mixed even though the first call failed.
+- A Godot 4.6.3 comparison export installed and remained running but did not reach the probe-ready marker, so it is not counted as a pass or failure for this incident.
+
+The working fix is deliberately below the project layer. The CoreAudio driver returns without calling Apple's output-unit start while the app-delegate audio-ready flag is false. `applicationDidBecomeActive` preserves the existing immediate focus/render activation, then schedules audio alone 100 ms later on the main queue. Resign-active clears the flag before Godot stops audio. No gameplay, simulation, renderer, input, project audio content, countdown timing, or state authority changed.
+
+Tracked reproduction patches:
+
+- `tools/patches/godot_4_2_2_ios_deferred_audio_start.patch`
+- `tools/patches/godot_4_2_2_xcode_26_embree_compat.patch`
+
+The second patch changes only two invalid Embree debug stream formatters that Xcode 26's Clang now rejects because they reference nonexistent members. It restores the normal raycast/Embree module to the custom template; it does not alter geometry or raycast behavior.
+
+Both patches were dry-run validated against pristine Godot `4.2.2-stable` source. The final full-module device library was built with:
+
+```sh
+PYTHONPATH=/path/to/scons-local python3 -m SCons \
+  platform=ios \
+  target=template_debug \
+  arch=arm64 \
+  -j8 \
+  CXXFLAGS=-Wno-module-import-in-extern-c \
+  module_raycast_enabled=yes
+```
+
+The final custom template retained the official 4.2.2 release library and simulator slices and replaced only `libgodot.ios.debug.xcframework/ios-arm64/libgodot.a`.
+
+### Final template and exact-source build
+
+- Godot source: exact `4.2.2-stable` archive plus the two tracked patches above.
+- Full-module custom debug library SHA-256: `517916b03cbadfb612848b87b4df89c60b4ae34e86186f18ebc32fffaa9e5b82`.
+- Local custom-template archive SHA-256: `273f1b794eb02443f0a401415c3d8e3bd70d74222436337833f3cf488be9b1fc`.
+- Game source commit: `8b0c2c074e3518ae30bbba9835912d8a3a9b3990`.
+- Game source tree: `722892c82df792cf3161d81568cd9fda242d75e8`.
+- PCK SHA-256: `42d9064e3dd746ca0f9b773f18b26ac41d86d793bd1275e221e1bdebdb722e2e`.
+- Signed executable SHA-256: `50200d7c52df69603eb1cfc94a6b3c38b0330de01054c611a03b3240ed5eceb2`.
+- Bundle: `com.matthew.swarmfront`.
+- Local ignored build: `artifacts/startup_hitch_diagnostic/source_exact_custom_audio_full/`.
+
+The full-module minimal probe reached `AUDIO_PROBE_READY`, emitted repeated 48 kHz mixer-clock telemetry, and emitted no `AudioOutputUnitStart` error. Before the full-module rebuild, the same audio patch also passed three consecutive launches in a temporary module-reduced probe; those exploratory runs are not the final parity evidence.
+
+### Focused device result
+
+The accepted full-module report is the ignored artifact `artifacts/startup_hitch_diagnostic/evidence/variant-large-hive-alpha-audio-deferred-start-03.json`, SHA-256 `3a8e2f88941bea97f3c3b8811a00ec53d4ed66a45928a6a6ac891c2db27314d6`.
+
+| Metric | Result |
+| --- | ---: |
+| Diagnostic status | `COMPLETE` / `window_elapsed` |
+| Maximum rendered frame | 141.778 ms |
+| Hitch count | 2 |
+| Interactive hitch count | 0 |
+| Hitch visibility | Both `PRE_INPUT_LOADING` |
+| First canonical tick | 1.352 ms |
+| Maximum canonical tick | 2.555 ms |
+| Protected-state integrity | Pass; before/after hashes identical |
+| 25-second soak | 1 round, 0 failed rounds |
+| Native CoreAudio start error | None |
+
+The two recorded frames were 141.778 ms after `arena_deferred_match_flow_scheduled` and 50.000 ms after `arena_deferred_match_flow_first_frame_resumed`. Both occurred while input was locked and gameplay commands were rejected. The remaining worst frame therefore stays inside the truthful loading cover and does not regress the established approximately 145 ms envelope.
+
+Two earlier exploratory reports are not the final evidence:
+
+- `variant-large-hive-alpha-audio-deferred-start-fix-01.json` was the first launch of a newly installed executable. It recorded cold first-use lane/unit rendering spikes and used the temporary module-reduced template: 7 hitches, 3 interactive. It is rejected.
+- `variant-large-hive-alpha-audio-deferred-start-02.json` was a clean warm repeat with 1 pre-input hitch and 0 interactive hitches, but it also used the temporary module-reduced template. It is superseded by Run 03.
+
+### Exact pickup point
+
+1. Use the final full-module custom template consistently for the unchanged cold/warm comparison matrix. Prime only where the existing protocol calls for a warm run; do not label a first launch after install as warm.
+2. Run the unchanged 150-second soak, performance gates, and Release Readiness checks. Keep the native CoreAudio error as a hard rejection condition.
+3. Build and validate a matching custom **release** template before treating this as a shipping engine solution. The currently accepted artifact is a custom debug template for physical-device diagnosis.
+4. Decide the long-term engine path separately: carry the narrow Godot 4.2.2 patch with reproducible templates, upstream the lifecycle fix, or upgrade Godot after a complete migration comparison. Do not move this timing workaround into project GDScript.
+5. Treat the remaining approximately 142 ms covered boot frame as a separate owner. Reopen it only if loading-latency or release criteria require another bounded attribution sprint.

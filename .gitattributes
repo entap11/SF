@@ -6,6 +6,7 @@ MoltenVK.xcframework/**/*.a filter=lfs diff=lfs merge=lfs -text
 *.blend binary
 *.hdr binary
 *.exr binary
+*.patch whitespace=-blank-at-eol,-space-before-tab
 assets/blender/**/*.blend filter=lfs diff=lfs merge=lfs -text
 assets/blender/**/*.png filter=lfs diff=lfs merge=lfs -text
 assets/blender/**/*.hdr filter=lfs diff=lfs merge=lfs -text
