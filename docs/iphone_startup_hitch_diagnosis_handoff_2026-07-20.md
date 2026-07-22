@@ -1,6 +1,6 @@
 # iPhone Startup Hitch Diagnosis — Work Codex Handoff
 
-Updated: 2026-07-21
+Updated: 2026-07-22
 
 Branch: `codex/iphone-startup-hitch-diagnosis`
 
@@ -296,7 +296,7 @@ The copied reports are intentionally ignored artifacts:
 - `artifacts/startup_hitch_diagnostic/evidence/variant-large-hive-alpha-01.json`
 - `artifacts/startup_hitch_diagnostic/evidence/variant-large-hive-alpha-02.json`
 
-Neither is accepted matrix evidence. Run 01 supplied incorrect source-commit metadata and hit `AudioOutputUnitStart failed, code -50`; Run 02 used the correct commit but repeated the same iOS audio initialization failure. A third launch repeated the audio failure and was stopped. These runs are sufficient for narrow attribution because the bounded hive timings are direct and consistent, but they are not sufficient for release acceptance or broad timing claims.
+Neither is accepted matrix evidence. Run 01 supplied incorrect source-commit metadata and hit `AudioOutputUnitStart failed, code -50`; Run 02 used the correct commit but repeated the same iOS audio initialization failure. Three later launches repeated the audio failure and were stopped, for five consecutive affected launches of this installed build. These runs are sufficient for narrow attribution because the bounded hive timings are direct and consistent, but they are not sufficient for release acceptance or broad timing claims.
 
 ### Exact pickup point
 
@@ -304,3 +304,32 @@ Neither is accepted matrix evidence. Run 01 supplied incorrect source-commit met
 2. Rebuild or reuse exact commit `8b0c2c074e3518ae30bbba9835912d8a3a9b3990`, verify its hashes, and repeat the requested-map focused run until all protocol acceptance conditions pass.
 3. If accepted, run the unchanged cold/warm comparison matrix, the 150-second soak, performance gates, and Release Readiness.
 4. Treat the remaining approximately 145 ms boot frame as a separate owner. It is currently behind the truthful noninteractive cover and is not an interactive defect; diagnose it further only if loading latency or release criteria justify another bounded attribution sprint.
+
+## AudioOutputUnitStart code -50 handoff — 2026-07-22
+
+### What is established
+
+- The failing line is in Godot 4.2.2's CoreAudio driver, not project GDScript. `AudioDriverCoreAudio::start()` calls Apple's `AudioOutputUnitStart(audio_unit)` and prints this error when Apple returns a nonzero `OSStatus`. Godot sets the driver's `active` flag only after a successful return. See the exact [Godot 4.2.2 source](https://github.com/godotengine/godot/blob/4.2.2-stable/drivers/coreaudio/audio_driver_coreaudio.cpp#L244-L253).
+- Apple's SDK defines `-50` as `kAudio_ParamError`, a generic invalid-parameter status. It identifies the failing API boundary but does not identify which route, format, session state, or device parameter Apple rejected.
+- The message occurs before `STARTUP_HITCH_DIAGNOSTIC status=armed`, before requested-map loading, before Arena construction, and before prematch countdown setup. The game continues after the error, but Godot has not marked its CoreAudio driver active; the run may therefore be silent and its startup timing is not acceptance-equivalent.
+- This is not the first occurrence on the branch. One lane-metadata launch from commit `8b06970f23227e9e2cf216915cb3ce8ce9276376`, committed at 12:01 PDT on July 21, failed the same way before the large-hive/readiness commit existed. Other exact lane-metadata launches were accepted, so the earlier behavior was intermittent.
+- The large-hive implementation commit does not change `project.godot`, `export_presets.cfg`, Godot's native audio driver, the project audio-system implementation, mix rate, output latency, channel configuration, or input enablement. It does change the later game-level countdown sequence: the same countdown stream is prepared behind the readiness cover and playback begins when the visible countdown is released. That code cannot cause this observed start failure because it executes after the CoreAudio error.
+- The same error signature has been reported from an otherwise empty Godot iOS/simulator project, so it is not unique to Swarmfront. That report supports an engine/platform-level possibility but does not establish the cause of this physical-device incident: [Godot issue 74227](https://github.com/godotengine/godot/issues/74227).
+
+### What is not established
+
+- No project regression, bad audio asset, countdown-player bug, or hive/readiness causal link has been demonstrated.
+- No particular Bluetooth, AirPlay, speaker, USB, interruption, sample-rate, or iOS route condition has been captured as the trigger.
+- Muting the Master bus or disabling game SFX would not validate a workaround: the failure occurs while Godot starts the native output unit, before project audio playback.
+- The two completed reports with direct hive timings remain useful attribution evidence, but no run containing this error may become accepted post-fix performance or Release Readiness evidence.
+
+### Bounded pickup procedure
+
+Keep performance commit `8b0c2c074e3518ae30bbba9835912d8a3a9b3990` unchanged while isolating audio:
+
+1. Fully reboot the iPhone. After unlock, select the built-in speaker, disconnect Bluetooth/AirPlay/headsets, end calls/recording/screen-broadcast sessions, verify ordinary device audio once, and close the other audio app. These are controlled resets, not presumed causes.
+2. Launch the already-installed build once with the exact focused arguments and capture the complete console from process start. Accept only a run with no `AudioOutputUnitStart` error and a completed diagnostic report.
+3. If `-50` persists, launch the same installed app without soak or startup-diagnostic arguments. Persistence there excludes the diagnostic harness and requested-map flow.
+4. If it still persists, install either a retained previously accepted Godot 4.2.2 artifact or a minimal empty Godot 4.2.2 iOS export with the same signing/device. If both fail, investigate the iPhone/iOS/Godot audio-session boundary. If only the current artifact fails, compare the exports, embedded PCK, `Info.plist`, entitlements, and project settings before changing gameplay code.
+5. Preserve the first full failing console and relevant iOS device log. Record active output route, attached Bluetooth/AirPlay devices, interruption/call/recording state, iOS version, app hash, and whether a plain launch reproduces.
+6. Do not weaken the performance acceptance protocol or hide the native error. Once audio starts cleanly, run the single focused performance validation; do not reopen the approximately 145 ms covered-frame investigation unless its existing regression guard fires.
