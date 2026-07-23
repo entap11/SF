@@ -567,3 +567,102 @@ The 20-second harness revision is validated, the full behavior matrix is recorde
 3. Two same-boot launches emitted the native `-50` error before a reboot restored clean startup.
 
 Do not continue physical timing work until the phone has cooled and a short Instruments preflight reports `Nominal`. On pickup, record battery percentage, external-power state, Low Power Mode, and Instruments thermal state before and after every run. Reproduce the native audio failure separately from performance acceptance; if it recurs under Nominal conditions, replace the single fixed 100 ms start with a bounded, lifecycle-aware engine-level recovery only after capturing the AVAudioSession state and return codes. For the interactive hitch, repeat focused warm traces under Nominal conditions and retain the first recurrence; do not optimize GDScript or simulation without a trace-owned boundary.
+
+## Home pickup checklist — 2026-07-22
+
+### Repository and artifact warning
+
+Pull `codex/iphone-startup-hitch-diagnosis` with a fast-forward-only pull before continuing. The tracked source of truth is the handoff plus these reproduction patches:
+
+- `tools/patches/godot_4_2_2_ios_deferred_audio_start.patch`
+- `tools/patches/godot_4_2_2_xcode_26_embree_compat.patch`
+
+The `artifacts/` directory is intentionally ignored and was **not** transferred by Git. Do not assume that the office build, template archives, reports, logs, or Instruments traces exist on the home machine. If they are absent, rebuild from exact Godot `4.2.2-stable`, the two tracked patches, and game source commit `8b0c2c074e3518ae30bbba9835912d8a3a9b3990` using the commands and fingerprints above.
+
+Before installing, require these exact hashes:
+
+- Debug engine device library: `517916b03cbadfb612848b87b4df89c60b4ae34e86186f18ebc32fffaa9e5b82`.
+- Exported PCK: `42d9064e3dd746ca0f9b773f18b26ac41d86d793bd1275e221e1bdebdb722e2e`.
+- Signed debug executable: `50200d7c52df69603eb1cfc94a6b3c38b0330de01054c611a03b3240ed5eceb2`.
+- Bundle identifier: `com.matthew.swarmfront`.
+
+If the home signing step changes the final executable hash, record the new signed-executable hash and prove that the PCK and debug engine library still match. Do not relabel a rebuilt artifact as the office executable.
+
+### Thermal and device preflight
+
+Use the physical iPhone 16 Pro with CoreDevice identifier `B8F36805-35EE-5AC8-B9A7-4944062B98F7` and Xcode UDID `00008140-000614482E00401C`. Before the first app launch:
+
+1. Leave the phone idle until physically cool.
+2. Disable Low Power Mode, calls, recording, screen broadcast, and mirroring; select the built-in speaker.
+3. Record battery percentage, external-power state, Low Power Mode, iOS version, orientation, and network condition.
+4. Capture a short thermal preflight with a unique output filename:
+
+```sh
+mkdir -p artifacts/startup_hitch_diagnostic/home_evidence
+
+xcrun xctrace record \
+  --template 'Time Profiler' \
+  --device 00008140-000614482E00401C \
+  --time-limit 3s \
+  --all-processes \
+  --output artifacts/startup_hitch_diagnostic/home_evidence/thermal-preflight-01.trace \
+  --no-prompt
+
+xcrun xctrace export \
+  --input artifacts/startup_hitch_diagnostic/home_evidence/thermal-preflight-01.trace \
+  --xpath '/trace-toc/run[@number="1"]/data/table[@schema="device-thermal-state-intervals"]'
+```
+
+Proceed only when the exported thermal state is `Nominal`. Repeat the short thermal capture before and after every measured run, using unique filenames. If either capture reports `Fair`, `Serious`, or `Critical`, reject that run from the controlled cohort, stop, and cool the phone before continuing.
+
+### Test count and order
+
+Budget approximately 45–60 minutes if every run is valid:
+
+1. Ten measured cold diagnostics. Reboot, unlock, confirm the app process is absent, record battery/power/Low Power Mode and initial thermal state, launch exactly once, record the same fields and final thermal state, then repeat.
+2. One non-counting warm Time Profiler diagnostic. Use it as the required warm prime, inspect it for the prior post-unlock stall, and proceed only if the final thermal state remains `Nominal`.
+3. Ten measured warm diagnostics without rebooting. Confirm the process is absent and record battery/power/Low Power Mode plus initial/final thermal state for each.
+4. Generate the 20-report summary and audit every selected console.
+5. Run one 150-second production soak with eight pairs and the same 20-second startup allowance.
+
+That is 22 app launches: 10 cold, 1 traced warm prime, 10 measured warm, and 1 production soak. The ten reboot/unlock cycles dominate the elapsed time.
+
+### Exact diagnostic arguments
+
+Use these arguments for every measured cold/warm run, changing only the classification, build label, and output filename:
+
+```text
+--soak-perf
+--soak-seconds=25
+--soak-round-seconds=25
+--soak-pairs=2
+--soak-map=res://maps/_future/quadfight/MAP_quadfight__SBASE__1p.json
+--soak-sim-profile
+--soak-start-timeout-ms=20000
+--startup-hitch-diagnostic
+--startup-hitch-window-seconds=20
+--startup-hitch-launch=<cold-or-warm>
+--startup-hitch-source-commit=8b0c2c074e3518ae30bbba9835912d8a3a9b3990
+--startup-hitch-build-label=iphone16pro-audio-deferred-timeout20-home-<cold-or-warm>-<NN>
+--startup-hitch-output=user://startup_hitch_diagnostic/home-<cold-or-warm>-<NN>.json
+```
+
+A selected run must end with `COMPLETE` / `window_elapsed`, matching protected-state hashes, one 25-second soak round, zero failed rounds, and no `SOAK_ERROR`, `Audio interruption began`, or `AudioOutputUnitStart failed` in its console.
+
+Summarize only the 20 selected reports—not the traced prime or rejected attempts:
+
+```sh
+python3 scripts/dev/summarize_startup_hitch_runs.py \
+  artifacts/startup_hitch_diagnostic/home_evidence/home-cold-*.json \
+  artifacts/startup_hitch_diagnostic/home_evidence/home-warm-*.json \
+  --output artifacts/startup_hitch_diagnostic/home_evidence/home-timeout20-matrix-summary.json
+```
+
+### Stop and preserve rules
+
+- On `AudioOutputUnitStart failed`, preserve the full console immediately. Run at most one plain same-boot launch to test persistence, then stop the matrix. Do not reboot away the condition until both logs and AVAudioSession/route state are captured.
+- On an interactive hitch, keep the report as a real eligible observation; do not discard or repeat it merely to obtain a pass. If thermal state is still Nominal, retain a focused Time Profiler capture of the first recurrence.
+- On non-Nominal thermal state, interruption, wrong arguments/build, incomplete JSON, protected-state mismatch, or failed soak round, label the attempt rejected and do not include it in the 20 selected reports.
+- Do not change gameplay timing, countdown, renderer behavior, simulation logic, diagnostic thresholds, or the native-error rejection rule during the matrix.
+
+The first home-session objective is evidence quality, not a forced release verdict. A clean controlled matrix still needs the 150-second soak and existing local gates. Any repeat of the native audio failure under Nominal conditions reopens the engine patch before release acceptance.
