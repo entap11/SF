@@ -498,3 +498,72 @@ The audio-boundary investigation and paired debug/release template construction 
 2. Retain the 15-second threshold and classify this build as blocked because valid covered startup can consume nearly the entire allowance before the match reaches running state.
 
 Do not change gameplay countdown or prematch behavior to satisfy the harness. If the harness contract is revised, rebuild/install the exact-source debug app, capture battery/Low Power Mode/thermal fields for every controlled cohort, require the native audio error to remain absent, and replace the partial summary with a complete matrix result. The separate long-term engine decision remains whether to carry the narrow 4.2.2 patch with reproducible templates, upstream it, or undertake a fully measured Godot upgrade.
+
+## Twenty-second protocol rerun and thermal stop — 2026-07-22
+
+### Protocol decision
+
+The user explicitly authorized a 20,000 ms initial-match allowance. The rerun used the existing `--soak-start-timeout-ms=20000` override for every physical diagnostic and the production soak. No shared default changed. The visible prematch remains 10 seconds; no gameplay, authoritative state, simulation, countdown, presentation, map, fixture, diagnostic threshold, or post-input acceptance threshold changed.
+
+Cold run 4—the point where three consecutive attempts had failed under the 15,000 ms contract—completed normally under the 20,000 ms contract. This establishes that the longer allowance removes the harness race without shortening gameplay timing.
+
+### Complete timeout20 behavior matrix
+
+The ignored summary is `artifacts/startup_hitch_diagnostic/evidence_audio_deferred_full_matrix/timeout20-complete-matrix-summary.json`, SHA-256 `159c059631c4727d0543b4b5b5d4b6382790391d69204561c62739fe7cfb81a4`.
+
+| Cohort | Eligible reports | Maximum-frame median | Maximum-frame P95/worst | First-tick median | First-tick P95/worst | Maximum-tick median | Maximum-tick P95/worst | Interactive-hitch occurrence |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Warm | 10 | 141.891 ms | 148.274 ms | 1.440 ms | 1.556 ms | 2.700 ms | 4.723 ms | 1/10 |
+| Cold | 10 | 142.210 ms | 147.801 ms | 1.388 ms | 2.605 ms | 3.125 ms | 4.939 ms | 0/10 |
+| Combined | 20 | 141.974 ms | 147.801 ms | 1.401 ms | 1.977 ms, worst 2.605 ms | 2.764 ms | 4.723 ms, worst 4.939 ms | 1/20 |
+
+All 20 selected reports completed with `COMPLETE` / `window_elapsed`, passed protected-state integrity, completed one 25-second soak round with zero failures, and attributed the per-run maximum frame to `arena_deferred_match_flow_scheduled`. The cold-minus-warm maximum-frame median delta was 0.319 ms. All 20 selected console logs were free of `SOAK_ERROR`, `Audio interruption began`, and `AudioOutputUnitStart failed`.
+
+This is a complete **behavior** matrix, but it is not a controlled-environment acceptance matrix. Battery percentage, Low Power Mode, and per-run initial/final thermal state were not recorded. A later focused Time Profiler capture showed the phone at `Serious` thermal state, proving that continued physical testing was no longer eligible and making it unsafe to assume the preceding cohort remained Nominal throughout.
+
+### Isolated interactive hitch
+
+Warm run 3 retained one 126.882 ms `INTERACTIVE` rendered-frame hitch at diagnostic elapsed 15,485.947 ms, approximately 879 ms after the first interactive frame. The report is `timeout20-warm-03.json`, SHA-256 `fa1c991ae41cc8974984fce692a3d2f3684dbbde25a2c81df098c5ca533ec010`.
+
+At the hitch, input was unlocked, gameplay commands were accepted, two authoritative lanes were active, the last canonical tick was 2.152 ms, and the maximum canonical tick for the run was 4.723 ms. The last completed marker was `lane_rebuild_04_completed`; the next bounded work marker did not begin until approximately 330 ms after the hitch. The engine process measurement for the frame was 18.588 ms. The event therefore has no demonstrated GDScript or simulation owner and is compatible with an external scheduling/render-presentation stall, but that classification remains an inference.
+
+The other 19 matrix reports recorded zero interactive hitches. A non-acceptance Time Profiler repetition also recorded zero interactive hitches, a 133.014 ms maximum covered frame, a 1.476 ms first tick, and a 2.714 ms maximum tick. It contained no Instruments potential-hang or hang-risk rows. That clean repetition does not erase warm run 3.
+
+### Transient native audio failure
+
+One attempted cold run 9 emitted `AudioOutputUnitStart failed, code: -50` at the deferred CoreAudio output-start line and never reached a diagnostic report. A plain launch on the same boot repeated the error. The two retained console logs are:
+
+- `rejected-timeout20-cold-09-transient-audio-start-failure.log`, SHA-256 `3efd9f96f635ce335a55135a0da03e2dee5345ef88e8eaa8e41be145a84c2259`.
+- `diagnostic-after-cold-09-audio-failure-plain-launch.log`, SHA-256 `8c72737be053a2ceb6414901af0ed77772db47be4857d6204cbf4d8602ae43b4`.
+
+After a full reboot, replacement cold run 9 completed normally and emitted no audio error. `ReplayKitAngel` was present both before and after that reboot, before Swarmfront launched, so process residency alone does not establish ReplayKit as the owner. The two failures remain real, rejected, and unexplained. They prevent claiming that the current single 100 ms deferred audio start is fully reliable.
+
+### Production soak
+
+The production-component soak passed with the rebaselined startup allowance:
+
+```text
+--soak-perf
+--soak-seconds=150
+--soak-round-seconds=150
+--soak-pairs=8
+--soak-map=res://maps/_future/quadfight/MAP_quadfight__SBASE__1p.json
+--soak-sim-profile
+--soak-start-timeout-ms=20000
+```
+
+The console is `timeout20-production-soak-150s.log`, SHA-256 `5fa96b3e81ca7b1d80daa9bb1f9399f603da6afdf619928c2ca0b8ed10ac9c7f`. It completed one 150-second round with zero failed rounds and no audio/interruption error. Across 162 one-second Arena heartbeat windows, the maximum reported frame was 133.6 ms. Across 145 simulation heartbeat windows, the maximum per-window tick was 15.4 ms and 14 windows contained a maximum over 8 ms. These are retained as load telemetry; the prior focused performance gates and Release Readiness pass remain the actual local contract checks.
+
+### Focused thermal evidence
+
+The ignored trace is `focused-time-profiler-warm-01.trace`; its paired report is `focused-time-profiler-warm-01.json`, SHA-256 `29953ee1b9c51154a28823f2ff8a65341888f15eb3da9b5838835aa8184dd960`. Instruments recorded the device thermal state as `Serious` for the trace's full 26.17 seconds. The run is therefore thermally ineligible and is attribution evidence only.
+
+### Current verdict and exact pickup point
+
+The 20-second harness revision is validated, the full behavior matrix is recorded, and the 150-second soak passes. The build is still **not release-ready** because:
+
+1. The required external battery, Low Power Mode, and per-run thermal controls were not captured, and the later trace proves the phone reached `Serious` thermal state.
+2. One of 20 selected reports contains a 126.882 ms interactive hitch, violating the post-input target.
+3. Two same-boot launches emitted the native `-50` error before a reboot restored clean startup.
+
+Do not continue physical timing work until the phone has cooled and a short Instruments preflight reports `Nominal`. On pickup, record battery percentage, external-power state, Low Power Mode, and Instruments thermal state before and after every run. Reproduce the native audio failure separately from performance acceptance; if it recurs under Nominal conditions, replace the single fixed 100 ms start with a bounded, lifecycle-aware engine-level recovery only after capturing the AVAudioSession state and return codes. For the interactive hitch, repeat focused warm traces under Nominal conditions and retain the first recurrence; do not optimize GDScript or simulation without a trace-owned boundary.

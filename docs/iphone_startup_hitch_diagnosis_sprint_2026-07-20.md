@@ -428,3 +428,17 @@ The maximum rendered frame remained 144.725 ms, compared with 142.885 ms in the 
 This is physical attribution evidence, not an accepted post-fix run. The first report had incorrect source-commit metadata and an iOS `AudioOutputUnitStart failed, code -50` error. The correct-commit second report repeated the audio error. A third launch repeated it again and was stopped. The ignored reports remain at `artifacts/startup_hitch_diagnostic/evidence/variant-large-hive-alpha-01.json` and `variant-large-hive-alpha-02.json` for local audit only.
 
 Decision: retain the implementation. It removes the proven owner, gives the remaining boot work a truthful bounded noninteractive home, preserves countdown/game authority, and keeps post-start work well below a frame. Do not claim that the approximately 142–145 ms boot frame itself is fixed. Clear the audio-init condition, repeat the exact focused run, and only then perform the unchanged cold/warm matrix, 150-second soak, and Release Readiness. Android P6 remains blocked on unavailable hardware.
+
+## Acceptance-harness timeout revision — 2026-07-22
+
+The user explicitly authorized a rebaseline of the initial-match harness allowance after physical evidence showed that the original 15,000 ms deadline overlapped the normal loading-cover release plus the unchanged 10-second prematch. The revised acceptance command pins the existing command-line override:
+
+```text
+--soak-start-timeout-ms=20000
+```
+
+Use the same 20,000 ms value for the 25-second diagnostic runs and the 150-second production soak. The standalone development runner's equivalent is `--start-timeout-ms=20000`.
+
+This is an acceptance-harness change only. The in-game prematch duration, countdown, loading-cover behavior, simulation activation, gameplay rules, state authority, hitch thresholds, canonical-tick threshold, map, fixture, and diagnostic window remain unchanged. The shared soak defaults also remain unchanged intentionally; the revised iPhone protocol must carry the explicit argument so unrelated soak jobs do not silently gain a longer timeout.
+
+Results collected with the 15,000 ms and 20,000 ms contracts must not be merged into one acceptance cohort. Every rebaselined report must contain a `timeout20` build label or filename, and every retained console must show a clean zero-failure soak summary and no native audio-start error.
