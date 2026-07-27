@@ -28,14 +28,33 @@ From this directory, rebuild and install both secure-credentials plugin AARs:
 ```
 
 From the repository root, install Godot's stock Gradle build template and
-export the debug APK:
+export the physical-device debug APK. Confirm the selected executable reports
+Godot 4.7.1 before exporting:
 
 ```sh
+godot --version
 godot --headless --path . --install-android-build-template
 godot --headless --path . --export-debug "Android Development" \
   artifacts/android/swarmfront-dev-debug.apk
 ```
 
+On an Intel Mac, export the x86_64 emulator APK:
+
+```sh
+godot --headless --path . --export-debug "Android Emulator" \
+  artifacts/android/swarmfront-emulator-debug.apk
+```
+
+Boot an x86_64 Android virtual device with software-backed graphics, then
+install the emulator APK:
+
+```sh
+emulator -avd <avd-name> -gpu lavapipe
+adb install -r artifacts/android/swarmfront-emulator-debug.apk
+```
+
 The generated `android/` tree, plugin AARs, and `artifacts/` output are ignored.
-The development preset uses package ID `com.entap.swarmfront.dev`, API 24
-minimum, API 36 target, and arm64 only.
+Both presets use API 24 minimum and API 36 target. `Android Development` uses
+package ID `com.entap.swarmfront.dev`, arm64, and the mobile renderer.
+`Android Emulator` uses package ID `com.entap.swarmfront.emulator`, x86_64, and
+the compatibility renderer to avoid host-specific Vulkan emulator failures.
