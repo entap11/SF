@@ -25,6 +25,8 @@ func _init() -> void:
 
 	var alpha_cache: Dictionary = registry.get("_tex_alpha_cache") as Dictionary
 	_assert_true(alpha_cache.size() <= 3, "hive prewarm should convert each tier once")
+	for cache_key_any in alpha_cache.keys():
+		_assert_true(not str(cache_key_any).contains("hive_large_flatop_alpha.png"), "large hive should bypass runtime alpha conversion")
 
 	if _failed:
 		quit(1)
