@@ -8,10 +8,10 @@ val pluginPackageName = "com.swarmfront.securecredentials"
 
 android {
     namespace = pluginPackageName
-    compileSdk = 34
+    compileSdk = 36
 
     defaultConfig {
-        minSdk = 23
+        minSdk = 24
         manifestPlaceholders["godotPluginName"] = pluginName
         manifestPlaceholders["godotPluginPackageName"] = pluginPackageName
         setProperty("archivesBaseName", pluginName)

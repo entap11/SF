@@ -1296,13 +1296,6 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 		"arena_instance_null": (_arena_instance == null),
 		"arena_instance": str(_arena_instance) if _arena_instance != null else "<null>"
 	})
-	if not ResourceLoader.exists(map_path):
-		_set_shell_status("Launch blocked. Resource not found for %s." % _map_display_name(map_path), "error")
-		SFLog.warn("MAP_APPLY_FAIL_WARN", {"map_path": map_path, "err": "missing_resource"})
-		SFLog.error("MAP_PATH_NOT_FOUND", {"map_path": map_path})
-		SFLog.error("MAP_APPLY_FAIL", {"map_path": map_path, "err": "missing_resource"})
-		SFLog.error("APPLY_MAP_BAIL_MISSING_RESOURCE", {"map_path": map_path})
-		return
 	var tree: SceneTree = get_tree()
 	if tree != null:
 		if bool(tree.get_meta("tutorial_controls_followup_launch_pending", false)):
@@ -1764,12 +1757,12 @@ func _tutorial_section_display_name(section: String) -> String:
 			return "sandbox"
 
 func _resolve_tutorial_controls_map_path() -> String:
-	if ResourceLoader.exists(TUTORIAL_CONTROLS_MAP_PATH):
+	if FileAccess.file_exists(TUTORIAL_CONTROLS_MAP_PATH):
 		return TUTORIAL_CONTROLS_MAP_PATH
 	return ""
 
 func _resolve_tutorial_controls_followup_map_path() -> String:
-	if ResourceLoader.exists(TUTORIAL_CONTROLS_FOLLOWUP_MAP_PATH):
+	if FileAccess.file_exists(TUTORIAL_CONTROLS_FOLLOWUP_MAP_PATH):
 		return TUTORIAL_CONTROLS_FOLLOWUP_MAP_PATH
 	return ""
 
@@ -1854,11 +1847,11 @@ func _prepare_tutorial_section3_sandbox_profile_fallback(profile_manager: Node) 
 		profile_manager.call("set_tutorial_section3_step", "step_0_intro")
 
 func _resolve_tutorial_sandbox_map_path() -> String:
-	if ResourceLoader.exists(TUTORIAL_SANDBOX_MAP_PATH):
+	if FileAccess.file_exists(TUTORIAL_SANDBOX_MAP_PATH):
 		return TUTORIAL_SANDBOX_MAP_PATH
-	if ResourceLoader.exists(TUTORIAL_SANDBOX_FALLBACK_MAP_PATH):
+	if FileAccess.file_exists(TUTORIAL_SANDBOX_FALLBACK_MAP_PATH):
 		return TUTORIAL_SANDBOX_FALLBACK_MAP_PATH
-	if _selected_map_path != "" and ResourceLoader.exists(_selected_map_path):
+	if _selected_map_path != "" and FileAccess.file_exists(_selected_map_path):
 		return _selected_map_path
 	return ""
 
@@ -5216,7 +5209,7 @@ func _mvp_run_shell_return_flow_check(expected_map_path: String) -> Dictionary:
 	return result
 
 func _mvp_pick_default_map() -> String:
-	if ResourceLoader.exists(MVP_SMOKE_DEFAULT_MAP):
+	if FileAccess.file_exists(MVP_SMOKE_DEFAULT_MAP):
 		var default_preflight: Dictionary = MAP_LOADER.load_map(MVP_SMOKE_DEFAULT_MAP)
 		if bool(default_preflight.get("ok", false)) and _mvp_map_supports_mode(MVP_SMOKE_DEFAULT_MAP, default_preflight.get("data", {}) as Dictionary, "1V1"):
 			return MVP_SMOKE_DEFAULT_MAP
@@ -5243,7 +5236,7 @@ func _mvp_pick_default_map() -> String:
 	return ""
 
 func _mvp_pick_win_map() -> String:
-	if ResourceLoader.exists(MVP_SMOKE_DEFAULT_WIN_MAP):
+	if FileAccess.file_exists(MVP_SMOKE_DEFAULT_WIN_MAP):
 		var default_preflight: Dictionary = MAP_LOADER.load_map(MVP_SMOKE_DEFAULT_WIN_MAP)
 		if bool(default_preflight.get("ok", false)) and _mvp_map_supports_mode(MVP_SMOKE_DEFAULT_WIN_MAP, default_preflight.get("data", {}) as Dictionary, "1V1"):
 			return MVP_SMOKE_DEFAULT_WIN_MAP
