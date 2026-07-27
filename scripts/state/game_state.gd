@@ -312,13 +312,7 @@ func load_from_map_dict(map: Dictionary) -> void:
 			var hd: Dictionary = hive_v as Dictionary
 
 			var id_v: Variant = hd.get("id", 0)
-			var hive_id: int = 0
-			if id_v is int:
-				hive_id = int(id_v)
-			else:
-				var id_str: String = str(id_v)
-				if id_str.is_valid_int():
-					hive_id = int(id_str)
+			var hive_id: int = _map_positive_integral_id(id_v)
 			if hive_id <= 0:
 				continue
 
@@ -353,7 +347,6 @@ func load_from_map_dict(map: Dictionary) -> void:
 				radius_px,
 				Vector2(gx_f, gy_f)
 			))
-
 	# Design rule: maps do not author active lanes.
 	# Live lanes are created at runtime from intents and occlusion checks.
 	lanes.clear()
@@ -885,6 +878,26 @@ func rebuild_lane_adjacency() -> void:
 
 		(outgoing_by_hive[a_id] as Array).append(ld)
 		(outgoing_by_hive[b_id] as Array).append(ld)
+
+
+func _map_positive_integral_id(value: Variant) -> int:
+	match typeof(value):
+		TYPE_INT:
+			return int(value) if int(value) > 0 else 0
+		TYPE_FLOAT:
+			var numeric: float = float(value)
+			if is_finite(numeric) \
+				and numeric > 0.0 \
+				and numeric <= 9007199254740991.0 \
+				and numeric == floor(numeric):
+				return int(numeric)
+		TYPE_STRING, TYPE_STRING_NAME:
+			var text: String = str(value).strip_edges()
+			if text.is_valid_int():
+				var parsed: int = int(text)
+				return parsed if parsed > 0 else 0
+	return 0
+
 
 func _indexes_dirty() -> bool:
 	if not hives.is_empty():

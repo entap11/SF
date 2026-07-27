@@ -15,7 +15,7 @@ static func canonical_json(value: Variant) -> String:
 		TYPE_INT:
 			return str(int(value))
 		TYPE_FLOAT:
-			return JSON.stringify(float(value))
+			return _canonical_float(float(value))
 		TYPE_STRING, TYPE_STRING_NAME:
 			return JSON.stringify(str(value))
 		TYPE_ARRAY:
@@ -43,3 +43,15 @@ static func _canonical_dictionary(value: Dictionary) -> String:
 			canonical_json(entry.get("value"))
 		])
 	return "{%s}" % ",".join(rows)
+
+
+static func _canonical_float(value: float) -> String:
+	# JSON.parse_string() represents JSON numbers as floats. Godot 4.2 formatted
+	# integral floats as "5", while Godot 4.7 formats the same value as "5.0".
+	# Normalize exactly representable integral values before delegating fractional
+	# formatting so approved deterministic identities do not depend on the engine.
+	if is_finite(value) \
+		and absf(value) <= 9007199254740991.0 \
+		and value == floor(value):
+		return str(int(value))
+	return JSON.stringify(value)

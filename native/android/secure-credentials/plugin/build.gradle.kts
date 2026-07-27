@@ -28,7 +28,7 @@ android {
 }
 
 dependencies {
-    implementation("org.godotengine:godot:4.2.2.stable")
+    implementation("org.godotengine:godot:4.7.1.stable")
 }
 
 val projectAddons = rootProject.projectDir.resolve("../../../addons/swarmfront_secure_credentials/bin")
