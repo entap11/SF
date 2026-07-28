@@ -162,6 +162,7 @@ var _selected_map_path: String = ""
 var _pending_map_path: String = ""
 var _pending_tutorial_section: String = ""
 var _pending_apply_tries: int = 0
+var _system_back_request_inflight: bool = false
 var _err_conn_ready: bool = false
 var _frame_once: bool = false
 var _team_mode_ui: String = "2v2"
@@ -862,10 +863,42 @@ func _resolve_dev_map_loader_node() -> Node:
 
 func _exit_tree() -> void:
 	cancel_buff_pointer_session("shell_scene_exit")
+	_set_go_back_auto_quit_enabled(true)
 	_shell_exit_count += 1
 	_map_prewarm_generation += 1
 	_finish_map_prewarm(true)
 	if TRACE_SHELL_LOGS: print("SHELL_LIFECYCLE exit #", _shell_exit_count, " iid=", _iid(self), " path=", _np(self))
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST:
+		_handle_system_go_back_request()
+
+func _set_go_back_auto_quit_enabled(enabled: bool) -> void:
+	var tree: SceneTree = get_tree()
+	if tree != null:
+		tree.quit_on_go_back = enabled
+
+func _handle_system_go_back_request() -> bool:
+	if _system_back_request_inflight:
+		return true
+	if _arena_instance == null:
+		return false
+	if menu_root != null and menu_root.visible:
+		return false
+	_system_back_request_inflight = true
+	SFLog.info("SHELL_SYSTEM_BACK_TO_MENU", {
+		"selected_map": _selected_map_path,
+		"arena_present": true
+	})
+	_stop_game()
+	call_deferred("_complete_system_go_back_request")
+	return true
+
+func _complete_system_go_back_request() -> void:
+	await get_tree().process_frame
+	_teardown_detached_match_overlays()
+	_system_back_request_inflight = false
+	_set_go_back_auto_quit_enabled(true)
 
 func _log_shell_buffer_boot() -> void:
 	await get_tree().process_frame
@@ -1665,6 +1698,7 @@ func _ensure_game_instance() -> void:
 func _enter_game() -> void:
 	if _arena_instance == null:
 		return
+	_set_go_back_auto_quit_enabled(false)
 	_set_menu_state(false)
 	if arena_root != null:
 		arena_root.modulate.a = 0.0
@@ -1744,6 +1778,7 @@ func _on_back_pressed() -> void:
 
 func _stop_game() -> void:
 	cancel_buff_pointer_session("arena_scene_exit")
+	_teardown_detached_match_overlays()
 	if _arena_instance != null:
 		_arena_instance.queue_free()
 		_arena_instance = null
@@ -1751,8 +1786,40 @@ func _stop_game() -> void:
 	if arena_root != null:
 		arena_root.modulate.a = 1.0
 	_set_menu_state(true)
+	if not _system_back_request_inflight:
+		_set_go_back_auto_quit_enabled(true)
+		call_deferred("_finish_match_overlay_teardown")
 	_sync_buff_ui()
 	_set_shell_status("Returned to shell. Selected map: %s." % _map_display_name(_selected_map_path), "success")
+
+func _finish_match_overlay_teardown() -> void:
+	await get_tree().process_frame
+	_teardown_detached_match_overlays()
+
+func _teardown_detached_match_overlays() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	for path in [
+		MVP_SMOKE_PREMATCH_OVERLAY_PATH,
+		MVP_SMOKE_OUTCOME_OVERLAY_PATH,
+		"/root/Shell/HUDCanvasLayer/HUDRoot/WinOverlay"
+	]:
+		var overlay: CanvasItem = get_node_or_null(path) as CanvasItem
+		if overlay == null:
+			continue
+		if overlay.has_method("hide_overlay"):
+			overlay.call("hide_overlay")
+		else:
+			overlay.visible = false
+	var outcome_layer: CanvasLayer = tree.root.get_node_or_null("OutcomeCanvasLayer") as CanvasLayer
+	if outcome_layer == null:
+		return
+	outcome_layer.visible = false
+	for child in outcome_layer.get_children():
+		if child.has_method("hide_overlay"):
+			child.call("hide_overlay")
+	outcome_layer.queue_free()
 
 func _on_dev_pressed() -> void:
 	_set_shell_status("Opening main menu...", "success")
@@ -5300,9 +5367,26 @@ func _mvp_run_shell_menu_flow_check(map_path: String) -> Dictionary:
 
 func _mvp_run_shell_return_flow_check(expected_map_path: String) -> Dictionary:
 	var result: Dictionary = {"passes": 0, "fails": 0}
-	_stop_game()
+	var tree: SceneTree = get_tree()
+	if tree != null and not tree.quit_on_go_back:
+		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_match_disables_android_back_auto_quit", {})
+	else:
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_match_disables_android_back_auto_quit", {
+			"quit_on_go_back": tree.quit_on_go_back if tree != null else null
+		})
+	var system_back_handled: bool = _handle_system_go_back_request()
+	if system_back_handled:
+		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_system_back_routes_to_menu", {})
+	else:
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_system_back_routes_to_menu", {})
 	await get_tree().process_frame
 	await get_tree().process_frame
+	if tree != null and tree.quit_on_go_back:
+		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_menu_restores_android_back_auto_quit", {})
+	else:
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_menu_restores_android_back_auto_quit", {
+			"quit_on_go_back": tree.quit_on_go_back if tree != null else null
+		})
 	var menu_visible: bool = menu_root != null and menu_root.visible and menu_panel != null and menu_panel.visible
 	var arena_hidden: bool = arena_root == null or not arena_root.visible
 	if menu_visible and arena_hidden:
@@ -5331,6 +5415,22 @@ func _mvp_run_shell_return_flow_check(expected_map_path: String) -> Dictionary:
 		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_return_hides_back_button", {})
 	else:
 		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_return_hides_back_button", {"visible": back_button.visible if back_button != null else null})
+	var outcome_layer: CanvasLayer = tree.root.get_node_or_null("OutcomeCanvasLayer") as CanvasLayer if tree != null else null
+	var outcome_hidden: bool = outcome_layer == null or not outcome_layer.visible
+	if outcome_hidden:
+		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_return_hides_detached_outcome_overlay", {})
+	else:
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_return_hides_detached_outcome_overlay", {
+			"path": str(outcome_layer.get_path())
+		})
+	var prematch_overlay: CanvasItem = get_node_or_null(MVP_SMOKE_PREMATCH_OVERLAY_PATH) as CanvasItem
+	var prematch_hidden: bool = prematch_overlay == null or not prematch_overlay.visible
+	if prematch_hidden:
+		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_return_hides_detached_prematch_overlay", {})
+	else:
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_return_hides_detached_prematch_overlay", {
+			"path": str(prematch_overlay.get_path())
+		})
 	return result
 
 func _mvp_pick_default_map() -> String:
