@@ -58,3 +58,10 @@ Both presets use API 24 minimum and API 36 target. `Android Development` uses
 package ID `com.entap.swarmfront.dev`, arm64, and the mobile renderer.
 `Android Emulator` uses package ID `com.entap.swarmfront.emulator`, x86_64, and
 the compatibility renderer to avoid host-specific Vulkan emulator failures.
+
+## Release candidate
+
+The signed ARM64 AAB and x86_64 release-mode certification APK use separate
+release presets and environment-injected signing credentials. See
+[`docs/android_release_candidate.md`](../../../docs/android_release_candidate.md)
+for the signing contract, application identity, and export command.
