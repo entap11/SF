@@ -38,6 +38,7 @@ const MVP_SMOKE_IDENTITY_PATH: String = MVP_SMOKE_PREMATCH_OVERLAY_PATH + "/Iden
 const MVP_SMOKE_IDENTITY_P1_PATH: String = MVP_SMOKE_IDENTITY_PATH + "/P1Name"
 const MVP_SMOKE_IDENTITY_P2_PATH: String = MVP_SMOKE_IDENTITY_PATH + "/P2Name"
 const MVP_SMOKE_OUTCOME_OVERLAY_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/OutcomeOverlay"
+const MATCH_IN_GAME_AD_SURFACE_PATH: String = "/root/Shell/HUDCanvasLayer/HUDRoot/InGameHudAdSurface"
 const MVP_SMOKE_DEFAULT_BOOT_TIMEOUT_MS: int = 7000
 const MVP_SMOKE_DEFAULT_RUN_TIMEOUT_MS: int = 12000
 const MVP_SMOKE_DEFAULT_END_TIMEOUT_MS: int = 25000
@@ -1800,6 +1801,12 @@ func _teardown_detached_match_overlays() -> void:
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return
+	var in_game_ad_surface: Control = get_node_or_null(MATCH_IN_GAME_AD_SURFACE_PATH) as Control
+	if in_game_ad_surface != null:
+		if in_game_ad_surface.has_method("set_presentation_enabled"):
+			in_game_ad_surface.call("set_presentation_enabled", false)
+		else:
+			in_game_ad_surface.visible = false
 	for path in [
 		MVP_SMOKE_PREMATCH_OVERLAY_PATH,
 		MVP_SMOKE_OUTCOME_OVERLAY_PATH,
@@ -5430,6 +5437,14 @@ func _mvp_run_shell_return_flow_check(expected_map_path: String) -> Dictionary:
 	else:
 		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_return_hides_detached_prematch_overlay", {
 			"path": str(prematch_overlay.get_path())
+		})
+	var in_game_ad_surface: Control = get_node_or_null(MATCH_IN_GAME_AD_SURFACE_PATH) as Control
+	var in_game_ad_hidden: bool = in_game_ad_surface == null or not in_game_ad_surface.visible
+	if in_game_ad_hidden:
+		result["passes"] = int(result.get("passes", 0)) + _mvp_smoke_pass("shell_return_hides_detached_in_game_ad_surface", {})
+	else:
+		result["fails"] = int(result.get("fails", 0)) + _mvp_smoke_fail("shell_return_hides_detached_in_game_ad_surface", {
+			"path": str(in_game_ad_surface.get_path())
 		})
 	return result
 

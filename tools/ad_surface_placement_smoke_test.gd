@@ -38,7 +38,10 @@ func _init() -> void:
 		[
 			"AdSurfaceScript",
 			"HandshakeAdSurface",
-			"\"vs_handshake\", \"handshake\""
+			"\"vs_handshake\", \"handshake\"",
+			"MATCH_IN_GAME_AD_SURFACE_PATH",
+			"in_game_ad_surface.call(\"set_presentation_enabled\", false)",
+			"shell_return_hides_detached_in_game_ad_surface"
 		]
 	) or failed
 	failed = _expect_source_contains(
