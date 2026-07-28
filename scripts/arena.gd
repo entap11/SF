@@ -200,8 +200,8 @@ const ASYNC_PREMATCH_CARD_WIDTH_PX: float = 840.0
 const ASYNC_PREMATCH_CARD_HEIGHT_PX: float = 680.0
 const PREMATCH_AD_SIZE: Vector2 = Vector2(720.0, 90.0)
 const IN_GAME_AD_SIZE: Vector2 = Vector2(720.0, 90.0)
-# Keep the readable ticker below the persistent 225x110 Menu action.
-const IN_GAME_AD_TOP_MARGIN_PX: float = 142.0
+const IN_GAME_AD_TOP_MARGIN_PX: float = 210.0
+const MATCH_AD_BUFFER_BOTTOM_GAP_PX: float = 0.0
 const IN_GAME_AD_MIN_WIDTH_PX: float = 560.0
 const IN_GAME_AD_HUD_Z_INDEX: int = 3200
 const POWER_BAR_ARENA_TOP_GAP_PX: float = -8.0
@@ -1559,6 +1559,7 @@ func _begin_prematch() -> void:
 		OpsState.prematch_duration_ms = prematch_dur_ms
 		OpsState.set_prematch_remaining_ms(int(ceil(_prematch_remaining_ms_f)), "Arena._begin_prematch")
 	)
+	_sync_match_ad_surface_visibility()
 	SFLog.info("PREMATCH_BEGIN", {
 		"phase": int(OpsState.match_phase),
 		"ms": int(OpsState.prematch_remaining_ms)
@@ -3343,6 +3344,7 @@ func _ensure_prematch_ad_surface() -> void:
 	_prematch_ad_surface.z_as_relative = false
 	_prematch_ad_surface.z_index = 1003
 	_layout_prematch_ad_surface()
+	_sync_match_ad_surface_visibility()
 
 func _layout_prematch_ad_surface() -> void:
 	if _prematch_ad_surface == null:
@@ -3351,15 +3353,11 @@ func _layout_prematch_ad_surface() -> void:
 	if vp == null:
 		return
 	var vr: Rect2 = vp.get_visible_rect()
-	var top_inset: float = _ui_top_inset_px()
 	var ad_size: Vector2 = Vector2(
 		minf(PREMATCH_AD_SIZE.x, maxf(300.0, vr.size.x - 32.0)),
 		PREMATCH_AD_SIZE.y
 	)
-	var ctf_bottom: float = top_inset + PREMATCH_RECORDS_TOP_GAP_PX
-	if _prematch_ctf_panel != null and _prematch_ctf_panel.visible:
-		ctf_bottom = maxf(ctf_bottom, _prematch_ctf_panel.position.y + _prematch_ctf_panel.size.y)
-	var ad_top: float = ctf_bottom + 14.0 if _prematch_ctf_panel != null and _prematch_ctf_panel.visible else ctf_bottom
+	var ad_top: float = _match_ad_surface_top_px(ad_size.y)
 	_prematch_ad_surface.position = Vector2((vr.size.x - ad_size.x) * 0.5, ad_top)
 	_prematch_ad_surface.size = ad_size
 
@@ -3383,7 +3381,33 @@ func _ensure_in_game_ad_surface() -> void:
 	_in_game_ad_surface.z_as_relative = false
 	_in_game_ad_surface.z_index = IN_GAME_AD_HUD_Z_INDEX
 	_layout_in_game_ad_surface()
+	_sync_match_ad_surface_visibility()
 	_snap_power_bar_to_map_top("in_game_ad_surface_ready")
+
+func _sync_match_ad_surface_visibility() -> void:
+	if OpsState == null:
+		return
+	var phase: int = int(OpsState.match_phase)
+	_set_ad_surface_presentation_enabled(_prematch_ad_surface, phase == int(OpsState.MatchPhase.PREMATCH))
+	_set_ad_surface_presentation_enabled(_in_game_ad_surface, phase == int(OpsState.MatchPhase.RUNNING))
+
+func _set_ad_surface_presentation_enabled(surface: Control, enabled: bool) -> void:
+	if surface == null or not is_instance_valid(surface):
+		return
+	if surface.has_method("set_presentation_enabled"):
+		surface.call("set_presentation_enabled", enabled)
+	else:
+		surface.visible = enabled
+
+func _match_ad_surface_top_px(ad_height: float) -> float:
+	var top_buffer: Control = _resolve_top_buffer_background() as Control
+	if top_buffer == null:
+		return IN_GAME_AD_TOP_MARGIN_PX
+	var buffer_rect: Rect2 = top_buffer.get_global_rect()
+	return maxf(
+		0.0,
+		buffer_rect.position.y + buffer_rect.size.y - maxf(1.0, ad_height) - MATCH_AD_BUFFER_BOTTOM_GAP_PX
+	)
 
 func _layout_in_game_ad_surface() -> void:
 	if _in_game_ad_surface == null:
@@ -3396,7 +3420,7 @@ func _layout_in_game_ad_surface() -> void:
 		minf(IN_GAME_AD_SIZE.x, maxf(IN_GAME_AD_MIN_WIDTH_PX, vr.size.x - 32.0)),
 		IN_GAME_AD_SIZE.y
 	)
-	_in_game_ad_surface.position = Vector2((vr.size.x - ad_size.x) * 0.5, IN_GAME_AD_TOP_MARGIN_PX)
+	_in_game_ad_surface.position = Vector2((vr.size.x - ad_size.x) * 0.5, _match_ad_surface_top_px(ad_size.y))
 	_in_game_ad_surface.size = ad_size
 
 func _prematch_records_panel_size() -> Vector2:
@@ -4396,6 +4420,7 @@ func _finish_prematch() -> void:
 		_audit_ops_write("input_locked_reason", "Arena._finish_prematch")
 		OpsState.input_locked_reason = ""
 	)
+	_sync_match_ad_surface_visibility()
 	if _prematch_overlay != null:
 		_prematch_overlay.visible = false
 	if _prematch_identity_card != null:
@@ -5574,6 +5599,7 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 		SFLog.info("MATCH_END_DUPLICATE_SKIP", {"winner_id": winner_id_in})
 		return
 	_match_end_handled = true
+	_sync_match_ad_surface_visibility()
 	var shell: Node = get_node_or_null("/root/Shell")
 	if shell != null and shell.has_method("cancel_buff_pointer_session"):
 		shell.call("cancel_buff_pointer_session", "match_ended:%s" % reason)

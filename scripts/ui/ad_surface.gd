@@ -30,6 +30,7 @@ var _policy_snapshot: Dictionary = {}
 var _viewable_ms: float = 0.0
 var _impression_recorded: bool = false
 var _loaded_creative_path: String = ""
+var _presentation_enabled: bool = true
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -64,8 +65,22 @@ func set_ad_available(available: bool) -> void:
 		_cancel_auto_dismiss()
 		_viewable_ms = 0.0
 	_sync_empty_state()
-	if _ad_available:
+	if _ad_available and _presentation_enabled:
 		_arm_auto_dismiss_if_needed()
+
+func set_presentation_enabled(enabled: bool) -> void:
+	if _presentation_enabled == enabled:
+		return
+	_presentation_enabled = enabled
+	if not _presentation_enabled:
+		_cancel_auto_dismiss()
+		_viewable_ms = 0.0
+	_sync_empty_state()
+	if _presentation_enabled and _ad_available:
+		_arm_auto_dismiss_if_needed()
+
+func is_presentation_enabled() -> bool:
+	return _presentation_enabled
 
 func set_internal_ticker_items(items: Array) -> void:
 	ticker_items.clear()
@@ -127,11 +142,13 @@ func _sync_empty_state() -> void:
 	var policy_allows_ads: bool = _ads_allowed_by_policy()
 	var show_internal_ticker: bool = _should_show_internal_ticker()
 	var show_placeholder: bool = policy_allows_ads and _placeholders_enabled()
-	visible = show_internal_ticker or (policy_allows_ads and (_ad_available or reserve_when_empty or show_placeholder))
-	modulate.a = 1.0 if (_ad_available or show_placeholder or show_internal_ticker) else 0.0
+	var has_presentable_content: bool = show_internal_ticker or (policy_allows_ads and (_ad_available or reserve_when_empty or show_placeholder))
+	visible = _presentation_enabled and has_presentable_content
+	modulate.a = 1.0 if _presentation_enabled and (_ad_available or show_placeholder or show_internal_ticker) else 0.0
 	set_meta("ad_surface_content_mode", _current_content_mode())
-	mouse_filter = Control.MOUSE_FILTER_STOP if _ad_available and _current_content_mode() == CONTENT_MODE_AD else Control.MOUSE_FILTER_IGNORE
-	set_process(_ad_available and not _impression_recorded)
+	set_meta("ad_surface_presentation_enabled", _presentation_enabled)
+	mouse_filter = Control.MOUSE_FILTER_STOP if _presentation_enabled and _ad_available and _current_content_mode() == CONTENT_MODE_AD else Control.MOUSE_FILTER_IGNORE
+	set_process(_presentation_enabled and _ad_available and not _impression_recorded)
 	_apply_surface_style(show_internal_ticker)
 	if _label != null:
 		var filled_label: String = _filled_ad_label_text()
@@ -271,7 +288,7 @@ func _process(delta: float) -> void:
 		_record_viewable_impression()
 
 func _gui_input(event: InputEvent) -> void:
-	if not _ad_available or _current_content_mode() != CONTENT_MODE_AD:
+	if not _presentation_enabled or not _ad_available or _current_content_mode() != CONTENT_MODE_AD:
 		return
 	var pressed: bool = false
 	if event is InputEventMouseButton:

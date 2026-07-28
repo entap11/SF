@@ -62,6 +62,28 @@ func _run() -> void:
 		push_error("AD_SURFACE_SMOKE: populated surface should become visible")
 		quit(1)
 		return
+	surface.call("set_presentation_enabled", false)
+	if bool(surface.visible):
+		push_error("AD_SURFACE_SMOKE: presentation-disabled surface should be hidden")
+		quit(1)
+		return
+	if surface.mouse_filter != Control.MOUSE_FILTER_IGNORE:
+		push_error("AD_SURFACE_SMOKE: presentation-disabled surface should ignore mouse input")
+		quit(1)
+		return
+	if surface.is_processing():
+		push_error("AD_SURFACE_SMOKE: presentation-disabled surface should not measure impressions")
+		quit(1)
+		return
+	if bool(surface.call("is_presentation_enabled")):
+		push_error("AD_SURFACE_SMOKE: presentation gate did not report disabled")
+		quit(1)
+		return
+	surface.call("set_presentation_enabled", true)
+	if not bool(surface.visible):
+		push_error("AD_SURFACE_SMOKE: presentation-enabled populated surface should become visible")
+		quit(1)
+		return
 	fake_profile.zero_ads = true
 	surface.call("set_ad_available", true)
 	if not bool(surface.visible):
@@ -84,6 +106,16 @@ func _run() -> void:
 	surface.call("set_internal_ticker_items", ["LANE ALERT", "HIVE PRESSURE"])
 	if ticker_label.text != "LANE ALERT  |  HIVE PRESSURE":
 		push_error("AD_SURFACE_SMOKE: custom ticker items did not render")
+		quit(1)
+		return
+	surface.call("set_presentation_enabled", false)
+	if bool(surface.visible) or str(surface.get_meta("ad_surface_content_mode", "")) != "internal_ticker":
+		push_error("AD_SURFACE_SMOKE: presentation gate should hide without changing ticker policy")
+		quit(1)
+		return
+	surface.call("set_presentation_enabled", true)
+	if not bool(surface.visible):
+		push_error("AD_SURFACE_SMOKE: re-enabled ticker surface should become visible")
 		quit(1)
 		return
 	fake_profile.zero_ads = false

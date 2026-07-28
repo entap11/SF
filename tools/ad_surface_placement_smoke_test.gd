@@ -11,12 +11,26 @@ func _init() -> void:
 			"InGameHudAdSurface",
 			"\"in_game_hud\", \"in_game\"",
 			"IN_GAME_AD_SIZE: Vector2 = Vector2(720.0, 90.0)",
-			"IN_GAME_AD_TOP_MARGIN_PX: float = 142.0",
+			"IN_GAME_AD_TOP_MARGIN_PX: float = 210.0",
+			"MATCH_AD_BUFFER_BOTTOM_GAP_PX",
 			"IN_GAME_AD_HUD_Z_INDEX",
-			"_in_game_ad_surface.position = Vector2((vr.size.x - ad_size.x) * 0.5, IN_GAME_AD_TOP_MARGIN_PX)",
+			"func _sync_match_ad_surface_visibility()",
+			"phase == int(OpsState.MatchPhase.PREMATCH)",
+			"phase == int(OpsState.MatchPhase.RUNNING)",
+			"func _match_ad_surface_top_px(ad_height: float)",
+			"buffer_rect.position.y + buffer_rect.size.y - maxf(1.0, ad_height)",
+			"_match_ad_surface_top_px(ad_size.y)",
 			"POWER_BAR_ARENA_TOP_GAP_PX",
 			"func _arena_playfield_top_screen_y()",
 			"anchor.offset_top += delta_y"
+		]
+	) or failed
+	failed = _expect_source_contains(
+		"res://scripts/ui/ad_surface.gd",
+		[
+			"func set_presentation_enabled(enabled: bool)",
+			"ad_surface_presentation_enabled",
+			"_presentation_enabled and _ad_available"
 		]
 	) or failed
 	failed = _expect_source_contains(
