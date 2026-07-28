@@ -597,6 +597,11 @@ func _set_team_mode_ui(mode: String) -> void:
 		_apply_team_mode_button_font()
 	if OpsState.has_method("set_team_mode_override"):
 		OpsState.call("set_team_mode_override", _team_mode_ui)
+	if _map_picker_panel != null and _map_picker_panel.visible:
+		_scan_maps_into_list()
+		if _map_list != null and _map_list.item_count > 0:
+			_map_list.select(0)
+			_on_map_item_selected(0)
 	_refresh_shell_menu_status()
 	SFLog.info("TEAM_MODE_SELECTED", {"mode": _team_mode_ui})
 
@@ -1120,9 +1125,18 @@ func _on_play_selected_pressed() -> void:
 			"err": str(preflight.get("err", "unknown"))
 		})
 		return
+	var direct_mode: String = _direct_practice_launch_mode()
+	var mode_validation: Dictionary = _validate_map_mode_contract_for_mode(selected_now, direct_mode, preflight)
+	if not bool(mode_validation.get("ok", false)):
+		var reason: String = str(mode_validation.get("reason", "invalid_map_mode"))
+		_set_picker_summary("Selected map does not support %s." % direct_mode, "error")
+		_set_shell_status("Launch blocked. %s does not support %s." % [_map_display_name(selected_now), direct_mode], "error")
+		_report_map_mode_contract_violation(direct_mode, selected_now, reason)
+		return
+	_prepare_direct_practice_tree_meta(selected_now, direct_mode)
 	_selected_map_path = selected_now
 	if TRACE_SHELL_LOGS: print("MAP_PICKER_PLAY_PRESSED", {"selected_path": _selected_map_path})
-	SFLog.info("PLAY_SELECTED_PRESSED", {"map_path": _selected_map_path})
+	SFLog.info("PLAY_SELECTED_PRESSED", {"map_path": _selected_map_path, "mode": direct_mode})
 	var gamebot_boot: Node = get_node_or_null("/root/Gamebot")
 	if gamebot_boot != null:
 		if gamebot_boot.has_method("set_vs"):
@@ -1146,6 +1160,89 @@ func _on_play_selected_pressed() -> void:
 	SFLog.info("PENDING_MAP_START_GAME_FIRST", {"path": _pending_map_path})
 	_start_game()
 	call_deferred("_apply_pending_map_if_ready")
+
+func _prepare_direct_practice_tree_meta(map_path: String, mode: String) -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return
+	for key in [
+		"ctf_flag_selection_mode",
+		"ctf_player_select_pct",
+		"ctf_randomize_flag_hive",
+		"ctf_hidden_flag",
+		"ctf_flag_move_count_max",
+		"ctf_flag_move_reveals",
+		"hidden_ctf_allotment_pattern",
+		"hidden_ctf_allotment_seed",
+		"jukebox_board_enabled",
+		"tutorial_controls_followup_launch_pending",
+		"tutorial_controls_followup_match",
+		"tutorial_controls_followup_reward_honey"
+	]:
+		if tree.has_meta(key):
+			tree.remove_meta(key)
+	var local_uid: String = ProfileManager.get_user_id() if ProfileManager != null else "local"
+	if local_uid.strip_edges().is_empty():
+		local_uid = "local"
+	var local_name: String = ProfileManager.get_display_name() if ProfileManager != null else "You"
+	if local_name.strip_edges().is_empty():
+		local_name = "You"
+	var required_players: int = 4 if mode == "2V2" or mode == "4P FFA" else 2
+	var assigned_players: Array[String] = []
+	var roster: Array[Dictionary] = []
+	for seat in range(1, required_players + 1):
+		var is_local: bool = seat == 1
+		var display_name: String = local_name if is_local else "CPU %d" % seat
+		var team_id: int = seat
+		if mode == "2V2":
+			team_id = 1 if seat == 1 or seat == 3 else 2
+		assigned_players.append(display_name)
+		roster.append({
+			"seat": seat,
+			"team_id": team_id,
+			"uid": local_uid if is_local else "bot_direct_practice_%d" % seat,
+			"display_name": display_name,
+			"name": display_name,
+			"is_local": is_local,
+			"is_cpu": not is_local,
+			"active": true
+		})
+	tree.set_meta("start_game", true)
+	tree.set_meta("vs_mode", mode)
+	tree.set_meta("vs_price_usd", 0)
+	tree.set_meta("vs_wager_cents", 0)
+	tree.set_meta("vs_paid_entry", false)
+	tree.set_meta("vs_free_roll", true)
+	tree.set_meta("vs_practice", true)
+	tree.set_meta("vs_ranked", false)
+	tree.set_meta("vs_economic", false)
+	tree.set_meta("vs_assigned_players", assigned_players)
+	tree.set_meta("vs_open_slots", 0)
+	tree.set_meta("vs_required_players", required_players)
+	tree.set_meta("vs_sync_start", true)
+	tree.set_meta("vs_sync_join_sec", 0)
+	tree.set_meta("vs_window_sec", 0)
+	tree.set_meta("vs_window_started_unix", 0)
+	tree.set_meta("vs_window_deadline_unix", 0)
+	tree.set_meta("vs_stage_map_paths", [map_path])
+	tree.set_meta("vs_stage_current_index", 0)
+	tree.set_meta("vs_stage_round_results", [])
+	tree.set_meta("vs_handshake_session_id", "")
+	tree.set_meta("vs_handshake_role", "host")
+	tree.set_meta("vs_handshake_invite_code", "")
+	tree.set_meta("vs_roster", roster)
+	tree.set_meta("vs_session_contract_version", 0)
+	tree.set_meta("vs_session_contract_hash", "")
+	tree.set_meta("vs_local_profile", (roster[0] as Dictionary).duplicate(true))
+	tree.set_meta("vs_remote_profile", (roster[1] as Dictionary).duplicate(true))
+	tree.set_meta("vs_cpu_style", "balancer")
+	tree.set_meta("vs_cpu_tier", "easy")
+	SFLog.info("DIRECT_PRACTICE_LAUNCH_PREPARED", {
+		"map_path": map_path,
+		"mode": mode,
+		"required_players": required_players,
+		"team_mode": _team_mode_ui
+	})
 
 func _apply_pending_map_if_ready() -> void:
 	if _pending_map_path == "":
@@ -1205,10 +1302,16 @@ func _scan_maps_into_list() -> void:
 	_map_list.clear()
 	_map_list.set_meta("paths", PackedStringArray())
 	var paths: PackedStringArray = PackedStringArray()
-	for path_any in MAP_LOADER.list_maps():
-		var path: String = str(path_any)
-		if path.is_empty():
+	var seen_paths: Dictionary = {}
+	var direct_mode: String = _direct_practice_launch_mode()
+	for source_path_any in MAP_LOADER.list_maps():
+		var source_path: String = str(source_path_any)
+		if source_path.is_empty():
 			continue
+		var path: String = _resolve_direct_practice_map_path(source_path, direct_mode)
+		if path.is_empty() or seen_paths.has(path):
+			continue
+		seen_paths[path] = true
 		paths.append(path)
 	for p in paths:
 		_map_list.add_item(_map_display_name(p))
@@ -1217,7 +1320,7 @@ func _scan_maps_into_list() -> void:
 	_map_list.set_meta("paths", paths)
 	_refresh_picker_summary()
 	_refresh_play_selected_state()
-	SFLog.info("MAP_SCAN_DONE", {"count": paths.size()})
+	SFLog.info("MAP_SCAN_DONE", {"count": paths.size(), "mode": direct_mode})
 
 func _on_map_item_selected(index: int) -> void:
 	if _map_list == null:
@@ -1363,6 +1466,9 @@ func _validate_launch_map_mode_contract(map_path: String, tree: SceneTree) -> Di
 			"mode": mode,
 			"reason": "jukebox_catalog"
 		}
+	return _validate_map_mode_contract_for_mode(map_path, mode)
+
+func _validate_map_mode_contract_for_mode(map_path: String, mode: String, loaded: Dictionary = {}) -> Dictionary:
 	var required_variant: String = _required_player_variant_for_mode(mode)
 	if not required_variant.is_empty() and MAP_REGISTRY.player_variant_for_path(map_path) != required_variant:
 		return {
@@ -1370,18 +1476,21 @@ func _validate_launch_map_mode_contract(map_path: String, tree: SceneTree) -> Di
 			"mode": mode,
 			"reason": "requires_%s_map_path" % required_variant
 		}
-	var loaded: Dictionary = MAP_LOADER.load_map(map_path)
-	if not bool(loaded.get("ok", false)):
+	var load_result: Dictionary = loaded
+	if load_result.is_empty():
+		load_result = MAP_LOADER.load_map(map_path)
+	if not bool(load_result.get("ok", false)):
 		return {
 			"ok": false,
 			"mode": mode,
-			"reason": str(loaded.get("err", "load_failed"))
+			"reason": str(load_result.get("err", "load_failed"))
 		}
-	var summary: Dictionary = MapModeRules.map_supports_game_mode(loaded.get("data", {}) as Dictionary, mode)
+	var map_data: Dictionary = load_result.get("data", {}) as Dictionary
+	var summary: Dictionary = MapModeRules.map_supports_game_mode(map_data, mode)
 	summary["mode"] = mode
 	if not bool(summary.get("ok", false)):
 		return summary
-	var owner_summary: Dictionary = MapModeRules.map_matches_active_owner_contract(loaded.get("data", {}) as Dictionary, mode)
+	var owner_summary: Dictionary = MapModeRules.map_matches_active_owner_contract(map_data, mode)
 	if not bool(owner_summary.get("ok", false)):
 		owner_summary["mode"] = mode
 		return owner_summary
@@ -1412,6 +1521,21 @@ func _required_player_variant_for_mode(mode: String) -> String:
 		_:
 			return ""
 
+func _direct_practice_launch_mode() -> String:
+	match _team_mode_ui:
+		"ffa":
+			return "4P FFA"
+		"1p":
+			return "1V1"
+		_:
+			return "2V2"
+
+func _resolve_direct_practice_map_path(source_path: String, mode: String) -> String:
+	var required_variant: String = _required_player_variant_for_mode(mode)
+	if required_variant.is_empty():
+		return ""
+	return MAP_REGISTRY.player_variant_sibling_path(source_path, required_variant)
+
 func _launch_mode_for_map_contract(tree: SceneTree) -> String:
 	if tree != null:
 		var mode: String = str(tree.get_meta("vs_mode", "")).strip_edges()
@@ -1422,7 +1546,7 @@ func _launch_mode_for_map_contract(tree: SceneTree) -> String:
 			return "3P FFA"
 		if required_players == 4:
 			return "4P FFA"
-	return "1V1"
+	return _direct_practice_launch_mode()
 
 func _hide_arena_for_map_transition() -> void:
 	if arena_root == null or _arena_instance == null:
@@ -4412,6 +4536,7 @@ func _run_mvp_smoke(config: Dictionary) -> void:
 		await _run_tutorial_controls_smoke(config)
 		return
 
+	_set_team_mode_ui("1p")
 	var fails: int = 0
 	var passes: int = 0
 	var map_path: String = str(config.get("map_path", ""))

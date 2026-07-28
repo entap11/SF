@@ -9,6 +9,9 @@ const VS_LOBBY_SCENE: String = "res://scenes/ui/VsLobby.tscn"
 const ONE_PLAYER_MAP: String = "res://maps/_future/quadfight/MAP_quadfight__SBASE__1p.json"
 const TWO_PLAYER_MAP: String = "res://maps/_future/quadfight/MAP_quadfight__SBASE__2p.json"
 const FOUR_PLAYER_MAP: String = "res://maps/_future/quadfight/MAP_quadfight__SBASE__4p.json"
+const CLOSE_QUARTERS_ONE_PLAYER_MAP: String = "res://maps/_future/closequarters/MAP_closequarters__SBASE__1p.json"
+const CLOSE_QUARTERS_TWO_PLAYER_MAP: String = "res://maps/_future/closequarters/MAP_closequarters__SBASE__2p.json"
+const CLOSE_QUARTERS_FOUR_PLAYER_MAP: String = "res://maps/_future/closequarters/MAP_closequarters__SBASE__4p.json"
 
 func _init() -> void:
 	await process_frame
@@ -19,6 +22,35 @@ func _init() -> void:
 		failures.append("expected 1p helper to reject %s" % FOUR_PLAYER_MAP)
 	if MAP_REGISTRY.player_variant_for_path(TWO_PLAYER_MAP) != "2p":
 		failures.append("expected 2p helper to identify %s" % TWO_PLAYER_MAP)
+	if MAP_REGISTRY.player_variant_sibling_path(CLOSE_QUARTERS_FOUR_PLAYER_MAP, "1p") != CLOSE_QUARTERS_ONE_PLAYER_MAP:
+		failures.append("closequarters1 did not resolve its 1p sibling")
+	if MAP_REGISTRY.player_variant_sibling_path(CLOSE_QUARTERS_FOUR_PLAYER_MAP, "2p") != CLOSE_QUARTERS_TWO_PLAYER_MAP:
+		failures.append("closequarters1 did not resolve its 2p sibling")
+	if MAP_REGISTRY.player_variant_sibling_path(CLOSE_QUARTERS_FOUR_PLAYER_MAP, "4p") != CLOSE_QUARTERS_FOUR_PLAYER_MAP:
+		failures.append("closequarters1 did not retain its 4p source variant")
+	for closequarters_path in [
+		CLOSE_QUARTERS_ONE_PLAYER_MAP,
+		CLOSE_QUARTERS_TWO_PLAYER_MAP,
+		CLOSE_QUARTERS_FOUR_PLAYER_MAP
+	]:
+		if MAP_REGISTRY.public_map_display_name_for_path(closequarters_path) != "closequarters1":
+			failures.append("closequarters1 public name did not survive variant resolution: %s" % closequarters_path)
+	var closequarters_two_player_loaded: Dictionary = MAP_LOADER.load_map(CLOSE_QUARTERS_TWO_PLAYER_MAP)
+	if not bool(closequarters_two_player_loaded.get("ok", false)):
+		failures.append("closequarters1 2p sibling failed to load")
+	else:
+		var closequarters_two_v_two_summary: Dictionary = MAP_MODE_RULES.map_supports_game_mode(
+			closequarters_two_player_loaded.get("data", {}) as Dictionary,
+			"2V2"
+		)
+		if not bool(closequarters_two_v_two_summary.get("ok", false)):
+			failures.append("closequarters1 2p sibling failed the 2V2 contract: %s" % str(closequarters_two_v_two_summary))
+		var closequarters_owner_summary: Dictionary = MAP_MODE_RULES.map_matches_active_owner_contract(
+			closequarters_two_player_loaded.get("data", {}) as Dictionary,
+			"2V2"
+		)
+		if not bool(closequarters_owner_summary.get("ok", false)):
+			failures.append("closequarters1 2p sibling failed the 2V2 owner contract: %s" % str(closequarters_owner_summary))
 
 	var scene: PackedScene = load(VS_LOBBY_SCENE) as PackedScene
 	if scene == null:

@@ -272,6 +272,32 @@ static func is_one_player_map_path(path: String) -> bool:
 static func is_one_player_map_id(map_id: String) -> bool:
 	return player_variant_for_id(map_id) == "1p"
 
+static func player_variant_sibling_path(path: String, required_variant: String) -> String:
+	var clean_path: String = path.strip_edges()
+	var target_variant: String = required_variant.strip_edges().to_lower()
+	if clean_path.is_empty() or not ALLOWED_MODES.has(target_variant):
+		return ""
+	var current_variant: String = player_variant_for_path(clean_path)
+	if current_variant.is_empty():
+		return ""
+	if current_variant == target_variant:
+		return clean_path if FileAccess.file_exists(clean_path) else ""
+	if not clean_path.to_lower().ends_with(".json"):
+		return ""
+	var path_without_extension: String = clean_path.substr(0, clean_path.length() - 5)
+	var parts: PackedStringArray = path_without_extension.split("__", false)
+	var replaced: bool = false
+	for i in range(parts.size() - 1, -1, -1):
+		if str(parts[i]).strip_edges().to_lower() != current_variant:
+			continue
+		parts[i] = target_variant
+		replaced = true
+		break
+	if not replaced:
+		return ""
+	var candidate: String = "__".join(parts) + ".json"
+	return candidate if FileAccess.file_exists(candidate) else ""
+
 static func public_map_display_name_for_path(path: String) -> String:
 	return public_map_display_name_for_id(map_id_from_path(path))
 
@@ -280,6 +306,8 @@ static func public_map_display_name_for_id(map_id: String) -> String:
 	if raw_id.is_empty():
 		return ""
 	var alias: Dictionary = public_map_alias_entry_for_id(raw_id)
+	if alias.is_empty():
+		alias = _public_map_alias_entry_for_variant_stem(raw_id)
 	var public_name: String = str(alias.get("public_name", "")).strip_edges()
 	if not public_name.is_empty():
 		return public_name
@@ -346,6 +374,36 @@ static func public_map_alias_entry_for_id(map_id: String) -> Dictionary:
 
 static func has_public_map_alias_for_id(map_id: String) -> bool:
 	return not public_map_alias_entry_for_id(map_id).is_empty()
+
+static func _public_map_alias_entry_for_variant_stem(map_id: String) -> Dictionary:
+	var target_stem: String = _map_id_without_player_variant(map_id)
+	if target_stem.is_empty():
+		return {}
+	for key_any in PUBLIC_MAP_ALIASES.keys():
+		var key: String = str(key_any)
+		if _map_id_without_player_variant(key).to_upper() != target_stem.to_upper():
+			continue
+		var entry: Dictionary = (PUBLIC_MAP_ALIASES[key] as Dictionary).duplicate(true)
+		entry["map_id"] = key
+		if _is_public_alias_sandboxed(entry):
+			return {}
+		return entry
+	return {}
+
+static func _map_id_without_player_variant(map_id: String) -> String:
+	var raw_id: String = map_id_from_input(map_id)
+	if raw_id.is_empty():
+		return ""
+	var parts: PackedStringArray = raw_id.split("__", false)
+	var out: PackedStringArray = PackedStringArray()
+	var removed: bool = false
+	for part_any in parts:
+		var part: String = str(part_any).strip_edges()
+		if not removed and ALLOWED_MODES.has(part.to_lower()):
+			removed = true
+			continue
+		out.append(part)
+	return "__".join(out) if removed else ""
 
 static func registered_public_map_aliases() -> Array[Dictionary]:
 	var out: Array[Dictionary] = []
