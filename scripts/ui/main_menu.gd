@@ -10,7 +10,7 @@ const SWARM_PASS_PANEL_SCENE_PATH: String = "res://scenes/ui/SwarmPassPanel.tscn
 const BATTLE_PASS_PANEL_SCENE_PATH: String = "res://scenes/ui/BattlePassPanel.tscn"
 const RANK_PANEL_SCENE_PATH: String = "res://scenes/ui/RankPanel.tscn"
 const JUKEBOX_PANEL_SCENE_PATH: String = "res://scenes/ui/JukeboxPanel.tscn"
-const GARAGE_PANEL_SCENE_PATH: String = "res://scenes/ui/GaragePanel.tscn"
+const GARAGE_PANEL_SCENE: PackedScene = preload("res://scenes/ui/GaragePanel.tscn")
 const BETA_QUICK_START_PDF_PATH: String = "res://data/help/Swarmfront Quick Start Guide.pdf"
 const BETA_QUICK_START_USER_PATH: String = "user://help/Swarmfront Quick Start Guide.pdf"
 const BETA_QUICK_START_DIALOG_TEXT: String = """Swarmfront Quick Start Guide
@@ -121,8 +121,8 @@ Launch a Swarm.
 """
 const SCHOLASTIC_PANEL_SCENE_PATH: String = "res://scenes/ui/ScholasticPanel.tscn"
 const FREE_ROLL_GAME_HUB_SCENE_PATH: String = "res://scenes/ui/FreeRollGameHub.tscn"
-const DASH_BUFFS_HERO_SCENE_PATH: String = "res://scenes/ui/DashBuffsHero.tscn"
-const DASH_ACHIEVEMENTS_HERO_SCENE_PATH: String = "res://scenes/ui/DashAchievementsHero.tscn"
+const DASH_BUFFS_HERO_SCENE: PackedScene = preload("res://scenes/ui/DashBuffsHero.tscn")
+const DASH_ACHIEVEMENTS_HERO_SCENE: PackedScene = preload("res://scenes/ui/DashAchievementsHero.tscn")
 const HEX_SEAM_BACKGROUND_SCENE_PATH: String = "res://ui/backgrounds/HexSeamBackground.tscn"
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const MatchTelemetryModelScript = preload("res://scripts/state/match_telemetry_model.gd")
@@ -134,9 +134,25 @@ const ProgressiveConfigScript := preload("res://scripts/state/progressive_config
 const ProgressiveRunStoreScript := preload("res://scripts/state/progressive_run_store.gd")
 const AsyncMoneyGameLedgerScript := preload("res://scripts/state/async_money_game_ledger.gd")
 const CrucibleRulesetPolicy := preload("res://scripts/state/crucible_ruleset_policy.gd")
-const MATCH_BACKGROUND_INLAY_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/match_background_inlay.png"
-const HONEY_WIDGET_SCENE_PATH: String = "res://ui/hud/honey/honey_widget.tscn"
-const TIER_WIDGET_SCENE_PATH: String = "res://ui/hud/tier/tier_widget.tscn"
+const BAKED_UI_DIR_PATH: String = "res://assets/sprites/sf_skin_v1/baked_ui"
+const MATCH_BACKGROUND_INLAY_TEXTURE_PATH: String = BAKED_UI_DIR_PATH + "/match_background_inlay_portrait.png"
+const HONEY_WIDGET_SCENE: PackedScene = preload("res://ui/hud/honey/honey_widget.tscn")
+const TIER_WIDGET_SCENE: PackedScene = preload("res://ui/hud/tier/tier_widget.tscn")
+# These explicit dependencies let the shell's threaded Main Menu preload decode
+# all immediately visible nav art before the player taps Main Menu.
+const BAKED_BOTTOM_NAV_TEXTURES: Array[Texture2D] = [
+	preload("res://assets/sprites/sf_skin_v1/baked_ui/nav_play.png"),
+	preload("res://assets/sprites/sf_skin_v1/baked_ui/nav_hive.png"),
+	preload("res://assets/sprites/sf_skin_v1/baked_ui/nav_time_puzzle.png"),
+	preload("res://assets/sprites/sf_skin_v1/baked_ui/nav_store.png"),
+	preload("res://assets/sprites/sf_skin_v1/baked_ui/nav_buffs.png"),
+	preload("res://assets/sprites/sf_skin_v1/baked_ui/nav_free_roll.png"),
+	preload("res://assets/sprites/sf_skin_v1/baked_ui/nav_money_games.png"),
+	preload("res://assets/sprites/sf_skin_v1/baked_ui/nav_battle_pass.png"),
+	preload("res://assets/sprites/sf_skin_v1/baked_ui/nav_jukebox.png"),
+	preload("res://assets/sprites/sf_skin_v1/baked_ui/nav_tournaments.png"),
+	preload("res://assets/sprites/sf_skin_v1/baked_ui/nav_settings.png")
+]
 const HONEY_TEXT_SHADER_PATH: String = "res://ui/hud/honey/honey_text_honeycomb.gdshader"
 const SWARMFRONT_TITLE_SHADER_PATH: String = "res://ui/main_menu/swarmfront_title_forged.gdshader"
 const TOP_CHROME_SAFE_FALLBACK_PX: float = 72.0
@@ -554,6 +570,7 @@ var _dash_tab_open_left := 0.0
 var _dash_tab_open_right := 0.0
 var _dash_tween: Tween
 var _main_art_shroud_active: bool = true
+var _home_presentation_suspended: bool = false
 var _store_direct_mode: bool = false
 var _settings_direct_mode: bool = false
 var _buffs_direct_mode: bool = false
@@ -707,6 +724,8 @@ const LOCAL_REAL_PURCHASES_ENABLED: bool = true
 const BUFF_LOADOUT_SIZE: int = 3
 const BUFF_DRAG_MIN_PX: float = 16.0
 const BUFF_LIBRARY_TIERS: Array[String] = ["classic", "premium", "elite"]
+const BUFF_ANDROID_ROWS_PER_TIER: int = 2
+const BUFF_ANDROID_ICON_DIR: String = BAKED_UI_DIR_PATH + "/buff_icons"
 const BUFF_PRICE_USD_BY_TIER: Dictionary = {
 	"classic": 0.20,
 	"premium": 0.35,
@@ -725,43 +744,43 @@ const BUFF_UI_CART_ICON_SIZE: int = 32
 const BUFF_UI_LOADOUT_TOP_HEIGHT: float = 194.0
 const BUFF_UI_CART_HEIGHT: float = 232.0
 const BUFF_UI_CART_PANEL_HEIGHT: float = 188.0
-const USD_SKIN_DIR_PATH: String = "res://assets/sprites/sf_skin_v1"
-const USD_SKIN_FALLBACK_PATH: String = "res://assets/sprites/sf_skin_v1/$.png"
-const CANCEL_SKIN_PATH: String = "res://assets/sprites/sf_skin_v1/cancel.png"
-const CLOSE_SKIN_PATH: String = "res://assets/sprites/sf_skin_v1/Close.png"
-const CRUCIBLE_SKIN_PATH: String = "res://assets/sprites/sf_skin_v1/crucible.png"
+const USD_SKIN_DIR_PATH: String = BAKED_UI_DIR_PATH
+const USD_SKIN_FALLBACK_PATH: String = BAKED_UI_DIR_PATH + "/keyed_$.png"
+const CANCEL_SKIN_PATH: String = BAKED_UI_DIR_PATH + "/keyed_cancel.png"
+const CLOSE_SKIN_PATH: String = BAKED_UI_DIR_PATH + "/keyed_Close.png"
+const CRUCIBLE_SKIN_PATH: String = BAKED_UI_DIR_PATH + "/keyed_crucible.png"
 const STORE_CATEGORY_SKIN_BY_ID: Dictionary = {
-	"BUNDLES": "res://assets/sprites/sf_skin_v1/Bundles.png",
-	"BATTLEPASS": "res://assets/sprites/sf_skin_v1/battle_pass.png",
-	"BUFFS": "res://assets/sprites/sf_skin_v1/Buffs_1.png",
-	"GAMEPLAYANALYSIS": "res://assets/sprites/sf_skin_v1/game_analytics.png",
-	"SKINS": "res://assets/sprites/sf_skin_v1/skins_alpha.png",
-	"MERCH": "res://assets/sprites/sf_skin_v1/merchii.png"
+	"BUNDLES": BAKED_UI_DIR_PATH + "/store_bundles.png",
+	"BATTLEPASS": BAKED_UI_DIR_PATH + "/store_battle_pass.png",
+	"BUFFS": BAKED_UI_DIR_PATH + "/store_buffs.png",
+	"GAMEPLAYANALYSIS": BAKED_UI_DIR_PATH + "/store_game_analytics.png",
+	"SKINS": BAKED_UI_DIR_PATH + "/store_skins.png",
+	"MERCH": BAKED_UI_DIR_PATH + "/store_merch.png"
 }
 const HUMAN_MODE_SKIN_BY_MODE: Dictionary = {
-	"1V1": "res://assets/sprites/sf_skin_v1/1v1.png",
-	"CTF": "res://assets/sprites/sf_skin_v1/capture_the_flag.png",
-	"HIDDEN CTF": "res://assets/sprites/sf_skin_v1/hidden_flag.png",
-	"2V2": "res://assets/sprites/sf_skin_v1/2v2.png",
-	"3P FFA": "res://assets/sprites/sf_skin_v1/3_player.png",
-	"4P FFA": "res://assets/sprites/sf_skin_v1/4p_ffa.png"
+	"1V1": BAKED_UI_DIR_PATH + "/keyed_1v1.png",
+	"CTF": BAKED_UI_DIR_PATH + "/keyed_capture_the_flag.png",
+	"HIDDEN CTF": BAKED_UI_DIR_PATH + "/keyed_hidden_flag.png",
+	"2V2": BAKED_UI_DIR_PATH + "/keyed_2v2.png",
+	"3P FFA": BAKED_UI_DIR_PATH + "/keyed_3_player.png",
+	"4P FFA": BAKED_UI_DIR_PATH + "/keyed_4p_ffa.png"
 }
 const MONEY_HUMAN_MODE_SKIN_BY_MODE: Dictionary = {
-	"1V1": "res://assets/sprites/sf_skin_v1/crucible_money.png"
+	"1V1": BAKED_UI_DIR_PATH + "/keyed_crucible_money.png"
 }
 const ASYNC_CYCLE_SKIN_BY_LABEL: Dictionary = {
-	"WEEKLY": "res://assets/sprites/sf_skin_v1/weekly_color.png",
-	"MONTHLY": "res://assets/sprites/sf_skin_v1/monthly.png",
-	"SEASON": "res://assets/sprites/sf_skin_v1/season.png",
-	"GAUNTLET": "res://assets/sprites/sf_skin_v1/gauntlet.png"
+	"WEEKLY": BAKED_UI_DIR_PATH + "/keyed_weekly_color.png",
+	"MONTHLY": BAKED_UI_DIR_PATH + "/keyed_monthly.png",
+	"SEASON": BAKED_UI_DIR_PATH + "/keyed_season.png",
+	"GAUNTLET": BAKED_UI_DIR_PATH + "/keyed_gauntlet.png"
 }
 const ASYNC_MODE_SKIN_BY_LABEL: Dictionary = {
-	"CAPTURE FLAG": "res://assets/sprites/sf_skin_v1/capture_the_flag.png",
-	"HIDDEN FLAG": "res://assets/sprites/sf_skin_v1/hidden_flag.png",
-	"STAGE RACE": "res://assets/sprites/sf_skin_v1/Stage_Race.png",
-	"RACE": "res://assets/sprites/sf_skin_v1/Race.png",
-	"MISS N OUT": "res://assets/sprites/sf_skin_v1/Miss_n_Out.png",
-	"GAUNTLET": "res://assets/sprites/sf_skin_v1/gauntlet.png"
+	"CAPTURE FLAG": BAKED_UI_DIR_PATH + "/keyed_capture_the_flag.png",
+	"HIDDEN FLAG": BAKED_UI_DIR_PATH + "/keyed_hidden_flag.png",
+	"STAGE RACE": BAKED_UI_DIR_PATH + "/keyed_Stage_Race.png",
+	"RACE": BAKED_UI_DIR_PATH + "/keyed_Race.png",
+	"MISS N OUT": BAKED_UI_DIR_PATH + "/keyed_Miss_n_Out.png",
+	"GAUNTLET": BAKED_UI_DIR_PATH + "/keyed_gauntlet.png"
 }
 const PROGRESSIVE_MODE_ID: String = "PROGRESSIVE"
 const PROGRESSIVE_LABEL: String = "GAUNTLET"
@@ -889,10 +908,6 @@ const ENTRY_OVERLAY_INLAY_MARGIN_X_LANDSCAPE_RATIO: float = 0.070
 const ENTRY_OVERLAY_INLAY_MARGIN_Y_LANDSCAPE_RATIO: float = 0.145
 const ENTRY_OVERLAY_INLAY_MARGIN_X_PORTRAIT_RATIO: float = 0.145
 const ENTRY_OVERLAY_INLAY_MARGIN_Y_PORTRAIT_RATIO: float = 0.070
-const ENTRY_OVERLAY_INLAY_CROP_X_LANDSCAPE_RATIO: float = 0.040
-const ENTRY_OVERLAY_INLAY_CROP_Y_LANDSCAPE_RATIO: float = 0.090
-const ENTRY_OVERLAY_INLAY_CROP_X_PORTRAIT_RATIO: float = 0.120
-const ENTRY_OVERLAY_INLAY_CROP_Y_PORTRAIT_RATIO: float = 0.040
 const ENTRY_OVERLAY_INLAY_OVERSCAN_X_RATIO: float = 0.1023
 const ENTRY_OVERLAY_INLAY_OVERSCAN_Y_RATIO: float = 0.12
 const ENTRY_OVERLAY_INLAY_SHIFT_X_RATIO: float = -0.0545
@@ -963,6 +978,10 @@ var _buff_library_tier_root: VBoxContainer = null
 var _buff_library_tier_grids: Dictionary = {}
 var _buff_library_tier_headers: Dictionary = {}
 var _buff_library_runtime_buttons: Array[Button] = []
+var _buff_library_page: int = 0
+var _buff_library_page_count: int = 1
+var _buff_library_pager: HBoxContainer = null
+var _buff_library_page_label: Label = null
 var _buff_category_filter: String = BUFF_FILTER_HIVE
 var _buff_category_tabs_row: HBoxContainer = null
 var _buff_category_buttons: Dictionary = {}
@@ -978,7 +997,6 @@ var _buff_cart_counts: Dictionary = {}
 var _buff_drag_state: Dictionary = {}
 var _buff_icon_cache: Dictionary = {}
 var _usd_skin_cache: Dictionary = {}
-var _bottom_nav_skin_cache: Dictionary = {}
 var _cancel_skin_cache: Texture2D = null
 var _cancel_skin_loaded: bool = false
 var _close_skin_cache: Texture2D = null
@@ -989,6 +1007,8 @@ var _async_cycle_skin_cache: Dictionary = {}
 var _human_mode_skin_cache: Dictionary = {}
 var _async_mode_skin_cache: Dictionary = {}
 var _store_category_skin_cache: Dictionary = {}
+var _store_free_roll_skin_ready: bool = false
+var _store_free_roll_skin_size: Vector2 = Vector2.ZERO
 var _bottom_nav_skin_material: ShaderMaterial = null
 var _store_category_skin_material: ShaderMaterial = null
 var _hive_dropdown_panel: Panel = null
@@ -1047,9 +1067,6 @@ var _hive_tournaments_detail_label: Label = null
 var _hive_tournaments_enter_button: Button = null
 var _hive_tournaments_launch_button: Button = null
 var _announced_hive_tournament_round_id: String = ""
-var _entry_overlay_inlay_rotated_texture: Texture2D = null
-var _entry_overlay_inlay_cropped_texture: Texture2D = null
-var _entry_overlay_inlay_rotated_cropped_texture: Texture2D = null
 var _entry_overlay_noise_texture: Texture2D = null
 
 const DEFAULT_STATS_TIERS := {
@@ -1344,24 +1361,32 @@ const STORE_SKUS := [
 func _ready() -> void:
 	if _maybe_route_headless_shell_smoke():
 		return
+	var stagger_android_boot: bool = OS.has_feature("android")
+	var boot_tree: SceneTree = get_tree()
 	set_process(true)
-	_load_fonts()
-	_apply_background_art_direction()
-	_ensure_tier_widget()
-	_ensure_honey_widget()
-	_style_labels()
-	_ensure_friends_tab()
-	_ensure_beta_help_tab()
-	_ensure_scholastic_dash_surface()
-	_style_buttons()
-	_apply_bottom_nav_sprite_presentation()
-	_apply_bottom_nav_layout()
-	_style_panels()
-	_apply_hive_panel_mobile_layout()
-	_start_entry_hub_skin_prewarm()
-	_ensure_async_stage_contest_section()
-	_ensure_payout_proof_button()
-	_wire_buttons()
+	_run_menu_boot_step("load_fonts", _load_fonts)
+	_run_menu_boot_step("background_art", _apply_background_art_direction)
+	_run_menu_boot_step("tier_widget", _ensure_tier_widget)
+	_run_menu_boot_step("honey_widget", _ensure_honey_widget)
+	_run_menu_boot_step("style_labels", _style_labels)
+	if stagger_android_boot and boot_tree != null:
+		await boot_tree.process_frame
+	_run_menu_boot_step("friends_tab", _ensure_friends_tab)
+	_run_menu_boot_step("beta_help_tab", _ensure_beta_help_tab)
+	_run_menu_boot_step("scholastic_surface", _ensure_scholastic_dash_surface)
+	_run_menu_boot_step("style_buttons", _style_buttons)
+	_run_menu_boot_step("bottom_nav_sprites", _apply_bottom_nav_sprite_presentation)
+	_run_menu_boot_step("bottom_nav_layout", _apply_bottom_nav_layout)
+	if stagger_android_boot and boot_tree != null:
+		await boot_tree.process_frame
+	_run_menu_boot_step("style_panels", _style_panels)
+	_run_menu_boot_step("hive_mobile_layout", _apply_hive_panel_mobile_layout)
+	_run_menu_boot_step("entry_skin_prewarm_start", _start_entry_hub_skin_prewarm)
+	_run_menu_boot_step("async_stage_section", _ensure_async_stage_contest_section)
+	_run_menu_boot_step("payout_button", _ensure_payout_proof_button)
+	_run_menu_boot_step("wire_buttons", _wire_buttons)
+	if stagger_android_boot and boot_tree != null:
+		await boot_tree.process_frame
 	if not get_viewport().size_changed.is_connected(_apply_bottom_nav_layout):
 		get_viewport().size_changed.connect(_apply_bottom_nav_layout)
 	if not get_viewport().size_changed.is_connected(_apply_background_art_direction):
@@ -1374,18 +1399,26 @@ func _ready() -> void:
 		get_viewport().size_changed.connect(_apply_hive_panel_mobile_layout)
 	if not get_viewport().size_changed.is_connected(_layout_payout_proof_button):
 		get_viewport().size_changed.connect(_layout_payout_proof_button)
-	_set_hex_buttons()
-	_apply_top_safe_area_layout()
-	_ensure_home_replay_player()
-	_build_store_landing()
-	_init_buffs_ui()
-	_apply_surface_hex_background_presets()
+	_run_menu_boot_step("set_hex_buttons", _set_hex_buttons)
+	_run_menu_boot_step("safe_area_layout", _apply_top_safe_area_layout)
+	_run_menu_boot_step("home_replay_player", _ensure_home_replay_player)
+	if stagger_android_boot and boot_tree != null:
+		await boot_tree.process_frame
+	_run_menu_boot_step("store_landing", _build_store_landing)
+	if stagger_android_boot and boot_tree != null:
+		await boot_tree.process_frame
+	_run_menu_boot_step("buffs_ui", _init_buffs_ui)
+	if stagger_android_boot and boot_tree != null:
+		await boot_tree.process_frame
+	_run_menu_boot_step("hex_backgrounds", _apply_surface_hex_background_presets)
 	call_deferred("_prime_store_free_roll_skin")
-	_load_profile_commerce_state()
+	_run_menu_boot_step("commerce_state", _load_profile_commerce_state)
 	_bind_profile_honey_signal()
 	_bind_profile_dash_signals()
 	_bind_scholastic_dashboard_state()
-	_apply_performance_pref_from_profile()
+	_run_menu_boot_step("performance_pref", _apply_performance_pref_from_profile)
+	if stagger_android_boot and boot_tree != null:
+		await boot_tree.process_frame
 	call_deferred("_init_dash_state")
 	call_deferred("_finish_noncritical_menu_boot")
 	call_deferred("_apply_pending_jukebox_reopen_request")
@@ -1407,6 +1440,9 @@ func _ready() -> void:
 	call_deferred("_layout_payout_proof_button")
 	call_deferred("_apply_ops_config_menu_gates")
 	call_deferred("_release_main_menu_loading_cover")
+
+func _run_menu_boot_step(_step_name: String, step: Callable) -> void:
+	step.call()
 
 func _release_main_menu_loading_cover() -> void:
 	var loading_coordinator: Variant = get_node_or_null("/root/MainMenuLoadingCoordinator")
@@ -1463,10 +1499,17 @@ func _show_ops_blocking_dialog(title: String, body: String, exclusive: bool) -> 
 	dialog.popup_centered(Vector2i(720, 360))
 
 func _finish_noncritical_menu_boot() -> void:
-	_ensure_dash_replay_map_view()
-	_load_match_history()
-	_refresh_home_replay_hint()
-	_configure_dash_account_surfaces()
+	_run_menu_boot_step("dash_replay_view", _ensure_dash_replay_map_view)
+	var tree: SceneTree = get_tree()
+	if OS.has_feature("android") and tree != null:
+		await tree.process_frame
+	_run_menu_boot_step("load_match_history", _load_match_history)
+	_run_menu_boot_step("home_replay_hint", _refresh_home_replay_hint)
+	if OS.has_feature("android") and tree != null:
+		await tree.process_frame
+	await _configure_dash_account_surfaces()
+	if OS.has_feature("android") and tree != null:
+		await tree.process_frame
 	_refresh_scholastic_dash_visibility()
 	_maybe_show_sfa_join_cta(true)
 
@@ -1690,13 +1733,27 @@ func _process(_delta: float) -> void:
 
 func _sync_main_art_shroud() -> void:
 	var should_shroud: bool = _has_open_main_menu_surface()
-	if should_shroud == _main_art_shroud_active:
+	if should_shroud == _main_art_shroud_active and should_shroud == _home_presentation_suspended:
 		return
 	_main_art_shroud_active = should_shroud
 	if main_hex_background != null:
-		main_hex_background.visible = should_shroud
+		main_hex_background.visible = should_shroud and not OS.has_feature("android")
 	if platform_dimmer != null:
 		platform_dimmer.visible = should_shroud
+	_set_home_presentation_suspended(should_shroud)
+
+func _set_home_presentation_suspended(suspended: bool) -> void:
+	if suspended == _home_presentation_suspended:
+		return
+	_home_presentation_suspended = suspended
+	if hero_panel != null:
+		hero_panel.visible = not suspended
+	if _home_replay_map_view != null:
+		_home_replay_map_view.process_mode = Node.PROCESS_MODE_DISABLED if suspended else Node.PROCESS_MODE_INHERIT
+	if not suspended:
+		_update_home_replay_from_data()
+		if _home_replay_map_view != null and _home_replay_map_view.has_method("set_frame_index"):
+			_home_replay_map_view.call("set_frame_index", _visual_frame_index_for_cursor())
 
 func _has_open_main_menu_surface() -> bool:
 	if onboarding_overlay != null and onboarding_overlay.visible:
@@ -1798,8 +1855,8 @@ func _apply_surface_hex_background_presets() -> void:
 
 
 func _prime_store_free_roll_skin() -> void:
-	_apply_store_window_scale()
-	_ensure_store_free_roll_skin()
+	_run_menu_boot_step("prime_store_scale", _apply_store_window_scale)
+	_run_menu_boot_step("prime_store_skin", _ensure_store_free_roll_skin)
 
 
 func _ensure_store_free_roll_skin() -> void:
@@ -1811,6 +1868,8 @@ func _ensure_store_free_roll_skin() -> void:
 	if resolved_size.x <= 1.0 or resolved_size.y <= 1.0:
 		var viewport_size: Vector2 = get_viewport_rect().size
 		resolved_size = Vector2(maxf(420.0, viewport_size.x * 0.86), maxf(320.0, viewport_size.y * 0.74))
+	if _store_free_roll_skin_ready and _store_free_roll_skin_size.distance_to(resolved_size) <= 1.0:
+		return
 	for node_name in [
 		"Background_Base",
 		"Background_Noise",
@@ -1846,6 +1905,8 @@ func _ensure_store_free_roll_skin() -> void:
 		var category_hex: CanvasItem = store_category_view.get_node_or_null("HexSeamBackground") as CanvasItem
 		if category_hex != null:
 			category_hex.visible = false
+	_store_free_roll_skin_ready = true
+	_store_free_roll_skin_size = resolved_size
 
 func _apply_store_background_layer_shift(
 		panel: Panel,
@@ -2253,6 +2314,11 @@ func _apply_hex_background_preset(target: Node, preset_name: StringName) -> void
 
 func _ensure_embedded_hex_background(host_panel: Control, preset_name: StringName) -> void:
 	if host_panel == null:
+		return
+	if OS.has_feature("android"):
+		var existing_mobile_background: CanvasItem = host_panel.get_node_or_null("HexSeamBackground") as CanvasItem
+		if existing_mobile_background != null:
+			existing_mobile_background.visible = false
 		return
 	var background: Control = null
 	if host_panel.has_node("HexSeamBackground"):
@@ -7184,7 +7250,7 @@ func _ensure_honey_widget() -> void:
 	var legacy_honey_label: Label = $TopBar/HoneyLabel
 	if top_bar == null or legacy_honey_label == null:
 		return
-	var widget_any: Variant = _load_packed_scene(HONEY_WIDGET_SCENE_PATH).instantiate()
+	var widget_any: Variant = HONEY_WIDGET_SCENE.instantiate()
 	var widget_control: Control = widget_any as Control
 	if widget_control == null:
 		return
@@ -7216,7 +7282,7 @@ func _ensure_tier_widget() -> void:
 	var legacy_rank_label: Label = $TopBar/RankLabel
 	if top_bar == null or legacy_rank_label == null:
 		return
-	var widget_any: Variant = _load_packed_scene(TIER_WIDGET_SCENE_PATH).instantiate()
+	var widget_any: Variant = TIER_WIDGET_SCENE.instantiate()
 	var widget_control: Control = widget_any as Control
 	if widget_control == null:
 		return
@@ -7355,17 +7421,22 @@ func _format_number(value: int) -> String:
 func _configure_dash_account_surfaces() -> void:
 	$DashPanel/DashRoot/MatchHistoryPanel/MatchCenter/MatchVBox/MatchHeader.text = "ACCOUNT SNAPSHOT"
 	$DashPanel/DashRoot/BadgesPanel/BadgesVBox/BadgesHeader.text = "ACHIEVEMENTS"
-	_ensure_dash_tab_heroes()
-	_set_dash_top_tab(_dash_active_tab, true)
-	_apply_buffs_mode_copy()
+	_run_menu_boot_step("dash_tab_heroes", _ensure_dash_tab_heroes)
+	var tree: SceneTree = get_tree()
+	if OS.has_feature("android") and tree != null:
+		await tree.process_frame
+	_run_menu_boot_step("dash_top_tab", func() -> void: _set_dash_top_tab(_dash_active_tab, true))
+	if OS.has_feature("android") and tree != null:
+		await tree.process_frame
+	_run_menu_boot_step("dash_buffs_copy", _apply_buffs_mode_copy)
 	$DashPanel/DashHivePanel/HiveVBox/HiveHeaderPanel/HiveHeaderVBox/HiveSub.text = "Membership, trophy case, and hive-only comms."
-	_refresh_hive_panel()
-	_refresh_hive_panel_action_state()
-	_ensure_async_contest_dash_panel()
+	_run_menu_boot_step("dash_hive_panel", _refresh_hive_panel)
+	_run_menu_boot_step("dash_hive_actions", _refresh_hive_panel_action_state)
+	_run_menu_boot_step("dash_async_contest_button", func() -> void: _ensure_async_contest_dash_panel(false))
 	$DashPanel/DashBadgesPanel/BadgesCollectionVBox/BadgesTitle.text = "ACHIEVEMENTS"
 	$DashPanel/DashBadgesPanel/BadgesCollectionVBox/BadgesSub.text = "Progress meters are placeholder for live achievement hooks."
-	_refresh_dash_achievement_preview()
-	_refresh_dash_account_snapshot()
+	_run_menu_boot_step("dash_achievement_preview", _refresh_dash_achievement_preview)
+	_run_menu_boot_step("dash_account_snapshot", _refresh_dash_account_snapshot)
 
 func _ensure_dash_tab_heroes() -> void:
 	if dash_match_panel == null:
@@ -7377,15 +7448,14 @@ func _ensure_dash_tab_heroes() -> void:
 		dash_badges_panel.visible = false
 		dash_badges_panel.size_flags_stretch_ratio = 0.0
 	dash_match_panel.size_flags_stretch_ratio = 1.0
-	if _dash_garage_panel == null:
-		_dash_garage_panel = _instantiate_dash_hero(_load_packed_scene(GARAGE_PANEL_SCENE_PATH), "GarageHero")
-	if _dash_buffs_hero == null:
-		_dash_buffs_hero = _instantiate_dash_hero(_load_packed_scene(DASH_BUFFS_HERO_SCENE_PATH), "BuffsHero")
-	if _dash_achievements_hero == null:
-		_dash_achievements_hero = _instantiate_dash_hero(_load_packed_scene(DASH_ACHIEVEMENTS_HERO_SCENE_PATH), "AchievementsHero")
-	if _dash_friends_panel == null:
+	if _dash_active_tab == DASH_HERO_TAB_GARAGE and _dash_garage_panel == null:
+		_dash_garage_panel = _instantiate_dash_hero(GARAGE_PANEL_SCENE, "GarageHero")
+	if _dash_active_tab == DASH_HERO_TAB_BUFFS and _dash_buffs_hero == null:
+		_dash_buffs_hero = _instantiate_dash_hero(DASH_BUFFS_HERO_SCENE, "BuffsHero")
+	if _dash_active_tab == DASH_HERO_TAB_ACHIEVEMENTS and _dash_achievements_hero == null:
+		_dash_achievements_hero = _instantiate_dash_hero(DASH_ACHIEVEMENTS_HERO_SCENE, "AchievementsHero")
+	if _dash_active_tab == DASH_HERO_TAB_FRIENDS and _dash_friends_panel == null:
 		_dash_friends_panel = _build_friends_panel()
-	_refresh_dash_hero_views()
 
 func _instantiate_dash_hero(scene: PackedScene, node_name: String) -> Control:
 	if dash_match_panel == null or scene == null:
@@ -8569,19 +8639,9 @@ func _style_bottom_nav_sprite_button(button: Button) -> void:
 	button.add_theme_color_override("font_pressed_color", Color(1.0, 1.0, 1.0, 0.0))
 
 func _bottom_nav_readable_texture(source_tex: Texture2D) -> Texture2D:
-	if source_tex == null:
-		return null
-	var cache_key: String = source_tex.resource_path
-	if cache_key.is_empty():
-		cache_key = str(source_tex.get_rid())
-	if _bottom_nav_skin_cache.has(cache_key):
-		var cached_any: Variant = _bottom_nav_skin_cache.get(cache_key)
-		if cached_any is Texture2D:
-			return cached_any as Texture2D
-		return source_tex
-	var cropped_tex: Texture2D = _key_neutral_to_alpha_texture(source_tex, 1024, 512, 0.035)
-	_bottom_nav_skin_cache[cache_key] = cropped_tex
-	return cropped_tex if cropped_tex != null else source_tex
+	# Menu art is alpha-cleaned and cropped by tools/generate_menu_mobile_assets.gd.
+	# Runtime image scans caused multi-second stalls on Android.
+	return source_tex
 
 func _apply_bottom_nav_sprite_presentation() -> void:
 	for button in _bottom_nav_buttons():
@@ -8698,7 +8758,7 @@ func _apply_bottom_nav_layout() -> void:
 func _usd_skin_candidates(amount: int) -> PackedStringArray:
 	var candidates: PackedStringArray = PackedStringArray()
 	if amount > 0:
-		candidates.append("%s/$%d.png" % [USD_SKIN_DIR_PATH, amount])
+		candidates.append("%s/keyed_$%d.png" % [USD_SKIN_DIR_PATH, amount])
 	candidates.append(USD_SKIN_FALLBACK_PATH)
 	return candidates
 
@@ -8715,10 +8775,8 @@ func _usd_skin_for_amount(amount: int) -> Texture2D:
 			continue
 		var loaded_any: Variant = load(candidate_path)
 		if loaded_any is Texture2D:
-			var raw_tex: Texture2D = loaded_any as Texture2D
-			var keyed_tex: Texture2D = _key_black_to_alpha_texture(raw_tex)
-			_usd_skin_cache[cache_key] = keyed_tex
-			return keyed_tex
+			_usd_skin_cache[cache_key] = loaded_any as Texture2D
+			return loaded_any as Texture2D
 	_usd_skin_cache[cache_key] = null
 	return null
 
@@ -8741,7 +8799,7 @@ func _apply_usd_skin_to_button(button: Button, amount: int, label_text: String) 
 func _apply_money_entry_tier_skin(button: Button, amount: int) -> void:
 	if button == null or amount <= 0:
 		return
-	var exact_path: String = "%s/$%d.png" % [USD_SKIN_DIR_PATH, amount]
+	var exact_path: String = "%s/keyed_$%d.png" % [USD_SKIN_DIR_PATH, amount]
 	# Tier selectors must remain legible when a denomination has no dedicated art.
 	# In particular, the current asset set has no $15 sprite.
 	if not ResourceLoader.exists(exact_path):
@@ -8778,7 +8836,7 @@ func _cancel_skin_texture() -> Texture2D:
 		return null
 	var loaded_any: Variant = load(CANCEL_SKIN_PATH)
 	if loaded_any is Texture2D:
-		_cancel_skin_cache = _key_black_to_alpha_texture(loaded_any as Texture2D, 512, 256)
+		_cancel_skin_cache = loaded_any as Texture2D
 	return _cancel_skin_cache
 
 func _close_skin_texture() -> Texture2D:
@@ -8789,7 +8847,7 @@ func _close_skin_texture() -> Texture2D:
 		return null
 	var loaded_any: Variant = load(CLOSE_SKIN_PATH)
 	if loaded_any is Texture2D:
-		_close_skin_cache = _key_black_to_alpha_texture(loaded_any as Texture2D, 512, 256)
+		_close_skin_cache = loaded_any as Texture2D
 	return _close_skin_cache
 
 func _crucible_skin_texture() -> Texture2D:
@@ -8799,42 +8857,8 @@ func _crucible_skin_texture() -> Texture2D:
 	if not ResourceLoader.exists(CRUCIBLE_SKIN_PATH):
 		return null
 	var loaded_any: Variant = load(CRUCIBLE_SKIN_PATH)
-	if not (loaded_any is Texture2D):
-		return null
-	var source_image: Image = (loaded_any as Texture2D).get_image()
-	if source_image == null or source_image.is_empty():
-		return null
-	# The supplied art is square and includes a baked hex backdrop. Keep the
-	# authored button band, then use the same soft black key as the other modes.
-	var source_height: int = source_image.get_height()
-	var crop_top: int = clampi(int(round(float(source_height) * 0.31)), 0, source_height - 1)
-	var crop_bottom: int = clampi(int(round(float(source_height) * 0.69)), crop_top + 1, source_height)
-	var cropped_image: Image = source_image.get_region(Rect2i(
-		0,
-		crop_top,
-		source_image.get_width(),
-		crop_bottom - crop_top
-	))
-	var cropped_texture: ImageTexture = ImageTexture.create_from_image(cropped_image)
-	var keyed_texture: Texture2D = _key_black_to_alpha_texture(cropped_texture, 768, 256)
-	var keyed_image: Image = keyed_texture.get_image() if keyed_texture != null else null
-	if keyed_image == null or keyed_image.is_empty():
-		return null
-	# Human-match art uses a 3:2 source canvas with transparent space around its
-	# button band. Frame the tightly cropped Crucible band the same way so Godot's
-	# expand-icon sizing gives it the same visible footprint as 1V1 and CTF.
-	var framed_image: Image = Image.create(768, 512, false, Image.FORMAT_RGBA8)
-	framed_image.fill(Color(0.0, 0.0, 0.0, 0.0))
-	var framed_position := Vector2i(
-		(768 - keyed_image.get_width()) / 2,
-		(512 - keyed_image.get_height()) / 2
-	)
-	framed_image.blit_rect(
-		keyed_image,
-		Rect2i(0, 0, keyed_image.get_width(), keyed_image.get_height()),
-		framed_position
-	)
-	_crucible_skin_cache = ImageTexture.create_from_image(framed_image)
+	if loaded_any is Texture2D:
+		_crucible_skin_cache = loaded_any as Texture2D
 	return _crucible_skin_cache
 
 func _apply_close_skin_to_button(button: Button) -> void:
@@ -8907,157 +8931,6 @@ func _apply_cancel_skin_to_button(button: Button) -> void:
 	button.add_theme_constant_override("h_separation", 0)
 	_style_usd_sprite_button(button, true)
 
-func _key_black_to_alpha_texture(source_tex: Texture2D, max_width: int = 512, max_height: int = 256) -> Texture2D:
-	if source_tex == null:
-		return null
-	var source_image: Image = source_tex.get_image()
-	if source_image == null or source_image.is_empty():
-		return source_tex
-	source_image.convert(Image.FORMAT_RGBA8)
-	var width: int = source_image.get_width()
-	var height: int = source_image.get_height()
-	var can_resize: bool = max_width > 0 and max_height > 0
-	if can_resize and (width > max_width or height > max_height):
-		var width_scale: float = float(max_width) / float(width)
-		var height_scale: float = float(max_height) / float(height)
-		var resize_scale: float = minf(width_scale, height_scale)
-		var target_w: int = maxi(1, int(round(float(width) * resize_scale)))
-		var target_h: int = maxi(1, int(round(float(height) * resize_scale)))
-		source_image.resize(target_w, target_h, Image.INTERPOLATE_LANCZOS)
-		width = source_image.get_width()
-		height = source_image.get_height()
-	for y in range(height):
-		for x in range(width):
-			var px: Color = source_image.get_pixel(x, y)
-			if px.a <= 0.0:
-				continue
-			var max_v: float = max(px.r, max(px.g, px.b))
-			var min_v: float = min(px.r, min(px.g, px.b))
-			var sat: float = max_v - min_v
-			if max_v <= 0.03:
-				px.a = 0.0
-			elif max_v < 0.14 and sat < 0.20:
-				var t: float = clamp((max_v - 0.03) / 0.11, 0.0, 1.0)
-				px.a *= t
-			source_image.set_pixel(x, y, px)
-	var keyed_tex: ImageTexture = ImageTexture.create_from_image(source_image)
-	return keyed_tex
-
-func _is_neutral_background_candidate(px: Color) -> bool:
-	if px.a <= 0.0:
-		return false
-	var max_v: float = max(px.r, max(px.g, px.b))
-	var min_v: float = min(px.r, min(px.g, px.b))
-	var sat: float = max_v - min_v
-	if sat > 0.24:
-		return false
-	# Store category source art has checker/frame remnants that can be dark, mid-gray, or white.
-	return max_v <= 0.68 or max_v >= 0.86
-
-func _queue_neutral_background_pixel(
-	image: Image,
-	x: int,
-	y: int,
-	width: int,
-	height: int,
-	mask: PackedByteArray,
-	queue: Array[Vector2i]
-) -> void:
-	if x < 0 or y < 0 or x >= width or y >= height:
-		return
-	var idx: int = (y * width) + x
-	if idx < 0 or idx >= mask.size():
-		return
-	if mask[idx] != 0:
-		return
-	var px: Color = image.get_pixel(x, y)
-	if not _is_neutral_background_candidate(px):
-		return
-	mask[idx] = 1
-	queue.append(Vector2i(x, y))
-
-func _key_neutral_to_alpha_texture(source_tex: Texture2D, max_width: int = 1024, max_height: int = 512, trim_alpha_threshold: float = 0.04) -> Texture2D:
-	if source_tex == null:
-		return null
-	var source_image: Image = source_tex.get_image()
-	if source_image == null or source_image.is_empty():
-		return source_tex
-	source_image.convert(Image.FORMAT_RGBA8)
-	var width: int = source_image.get_width()
-	var height: int = source_image.get_height()
-	if max_width > 0 and max_height > 0 and (width > max_width or height > max_height):
-		var width_scale: float = float(max_width) / float(width)
-		var height_scale: float = float(max_height) / float(height)
-		var resize_scale: float = minf(width_scale, height_scale)
-		var target_w: int = maxi(1, int(round(float(width) * resize_scale)))
-		var target_h: int = maxi(1, int(round(float(height) * resize_scale)))
-		source_image.resize(target_w, target_h, Image.INTERPOLATE_LANCZOS)
-		width = source_image.get_width()
-		height = source_image.get_height()
-	var background_mask := PackedByteArray()
-	background_mask.resize(width * height)
-	var flood_queue: Array[Vector2i] = []
-	for x in range(width):
-		_queue_neutral_background_pixel(source_image, x, 0, width, height, background_mask, flood_queue)
-		_queue_neutral_background_pixel(source_image, x, height - 1, width, height, background_mask, flood_queue)
-	for y in range(height):
-		_queue_neutral_background_pixel(source_image, 0, y, width, height, background_mask, flood_queue)
-		_queue_neutral_background_pixel(source_image, width - 1, y, width, height, background_mask, flood_queue)
-	var queue_idx: int = 0
-	while queue_idx < flood_queue.size():
-		var cell: Vector2i = flood_queue[queue_idx]
-		queue_idx += 1
-		_queue_neutral_background_pixel(source_image, cell.x - 1, cell.y, width, height, background_mask, flood_queue)
-		_queue_neutral_background_pixel(source_image, cell.x + 1, cell.y, width, height, background_mask, flood_queue)
-		_queue_neutral_background_pixel(source_image, cell.x, cell.y - 1, width, height, background_mask, flood_queue)
-		_queue_neutral_background_pixel(source_image, cell.x, cell.y + 1, width, height, background_mask, flood_queue)
-	for y in range(height):
-		for x in range(width):
-			var idx: int = (y * width) + x
-			var px: Color = source_image.get_pixel(x, y)
-			if px.a <= 0.0:
-				continue
-			if idx >= 0 and idx < background_mask.size() and background_mask[idx] != 0:
-				source_image.set_pixel(x, y, Color(px.r, px.g, px.b, 0.0))
-				continue
-			var max_v: float = max(px.r, max(px.g, px.b))
-			var min_v: float = min(px.r, min(px.g, px.b))
-			var sat: float = max_v - min_v
-			var dark_key: float = 1.0 - smoothstep(0.04, 0.22, max_v)
-			var bright_key: float = smoothstep(0.74, 0.98, max_v)
-			var neutral_key: float = 1.0 - smoothstep(0.015, 0.22, sat)
-			var cut: float = clamp((dark_key + bright_key) * neutral_key, 0.0, 1.0)
-			var out_alpha: float = clamp(px.a * (1.0 - cut), 0.0, 1.0)
-			if out_alpha <= trim_alpha_threshold:
-				source_image.set_pixel(x, y, Color(px.r, px.g, px.b, 0.0))
-				continue
-			var fringe: float = clamp((1.0 - out_alpha) * (1.0 - smoothstep(0.02, 0.20, sat)) * smoothstep(0.65, 1.0, max_v), 0.0, 1.0)
-			px.r = lerpf(px.r, px.r * 0.30, fringe)
-			px.g = lerpf(px.g, px.g * 0.30, fringe)
-			px.b = lerpf(px.b, px.b * 0.30, fringe)
-			px.a = out_alpha
-			source_image.set_pixel(x, y, px)
-	var min_x: int = width
-	var min_y: int = height
-	var max_x: int = -1
-	var max_y: int = -1
-	for y in range(height):
-		for x in range(width):
-			if source_image.get_pixel(x, y).a <= trim_alpha_threshold:
-				continue
-			min_x = mini(min_x, x)
-			min_y = mini(min_y, y)
-			max_x = maxi(max_x, x)
-			max_y = maxi(max_y, y)
-	if max_x >= min_x and max_y >= min_y:
-		var crop_w: int = (max_x - min_x) + 1
-		var crop_h: int = (max_y - min_y) + 1
-		var cropped: Image = Image.create(crop_w, crop_h, false, Image.FORMAT_RGBA8)
-		cropped.blit_rect(source_image, Rect2i(min_x, min_y, crop_w, crop_h), Vector2i.ZERO)
-		source_image = cropped
-	var keyed_tex: ImageTexture = ImageTexture.create_from_image(source_image)
-	return keyed_tex
-
 func _human_mode_skin_for_mode(mode_id: String, paid: bool = false) -> Texture2D:
 	var clean_mode_id: String = mode_id.strip_edges()
 	var uses_money_skin: bool = paid and MONEY_HUMAN_MODE_SKIN_BY_MODE.has(clean_mode_id)
@@ -9077,10 +8950,8 @@ func _human_mode_skin_for_mode(mode_id: String, paid: bool = false) -> Texture2D
 		return null
 	var loaded_any: Variant = load(path)
 	if loaded_any is Texture2D:
-		var raw_tex: Texture2D = loaded_any as Texture2D
-		var keyed_tex: Texture2D = _key_black_to_alpha_texture(raw_tex)
-		_human_mode_skin_cache[cache_key] = keyed_tex
-		return keyed_tex
+		_human_mode_skin_cache[cache_key] = loaded_any as Texture2D
+		return loaded_any as Texture2D
 	_human_mode_skin_cache[cache_key] = null
 	return null
 
@@ -9122,10 +8993,8 @@ func _store_category_skin_for_id(category_id: String) -> Texture2D:
 		return null
 	var loaded_any: Variant = load(path)
 	if loaded_any is Texture2D:
-		var raw_tex: Texture2D = loaded_any as Texture2D
-		var keyed_tex: Texture2D = _key_neutral_to_alpha_texture(raw_tex, 1024, 512, 0.03)
-		_store_category_skin_cache[cache_key] = keyed_tex
-		return keyed_tex
+		_store_category_skin_cache[cache_key] = loaded_any as Texture2D
+		return loaded_any as Texture2D
 	_store_category_skin_cache[cache_key] = null
 	return null
 
@@ -9168,10 +9037,8 @@ func _async_mode_skin_for_label(label: String) -> Texture2D:
 		return null
 	var loaded_any: Variant = load(path)
 	if loaded_any is Texture2D:
-		var raw_tex: Texture2D = loaded_any as Texture2D
-		var keyed_tex: Texture2D = _key_black_to_alpha_texture(raw_tex, 512, 256)
-		_async_mode_skin_cache[cache_key] = keyed_tex
-		return keyed_tex
+		_async_mode_skin_cache[cache_key] = loaded_any as Texture2D
+		return loaded_any as Texture2D
 	_async_mode_skin_cache[cache_key] = null
 	return null
 
@@ -9191,10 +9058,8 @@ func _async_cycle_skin_for_label(label: String) -> Texture2D:
 		return null
 	var loaded_any: Variant = load(path)
 	if loaded_any is Texture2D:
-		var raw_tex: Texture2D = loaded_any as Texture2D
-		var keyed_tex: Texture2D = _key_black_to_alpha_texture(raw_tex, 512, 256)
-		_async_cycle_skin_cache[cache_key] = keyed_tex
-		return keyed_tex
+		_async_cycle_skin_cache[cache_key] = loaded_any as Texture2D
+		return loaded_any as Texture2D
 	_async_cycle_skin_cache[cache_key] = null
 	return null
 
@@ -9934,6 +9799,7 @@ func _set_buff_category_filter(filter_id: String) -> void:
 		_sync_buff_category_tabs()
 		return
 	_buff_category_filter = normalized_filter
+	_buff_library_page = 0
 	_sync_buff_category_tabs()
 	_refresh_buffs_library_buttons()
 	if _buff_selected_origin == "library":
@@ -9999,6 +9865,7 @@ func _ensure_buffs_library_nav() -> void:
 		old_button.visible = false
 	_ensure_buffs_category_tabs()
 	if _buff_library_tier_root != null and is_instance_valid(_buff_library_tier_root):
+		_ensure_buffs_library_pager()
 		return
 	var tier_root: VBoxContainer = VBoxContainer.new()
 	tier_root.name = "BuffLibraryTierRoot"
@@ -10044,6 +9911,39 @@ func _ensure_buffs_library_nav() -> void:
 		tier_scroll.add_child(grid)
 		_buff_library_tier_grids[tier_id] = grid
 		_buff_library_tier_headers[tier_id] = header
+	_ensure_buffs_library_pager()
+
+func _ensure_buffs_library_pager() -> void:
+	if buffs_library_vbox == null:
+		return
+	if _buff_library_pager != null and is_instance_valid(_buff_library_pager):
+		return
+	var pager := HBoxContainer.new()
+	pager.name = "BuffLibraryPager"
+	pager.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	pager.alignment = BoxContainer.ALIGNMENT_CENTER
+	pager.add_theme_constant_override("separation", 10)
+	var previous := Button.new()
+	previous.text = "PREV"
+	previous.custom_minimum_size = Vector2(88.0, 40.0)
+	previous.pressed.connect(_on_buff_library_prev_pressed)
+	var page_label := Label.new()
+	page_label.custom_minimum_size = Vector2(112.0, 40.0)
+	page_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	page_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	var next := Button.new()
+	next.text = "NEXT"
+	next.custom_minimum_size = Vector2(88.0, 40.0)
+	next.pressed.connect(_on_buff_library_next_pressed)
+	pager.add_child(previous)
+	pager.add_child(page_label)
+	pager.add_child(next)
+	buffs_library_vbox.add_child(pager)
+	_apply_display_label(previous, 12, _font_semibold, BUFF_UI_SMALL_FONT_SIZE)
+	_apply_display_label(page_label, 12, _font_semibold, BUFF_UI_SMALL_FONT_SIZE)
+	_apply_display_label(next, 12, _font_semibold, BUFF_UI_SMALL_FONT_SIZE)
+	_buff_library_pager = pager
+	_buff_library_page_label = page_label
 
 func _load_buff_profile_state() -> void:
 	var owned_any: Variant = []
@@ -10167,44 +10067,65 @@ func _refresh_buffs_library_buttons() -> void:
 		if button != null and is_instance_valid(button):
 			button.queue_free()
 	_buff_library_runtime_buttons.clear()
-	var counts: Dictionary = {"classic": 0, "premium": 0, "elite": 0}
-	var visible_total: int = 0
+	var filtered_by_tier: Dictionary = {
+		"classic": [],
+		"premium": [],
+		"elite": []
+	}
 	for buff in _buff_library_all:
 		if not _buff_matches_category_filter(buff):
 			continue
 		var tier_id: String = str(buff.get("tier", "classic")).to_lower()
-		if not _buff_library_tier_grids.has(tier_id):
+		if not filtered_by_tier.has(tier_id):
 			continue
-		visible_total += 1
-		counts[tier_id] = int(counts.get(tier_id, 0)) + 1
-		var buff_id: String = str(buff.get("id", ""))
-		var selected: bool = bool(_buff_library_selected_ids.get(buff_id, false))
-		var selected_mark: String = "[x] " if selected else "[ ] "
-		var price_usd: float = _buff_price_usd(buff)
-		var owned_count: int = _count_buff_in_ids(_buff_owned_ids, buff_id)
-		var ownership_tag: String = " x%d" % owned_count if owned_count > 0 else ""
-		var button: Button = Button.new()
-		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-		button.custom_minimum_size = Vector2(0.0, BUFF_UI_LIBRARY_BUTTON_HEIGHT)
-		button.clip_text = true
-		button.text = "%s%s%s - $%.2f" % [selected_mark, str(buff.get("name", buff_id)), ownership_tag, price_usd]
-		_apply_buff_icon(button, buff)
-		_apply_font(button, _font_regular, BUFF_UI_BUTTON_FONT_SIZE)
-		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
-		var press_cb: Callable = Callable(self, "_on_buff_library_pressed_by_id").bind(buff_id)
-		if not button.pressed.is_connected(press_cb):
-			button.pressed.connect(press_cb)
-		var input_cb: Callable = Callable(self, "_on_buff_library_gui_input_by_id").bind(buff_id)
-		if not button.gui_input.is_connected(input_cb):
-			button.gui_input.connect(input_cb)
-		var grid: GridContainer = _buff_library_tier_grids[tier_id] as GridContainer
-		grid.add_child(button)
-		_buff_library_runtime_buttons.append(button)
+		(filtered_by_tier[tier_id] as Array).append(buff)
+	var rows_per_tier: int = BUFF_ANDROID_ROWS_PER_TIER if OS.has_feature("android") else 1000000
+	var largest_tier_count: int = 0
+	for tier_id in BUFF_LIBRARY_TIERS:
+		largest_tier_count = maxi(largest_tier_count, (filtered_by_tier[tier_id] as Array).size())
+	_buff_library_page_count = maxi(1, int(ceil(float(largest_tier_count) / float(rows_per_tier))))
+	_buff_library_page = clampi(_buff_library_page, 0, _buff_library_page_count - 1)
+	var page_start: int = _buff_library_page * rows_per_tier
+	for tier_id in BUFF_LIBRARY_TIERS:
+		var tier_buffs: Array = filtered_by_tier[tier_id] as Array
+		var page_end: int = mini(tier_buffs.size(), page_start + rows_per_tier)
+		for item_index in range(page_start, page_end):
+			var buff: Dictionary = tier_buffs[item_index] as Dictionary
+			var buff_id: String = str(buff.get("id", ""))
+			var selected: bool = bool(_buff_library_selected_ids.get(buff_id, false))
+			var selected_mark: String = "[x] " if selected else "[ ] "
+			var price_usd: float = _buff_price_usd(buff)
+			var owned_count: int = _count_buff_in_ids(_buff_owned_ids, buff_id)
+			var ownership_tag: String = " x%d" % owned_count if owned_count > 0 else ""
+			var button: Button = Button.new()
+			button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			button.custom_minimum_size = Vector2(0.0, BUFF_UI_LIBRARY_BUTTON_HEIGHT)
+			button.clip_text = true
+			button.text = "%s%s%s - $%.2f" % [selected_mark, str(buff.get("name", buff_id)), ownership_tag, price_usd]
+			_apply_buff_icon(button, buff)
+			_apply_font(button, _font_regular, BUFF_UI_BUTTON_FONT_SIZE)
+			_style_button(button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
+			var press_cb: Callable = Callable(self, "_on_buff_library_pressed_by_id").bind(buff_id)
+			if not button.pressed.is_connected(press_cb):
+				button.pressed.connect(press_cb)
+			var input_cb: Callable = Callable(self, "_on_buff_library_gui_input_by_id").bind(buff_id)
+			if not button.gui_input.is_connected(input_cb):
+				button.gui_input.connect(input_cb)
+			var grid: GridContainer = _buff_library_tier_grids[tier_id] as GridContainer
+			grid.add_child(button)
+			_buff_library_runtime_buttons.append(button)
 	for tier_id in BUFF_LIBRARY_TIERS:
 		var header: Label = _buff_library_tier_headers[tier_id] as Label
 		if header != null:
-			header.text = tier_id.to_upper()
+			var tier_count: int = (filtered_by_tier[tier_id] as Array).size()
+			var first_visible: int = mini(tier_count, page_start + 1)
+			var last_visible: int = mini(tier_count, page_start + rows_per_tier)
+			header.text = "%s  %d-%d / %d" % [tier_id.to_upper(), first_visible, last_visible, tier_count] if OS.has_feature("android") else tier_id.to_upper()
 			_apply_display_label(header, 14, _font_semibold, BUFF_UI_HEADER_FONT_SIZE)
+	if _buff_library_pager != null:
+		_buff_library_pager.visible = OS.has_feature("android") and _buff_library_page_count > 1
+	if _buff_library_page_label != null:
+		_buff_library_page_label.text = "PAGE %d / %d" % [_buff_library_page + 1, _buff_library_page_count]
 	if buffs_library_header != null:
 		buffs_library_header.text = "BUFF STORE %s %s" % [_buff_active_mode.to_upper(), _buff_filter_label(_buff_category_filter)]
 		_apply_display_label(buffs_library_header, 15, _font_semibold, BUFF_UI_HEADER_FONT_SIZE)
@@ -10305,6 +10226,8 @@ func _buff_icon_texture(buff: Dictionary) -> Texture2D:
 	var icon_path: String = str(buff.get("icon_path", "")).strip_edges()
 	if icon_path == "":
 		return null
+	if OS.has_feature("android"):
+		icon_path = "%s/%s.png" % [BUFF_ANDROID_ICON_DIR, icon_path.get_file().get_basename().to_lower()]
 	if _buff_icon_cache.has(icon_path):
 		return _buff_icon_cache.get(icon_path) as Texture2D
 	var texture: Texture2D = null
@@ -10643,9 +10566,11 @@ func _first_owned_not_in_loadout(exclude_slot: int) -> String:
 	return ""
 
 func _on_buff_library_prev_pressed() -> void:
+	_buff_library_page = maxi(0, _buff_library_page - 1)
 	_refresh_buffs_library_buttons()
 
 func _on_buff_library_next_pressed() -> void:
+	_buff_library_page = mini(_buff_library_page_count - 1, _buff_library_page + 1)
 	_refresh_buffs_library_buttons()
 
 func _build_store_landing() -> void:
@@ -11446,7 +11371,7 @@ func _apply_replay_data(match_data: Dictionary) -> void:
 
 func _apply_visual_replay_to_views() -> void:
 	var replay_data: Dictionary = _visual_replay_data()
-	if _home_replay_map_view != null and _home_replay_map_view.has_method("set_replay_data"):
+	if not _home_presentation_suspended and _home_replay_map_view != null and _home_replay_map_view.has_method("set_replay_data"):
 		_home_replay_map_view.call("set_replay_data", replay_data)
 	if _dash_replay_map_view != null and _dash_replay_map_view.has_method("set_replay_data"):
 		_dash_replay_map_view.call("set_replay_data", replay_data)
@@ -11563,7 +11488,7 @@ func _replay_tick_delay_sec() -> float:
 
 func _update_replay_playback_view() -> void:
 	var frame_index: int = _visual_frame_index_for_cursor()
-	if _home_replay_map_view != null and _home_replay_map_view.has_method("set_frame_index"):
+	if not _home_presentation_suspended and _home_replay_map_view != null and _home_replay_map_view.has_method("set_frame_index"):
 		_home_replay_map_view.call("set_frame_index", frame_index)
 	if _dash_replay_map_view != null and _dash_replay_map_view.has_method("set_frame_index"):
 		_dash_replay_map_view.call("set_frame_index", frame_index)
@@ -11575,7 +11500,8 @@ func _update_replay_playback_view() -> void:
 			(replay_timeline_times[i] as Label).modulate = color
 		if i < replay_timeline_events.size() and replay_timeline_events[i] is Label:
 			(replay_timeline_events[i] as Label).modulate = color
-	_update_home_replay_playback_view()
+	if not _home_presentation_suspended:
+		_update_home_replay_playback_view()
 
 func _update_home_replay_from_data() -> void:
 	if _home_replay_panel == null:
@@ -14395,6 +14321,10 @@ func _play_game_hub_option_sweep(button: Button, sweep: ColorRect) -> void:
 func _apply_game_hub_panel_fx(panel: Panel) -> void:
 	if panel == null:
 		return
+	# These 3%-7% overlays cost three additional full-panel composites on
+	# Android while making no meaningful visual difference on the phone.
+	if OS.has_feature("android"):
+		return
 	var matte_overlay := ColorRect.new()
 	matte_overlay.name = "GameHubMatteOverlay"
 	matte_overlay.layout_mode = 1
@@ -15428,16 +15358,17 @@ func _build_entry_overlay_background_layers(panel: Panel, resolved_size: Vector2
 	panel.add_child(background_base)
 	panel.move_child(background_base, 0)
 
-	var background_noise := TextureRect.new()
-	background_noise.name = "Background_Noise"
-	background_noise.layout_mode = 1
-	background_noise.set_anchors_preset(Control.PRESET_FULL_RECT, true)
-	background_noise.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	background_noise.stretch_mode = TextureRect.STRETCH_TILE
-	background_noise.texture = _get_entry_overlay_noise_texture()
-	background_noise.modulate = Color(1.0, 1.0, 1.0, ENTRY_OVERLAY_NOISE_ALPHA)
-	panel.add_child(background_noise)
-	panel.move_child(background_noise, 1)
+	if not OS.has_feature("android"):
+		var background_noise := TextureRect.new()
+		background_noise.name = "Background_Noise"
+		background_noise.layout_mode = 1
+		background_noise.set_anchors_preset(Control.PRESET_FULL_RECT, true)
+		background_noise.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		background_noise.stretch_mode = TextureRect.STRETCH_TILE
+		background_noise.texture = _get_entry_overlay_noise_texture()
+		background_noise.modulate = Color(1.0, 1.0, 1.0, ENTRY_OVERLAY_NOISE_ALPHA)
+		panel.add_child(background_noise)
+		panel.move_child(background_noise, 1)
 
 	var frame_inlay := NinePatchRect.new()
 	frame_inlay.name = "Frame_Inlay"
@@ -15461,6 +15392,8 @@ func _build_entry_overlay_background_layers(panel: Panel, resolved_size: Vector2
 	panel.add_child(frame_inlay)
 	panel.move_child(frame_inlay, 2)
 
+	if OS.has_feature("android"):
+		return
 	var popup_bg_node: Node = _load_packed_scene(HEX_SEAM_BACKGROUND_SCENE_PATH).instantiate()
 	var popup_bg: Control = popup_bg_node as Control
 	if popup_bg == null:
@@ -15477,79 +15410,9 @@ func _build_entry_overlay_background_layers(panel: Panel, resolved_size: Vector2
 		var color_rect: ColorRect = popup_bg as ColorRect
 		color_rect.color = Color(1.0, 1.0, 1.0, ENTRY_OVERLAY_MIDFIELD_ALPHA)
 
-func _get_entry_overlay_inlay_texture_for_size(target_size: Vector2) -> Texture2D:
-	if _match_background_inlay() == null:
-		return null
-	var source_size: Vector2 = _match_background_inlay().get_size()
-	if source_size.x <= 1.0 or source_size.y <= 1.0:
-		return _match_background_inlay()
-	# Broadcast inlay is authored in landscape; force rotated source for portrait-first game UI.
-	var rotated: Texture2D = _get_entry_overlay_rotated_inlay_texture()
-	if rotated == null:
-		return _get_entry_overlay_cropped_inlay_texture(_match_background_inlay(), false)
-	return _get_entry_overlay_cropped_inlay_texture(rotated, true)
-
-func _get_entry_overlay_rotated_inlay_texture() -> Texture2D:
-	if _entry_overlay_inlay_rotated_texture != null:
-		return _entry_overlay_inlay_rotated_texture
-	if _match_background_inlay() == null:
-		return null
-	var base_image: Image = _match_background_inlay().get_image()
-	if base_image == null:
-		return null
-	var rotated_image: Image = _rotate_image_clockwise(base_image)
-	if rotated_image == null:
-		return null
-	_entry_overlay_inlay_rotated_texture = ImageTexture.create_from_image(rotated_image)
-	return _entry_overlay_inlay_rotated_texture
-
-func _get_entry_overlay_cropped_inlay_texture(source_texture: Texture2D, rotated: bool) -> Texture2D:
-	if source_texture == null:
-		return null
-	if rotated:
-		if _entry_overlay_inlay_rotated_cropped_texture != null:
-			return _entry_overlay_inlay_rotated_cropped_texture
-	else:
-		if _entry_overlay_inlay_cropped_texture != null:
-			return _entry_overlay_inlay_cropped_texture
-	var image: Image = source_texture.get_image()
-	if image == null:
-		return source_texture
-	var width: int = image.get_width()
-	var height: int = image.get_height()
-	if width <= 2 or height <= 2:
-		return source_texture
-	var portrait: bool = height > width
-	var crop_x_ratio: float = ENTRY_OVERLAY_INLAY_CROP_X_PORTRAIT_RATIO if portrait else ENTRY_OVERLAY_INLAY_CROP_X_LANDSCAPE_RATIO
-	var crop_y_ratio: float = ENTRY_OVERLAY_INLAY_CROP_Y_PORTRAIT_RATIO if portrait else ENTRY_OVERLAY_INLAY_CROP_Y_LANDSCAPE_RATIO
-	var crop_x: int = int(clampi(int(round(float(width) * crop_x_ratio)), 0, maxi(0, (width / 2) - 1)))
-	var crop_y: int = int(clampi(int(round(float(height) * crop_y_ratio)), 0, maxi(0, (height / 2) - 1)))
-	var region_w: int = width - (crop_x * 2)
-	var region_h: int = height - (crop_y * 2)
-	if region_w <= 1 or region_h <= 1:
-		return source_texture
-	var bounds := Rect2i(crop_x, crop_y, region_w, region_h)
-	var atlas := AtlasTexture.new()
-	atlas.atlas = source_texture
-	atlas.region = Rect2(bounds.position, bounds.size)
-	if rotated:
-		_entry_overlay_inlay_rotated_cropped_texture = atlas
-		return _entry_overlay_inlay_rotated_cropped_texture
-	_entry_overlay_inlay_cropped_texture = atlas
-	return _entry_overlay_inlay_cropped_texture
-
-func _rotate_image_clockwise(source: Image) -> Image:
-	if source == null:
-		return null
-	var src_w: int = source.get_width()
-	var src_h: int = source.get_height()
-	if src_w <= 0 or src_h <= 0:
-		return null
-	var out := Image.create(src_h, src_w, false, source.get_format())
-	for y in src_h:
-		for x in src_w:
-			out.set_pixel(src_h - y - 1, x, source.get_pixel(x, y))
-	return out
+func _get_entry_overlay_inlay_texture_for_size(_target_size: Vector2) -> Texture2D:
+	# Rotation and cropping are baked once by tools/generate_menu_mobile_assets.gd.
+	return _match_background_inlay()
 
 func _apply_entry_overlay_inlay_patch_margins(frame_inlay: NinePatchRect) -> void:
 	if frame_inlay == null:
@@ -16538,10 +16401,10 @@ func _ensure_jukebox_panel() -> void:
 		)
 		_set_hex_buttons()
 
-func _ensure_async_contest_dash_panel() -> void:
+func _ensure_async_contest_dash_panel(create_panel: bool = true) -> void:
 	if dash_panel == null:
 		return
-	if _async_contest_dash_panel == null:
+	if create_panel and _async_contest_dash_panel == null:
 		var panel_any: Node = AsyncContestDashPanelScript.new()
 		if panel_any is Panel:
 			_async_contest_dash_panel = panel_any as Panel

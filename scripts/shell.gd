@@ -327,6 +327,7 @@ func _ready() -> void:
 	_maybe_attach_buff_targeting_device_evidence_collector()
 	_apply_content_scale_from_profile()
 	_request_match_scene_preload()
+	_request_main_menu_preload()
 	if SFLog.LOGGING_ENABLED:
 		if TRACE_SHELL_LOGS: print("MAIN FLAGS: start_in_menu=", start_in_menu,
 		" enable_dev_map_loader=", enable_dev_map_loader,

@@ -849,6 +849,11 @@ func _ensure_preview_3d() -> void:
 		return
 	if DisplayServer.get_name() == "headless":
 		return
+	# The 512x512 always-updating viewport, three lights, and sliced 3D model
+	# caused a one-second dashboard transition on entry-level Android GPUs. The
+	# existing 2D cosmetic preview is the mobile fallback; desktop keeps 3D.
+	if OS.has_feature("android"):
+		return
 	_preview_3d_container = SubViewportContainer.new()
 	_preview_3d_container.name = "Preview3D"
 	_preview_3d_container.visible = false

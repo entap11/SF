@@ -20,6 +20,7 @@ const PROFILE_KEY_SFX_ENABLED: String = "sfx_enabled"
 const PROFILE_KEY_HAPTICS_ENABLED: String = "haptics_enabled"
 const PROFILE_KEY_FLOOR_GRAPHICS_ENABLED: String = "floor_graphics_enabled"
 const PROFILE_KEY_PERFORMANCE_MODE: String = "performance_mode"
+const PROFILE_KEY_PERFORMANCE_MODE_EXPLICIT: String = "performance_mode_explicit"
 const PROFILE_KEY_ADMIN_DASHBOARD_USERNAME: String = "admin_dashboard_username"
 const PROFILE_KEY_ADMIN_DASHBOARD_PASSWORD: String = "admin_dashboard_password"
 const PROFILE_KEY_UNLOCKED_ACHIEVEMENTS: String = "unlocked_achievements"
@@ -46,7 +47,7 @@ const BUFF_MODE_ASYNC: String = "async"
 const PERFORMANCE_MODE_QUALITY: String = "quality"
 const PERFORMANCE_MODE_BALANCED: String = "balanced"
 const PERFORMANCE_MODE_PERFORMANCE: String = "performance"
-const MOBILE_CONTENT_SCALE_MULTIPLIER: float = 1.10
+const MOBILE_CONTENT_SCALE_MULTIPLIER: float = 1.0
 const TUTORIAL_SECTION1_STATUS_NOT_STARTED: String = "not_started"
 const TUTORIAL_SECTION1_STATUS_IN_PROGRESS: String = "in_progress"
 const TUTORIAL_SECTION1_STATUS_COMPLETED: String = "completed"
@@ -149,6 +150,7 @@ var _sfx_enabled: bool = true
 var _haptics_enabled: bool = true
 var _floor_graphics_enabled: bool = true
 var _performance_mode: String = PERFORMANCE_MODE_QUALITY
+var _performance_mode_explicit: bool = false
 var _admin_dashboard_username: String = DEFAULT_ADMIN_DASHBOARD_USERNAME
 var _admin_dashboard_password: String = DEFAULT_ADMIN_DASHBOARD_PASSWORD
 func _ready() -> void:
@@ -227,7 +229,11 @@ func ensure_loaded() -> void:
 		_sfx_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_SFX_ENABLED, true))
 		_haptics_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_HAPTICS_ENABLED, true))
 		_floor_graphics_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_FLOOR_GRAPHICS_ENABLED, true))
-		_performance_mode = _sanitize_performance_mode(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_PERFORMANCE_MODE, PERFORMANCE_MODE_QUALITY)))
+		_performance_mode_explicit = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_PERFORMANCE_MODE_EXPLICIT, false))
+		var saved_performance_default: String = _default_performance_mode()
+		_performance_mode = _sanitize_performance_mode(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_PERFORMANCE_MODE, saved_performance_default)))
+		if OS.has_feature("android") and not _performance_mode_explicit:
+			_performance_mode = PERFORMANCE_MODE_BALANCED
 		_admin_dashboard_username = _sanitize_admin_dashboard_username(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_ADMIN_DASHBOARD_USERNAME, DEFAULT_ADMIN_DASHBOARD_USERNAME)))
 		_admin_dashboard_password = _sanitize_admin_dashboard_password(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_ADMIN_DASHBOARD_PASSWORD, DEFAULT_ADMIN_DASHBOARD_PASSWORD)))
 		var legacy_owned_default: Array[String] = []
@@ -282,7 +288,8 @@ func ensure_loaded() -> void:
 		_sfx_enabled = true
 		_haptics_enabled = true
 		_floor_graphics_enabled = true
-		_performance_mode = PERFORMANCE_MODE_QUALITY
+		_performance_mode = _default_performance_mode()
+		_performance_mode_explicit = false
 		_admin_dashboard_username = DEFAULT_ADMIN_DASHBOARD_USERNAME
 		_admin_dashboard_password = DEFAULT_ADMIN_DASHBOARD_PASSWORD
 		_owned_buff_ids = _default_owned_ids()
@@ -1312,9 +1319,10 @@ func get_performance_mode() -> String:
 func set_performance_mode(mode: String) -> void:
 	ensure_loaded()
 	var next_mode: String = _sanitize_performance_mode(mode)
-	if _performance_mode == next_mode:
+	if _performance_mode == next_mode and _performance_mode_explicit:
 		return
 	_performance_mode = next_mode
+	_performance_mode_explicit = true
 	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
 	SFLog.info("PROFILE_PERFORMANCE_MODE", {"user_id": _user_id, "mode": _performance_mode})
 
@@ -1361,6 +1369,9 @@ func _uses_mobile_content_scale() -> bool:
 	if OS.has_feature("ios") or OS.has_feature("android"):
 		return true
 	return OS.has_feature("web_ios") or OS.has_feature("web_android")
+
+func _default_performance_mode() -> String:
+	return PERFORMANCE_MODE_BALANCED if OS.has_feature("android") else PERFORMANCE_MODE_QUALITY
 
 func get_honey_balance() -> int:
 	ensure_loaded()
@@ -1620,6 +1631,7 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_HAPTICS_ENABLED, _haptics_enabled)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_FLOOR_GRAPHICS_ENABLED, _floor_graphics_enabled)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_PERFORMANCE_MODE, _performance_mode)
+	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_PERFORMANCE_MODE_EXPLICIT, _performance_mode_explicit)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_ADMIN_DASHBOARD_USERNAME, _admin_dashboard_username)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_ADMIN_DASHBOARD_PASSWORD, _admin_dashboard_password)
 	cfg.set_value(PROFILE_SECTION, "owned_buff_ids", _owned_buff_ids)

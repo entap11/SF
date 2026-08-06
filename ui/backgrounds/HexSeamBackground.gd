@@ -3,9 +3,17 @@ extends ColorRect
 class_name HexSeamBackground
 
 const SHADER_PATH: String = "res://ui/backgrounds/hex_seam_background.gdshader"
+const MOBILE_STATIC_SHADER: Shader = preload("res://ui/backgrounds/hex_seam_static.gdshader")
 const HexBgPresets = preload("res://ui/backgrounds/HexBgPresets.gd")
+const MOBILE_STATIC_TEXTURES: Dictionary = {
+	"dash": preload("res://assets/sprites/sf_skin_v1/baked_ui/backgrounds/hex_dash.png"),
+	"store": preload("res://assets/sprites/sf_skin_v1/baked_ui/backgrounds/hex_store.png"),
+	"hive": preload("res://assets/sprites/sf_skin_v1/baked_ui/backgrounds/hex_hive.png"),
+	"popup": preload("res://assets/sprites/sf_skin_v1/baked_ui/backgrounds/hex_popup.png")
+}
 
 var _sync_locked: bool = false
+var _active_preset_key: String = "dash"
 
 @export var glow_color: Color = Color(1.0, 0.831, 0.0, 1.0):
 	set(value):
@@ -72,6 +80,7 @@ func apply_preset(preset_name: StringName) -> void:
 	var preset: Dictionary = HexBgPresets.get_preset(preset_name)
 	if preset.is_empty():
 		return
+	_active_preset_key = String(preset_name).to_lower()
 	_sync_locked = true
 	if preset.has("glow_color"):
 		glow_color = preset["glow_color"] as Color
@@ -102,7 +111,7 @@ func apply_preset(preset_name: StringName) -> void:
 
 
 func _ensure_shader_material() -> void:
-	var shader_resource: Shader = load(SHADER_PATH) as Shader
+	var shader_resource: Shader = MOBILE_STATIC_SHADER if _uses_mobile_static_texture() else load(SHADER_PATH) as Shader
 	if shader_resource == null:
 		return
 	var shader_material: ShaderMaterial = material as ShaderMaterial
@@ -127,6 +136,14 @@ func _sync_shader_params() -> void:
 	var shader_material: ShaderMaterial = material as ShaderMaterial
 	if shader_material == null:
 		return
+	if _uses_mobile_static_texture():
+		var static_texture: Texture2D = MOBILE_STATIC_TEXTURES.get(
+			_active_preset_key,
+			MOBILE_STATIC_TEXTURES["dash"]
+		) as Texture2D
+		shader_material.set_shader_parameter("static_texture", static_texture)
+		queue_redraw()
+		return
 	shader_material.set_shader_parameter("glow_color", glow_color)
 	shader_material.set_shader_parameter("seam_width", seam_width)
 	shader_material.set_shader_parameter("seam_intensity", seam_intensity)
@@ -140,3 +157,7 @@ func _sync_shader_params() -> void:
 	shader_material.set_shader_parameter("hex_scale", hex_scale)
 	shader_material.set_shader_parameter("seed", seed)
 	queue_redraw()
+
+
+func _uses_mobile_static_texture() -> bool:
+	return not Engine.is_editor_hint() and OS.has_feature("android")
