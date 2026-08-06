@@ -1861,6 +1861,16 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 	var release_lane_id: int = _pick_lane_id_for_click(local_pos, lane_id, arena_api)
 	if lane_double_tap_only and _press_lane_id > 0:
 		release_lane_id = _press_lane_id
+	SFLog.info("INPUT_RELEASE_STATE", {
+		"player_id": player_id,
+		"press_hive_id": _press_hive_id,
+		"press_prev_selected_id": _press_prev_selected_id,
+		"drag_start_hive_id": selection.drag_start_hive_id,
+		"drag_moved": selection.drag_moved,
+		"release_hive_id": end_id,
+		"release_lane_id": release_lane_id,
+		"is_touch": _press_is_touch
+	})
 	if _lane_grab_state == LANE_GRAB_STATE_CANDIDATE:
 		_cancel_lane_grab("released_before_arm", arena_api, false)
 	elif _lane_grab_state == LANE_GRAB_STATE_ARMED or _lane_grab_state == LANE_GRAB_STATE_THROW_READY:
@@ -1977,7 +1987,12 @@ func _handle_click_hive(prev_selected_id: int, clicked_id: int, player_id: int, 
 		clear_tap_state()
 		return
 	var world_pos := _map_local_to_world(local_pos, arena_api)
-	SFLog.info("INPUT_CLICK", {"player_id": player_id, "hid": clicked_id, "world": world_pos})
+	SFLog.info("INPUT_CLICK", {
+		"player_id": player_id,
+		"hid": clicked_id,
+		"prev_selected_id": prev_selected_id,
+		"world": world_pos
+	})
 	var enemy_first_id: int = _get_enemy_first_for_player(player_id)
 	var clicked_owned: bool = hive.owner_id == player_id
 	var clicked_ally: bool = _are_allied_seats(player_id, hive.owner_id)

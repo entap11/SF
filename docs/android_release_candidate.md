@@ -3,7 +3,8 @@
 The Android release-candidate lane produces:
 
 - an ARM64 AAB for store-side validation;
-- an x86_64 release APK for emulator certification.
+- an x86_64 release APK for emulator certification;
+- an ARM64 release APK for direct installation on physical devices.
 
 Both artifacts use application ID `com.entap.swarmfront`, version code `2`,
 and version name `0.1.2-rc1`. Confirm the application ID with the Play Console
@@ -41,5 +42,6 @@ Git. The script refuses to export with a Godot version other than 4.7.1 and
 verifies the keystore, password, and alias before building.
 
 The emulator APK is a release-mode companion built with the `emulator` feature,
-x86_64 ABI, and compatibility renderer. It exercises the same project resources
-and release template as the AAB, but it is not the artifact uploaded to Play.
+x86_64 ABI, and compatibility renderer. The device APK uses the ARM64 ABI and
+the same release configuration as the AAB. Both exercise the same project
+resources and release template as the AAB, but neither APK is uploaded to Play.

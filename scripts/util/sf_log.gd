@@ -23,6 +23,7 @@ static var _last_log_sig: Dictionary = {}
 static var _last_ms_by_key: Dictionary = {}
 static var _last_event_label: String = ""
 static var _last_event_ms: int = 0
+static var _device_trace_file: FileAccess = null
 
 static func set_quiet_mode(enabled: bool) -> void:
 	QUIET_MODE = enabled
@@ -38,6 +39,21 @@ static func allow_tag(tag: String) -> void:
 
 static func force_enable(enabled: bool = true) -> void:
 	LOGGING_ENABLED = enabled
+
+static func start_device_trace(path: String = "user://device_input_trace.jsonl") -> bool:
+	if not OS.is_debug_build():
+		return false
+	_device_trace_file = FileAccess.open(path, FileAccess.WRITE)
+	if _device_trace_file == null:
+		return false
+	_device_trace_file.store_line(JSON.stringify({
+		"kind": "session_start",
+		"ticks_ms": Time.get_ticks_msec(),
+		"unix": int(Time.get_unix_time_from_system()),
+		"platform": OS.get_name()
+	}))
+	_device_trace_file.flush()
+	return true
 
 static func flush() -> void:
 	if not LOGGING_ENABLED:
@@ -159,6 +175,15 @@ static func _log(level: int, msg: String, data: Dictionary = {}, channel: String
 		return
 	var text: String = _format_payload(msg, data)
 	var prefix: String = _prefix(level, channel)
+	if _device_trace_file != null:
+		_device_trace_file.store_line(JSON.stringify({
+			"ticks_ms": Time.get_ticks_msec(),
+			"level": level,
+			"tag": msg,
+			"channel": channel,
+			"data": data
+		}))
+		_device_trace_file.flush()
 	if QUIET_MODE:
 		print(prefix + text)
 		return

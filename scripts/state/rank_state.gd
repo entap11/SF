@@ -81,8 +81,6 @@ func intent_register_player(
 	var call_sign: String = display_name.strip_edges()
 	if call_sign == "":
 		return {"ok": false, "reason": "missing_call_sign"}
-	if authoritative_required and not is_authoritative_transport_online():
-		return {"ok": false, "reason": "rank_backend_not_configured"}
 	if clean_id == "" and not authoritative_required:
 		return {"ok": false, "reason": "missing_player_id"}
 	var payload: Dictionary = {
@@ -96,15 +94,14 @@ func intent_register_player(
 		payload["player_id"] = clean_id
 	if not install_metadata.is_empty():
 		payload["install_metadata"] = install_metadata
+	# Canonical account creation is a required identity bootstrap, not an opt-in
+	# Rank feature. Use the configured identity authority directly while keeping
+	# ordinary Rank reads and mutations behind the OpsConfig rank gate.
+	if authoritative_required:
+		return _register_authoritative_identity(payload)
 	var transport_result := _handle_transport_write("register_player", payload)
 	if bool(transport_result.get("handled", false)):
 		return transport_result.get("result", {}) as Dictionary
-	if authoritative_required:
-		return {
-			"ok": false,
-			"reason": "rank_backend_unavailable",
-			"transport_error": true
-		}
 	var existing: Dictionary = _players_by_id.get(clean_id, {}) as Dictionary
 	var now_unix: int = _now_unix()
 	if existing.is_empty():
@@ -694,6 +691,34 @@ func _configure_transport() -> void:
 	_transport_mode = "http"
 	SFLog.allow_tag("RANK_TRANSPORT_CONFIG")
 	SFLog.info("RANK_TRANSPORT_CONFIG", {"mode": _transport_mode, "url": backend_url})
+
+func _register_authoritative_identity(payload: Dictionary) -> Dictionary:
+	var backend_url: String = _configured_backend_url()
+	if backend_url.is_empty():
+		return {"ok": false, "reason": "rank_backend_not_configured"}
+	var identity_transport: Variant = _new_rank_transport()
+	identity_transport.configure(
+		backend_url,
+		_configured_backend_timeout_sec(),
+		_configured_backend_token()
+	)
+	var result: Dictionary = identity_transport.call_action("register_player", payload) as Dictionary
+	if bool(result.get("ok", false)):
+		if _cache_remote_write_result(result):
+			_save_state()
+			_emit_changed()
+		return result
+	if bool(result.get("transport_error", false)):
+		return {
+			"ok": false,
+			"reason": "rank_backend_unavailable",
+			"transport_error": true,
+			"transport_detail": str(result.get("err", "transport_error"))
+		}
+	return result
+
+func _new_rank_transport() -> Variant:
+	return RankTransportHttpScript.new()
 
 func _configured_backend_url() -> String:
 	var env_url: String = OS.get_environment(ENV_BACKEND_URL).strip_edges()

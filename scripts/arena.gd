@@ -186,7 +186,6 @@ const TREE_META_VS_CPU_STYLE: String = "vs_cpu_style"
 const TREE_META_VS_CPU_TIER: String = "vs_cpu_tier"
 const TREE_META_VS_STAGE_ROUND_RESULTS: String = "vs_stage_round_results"
 const COUNTDOWN_DEBUG_SCRIPT: Script = preload("res://scripts/ui/prematch_countdown_view.gd")
-const TOUCH_MOUSE_SUPPRESS_MS: int = 120
 const PREMATCH_RECORDS_WIDTH_PX: float = 840.0
 const PREMATCH_RECORDS_HEIGHT_PX: float = 460.0
 const PREMATCH_RECORDS_TOP_GAP_PX: float = 24.0
@@ -502,7 +501,6 @@ var _post_match_analysis_summary: Dictionary = {}
 var _post_match_stats_snapshot: Dictionary = {}
 var _post_match_telemetry_path: String = ""
 var _telemetry_active: bool = false
-var _last_screen_pointer_ms: int = -1000000
 var _map_build_version: int = 0
 var _map_built_version: int = -1
 var _map_bounds_size: Vector2 = Vector2.ZERO
@@ -11867,6 +11865,15 @@ func _screen_to_world(screen_pos: Vector2) -> Vector2:
 	return _input_bridge_utils.screen_to_world(vp, get_global_mouse_position(), screen_pos)
 
 func _unhandled_input(event: InputEvent) -> void:
+	# Godot can synthesize mouse events from touch (and touch from mouse). Since
+	# Arena handles both native paths, accepting the synthesized copy would apply
+	# the same gameplay press twice. DEVICE_ID_EMULATION identifies that copy
+	# exactly, without relying on frame order or a timing window.
+	if _input_bridge_utils.is_emulated_pointer_event(event):
+		var emulated_event_viewport: Viewport = get_viewport()
+		if emulated_event_viewport != null:
+			emulated_event_viewport.set_input_as_handled()
+		return
 	var buff_pointer: Dictionary = _buff_pointer_identity_for_event(event)
 	if not buff_pointer.is_empty() and _shell_suppresses_buff_pointer_event(
 		str(buff_pointer.get("pointer_kind", "")),
@@ -11881,13 +11888,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if input_system == null or api == null:
 		return
-	var now_ms: int = Time.get_ticks_msec()
 	if _controls_hint_controller != null and _controls_hint_controller.consume_dismiss_input(event, get_viewport()):
 		return
 	if event is InputEventMouseButton:
-		if OS.has_feature("mobile") and (now_ms - _last_screen_pointer_ms) <= TOUCH_MOUSE_SUPPRESS_MS:
-			get_viewport().set_input_as_handled()
-			return
 		var mb := event as InputEventMouseButton
 		if _input_bridge_utils.is_player_pointer_button(mb.button_index):
 			var wp: Vector2 = _screen_to_world(mb.position)
@@ -11896,16 +11899,12 @@ func _unhandled_input(event: InputEvent) -> void:
 			get_viewport().set_input_as_handled()
 			return
 	if event is InputEventMouseMotion:
-		if OS.has_feature("mobile") and (now_ms - _last_screen_pointer_ms) <= TOUCH_MOUSE_SUPPRESS_MS:
-			get_viewport().set_input_as_handled()
-			return
 		var mm := event as InputEventMouseMotion
 		var wp: Vector2 = _screen_to_world(mm.position)
 		var lp: Vector2 = map_root.to_local(wp)
 		_send_pointer_event(false, 0, lp, true, wp, mm.position)
 		return
 	if event is InputEventScreenTouch:
-		_last_screen_pointer_ms = now_ms
 		var st := event as InputEventScreenTouch
 		var wp: Vector2 = _screen_to_world(st.position)
 		var lp: Vector2 = map_root.to_local(wp)
@@ -11913,7 +11912,6 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 		return
 	if event is InputEventScreenDrag:
-		_last_screen_pointer_ms = now_ms
 		var sd := event as InputEventScreenDrag
 		var wp: Vector2 = _screen_to_world(sd.position)
 		var lp: Vector2 = map_root.to_local(wp)
@@ -11981,8 +11979,11 @@ func _send_pointer_event(pressed: bool, button_index: int, local_pos: Vector2, i
 		SFLog.warn("INPUT_POINTER_EVENT", {
 			"type": ev_type,
 			"button": button_index,
+			"is_touch": is_touch,
+			"touch_index": touch_index,
 			"hive_id": hive_id,
 			"lane_id": lane_id,
+			"screen_pos": screen_pos,
 			"local_pos": local_pos,
 			"world_pos": world_pos
 		}, "", 0)

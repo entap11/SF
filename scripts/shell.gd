@@ -265,8 +265,43 @@ func _enter_tree() -> void:
 	if TRACE_SHELL_LOGS:
 		push_warning("SHELL_ENTER_TREE_PROOF " + SHELL_PATCH_REV + " path=" + str(get_path()))
 
+func _configure_debug_input_trace() -> void:
+	# Android export preset arguments are engine command-line arguments, while
+	# desktop invocations may place the opt-in flag after `--` as a user arg.
+	# Accept either location; the debug-build guard keeps this out of releases.
+	var input_trace_requested := (
+		OS.get_cmdline_args().has("--input-trace")
+		or OS.get_cmdline_user_args().has("--input-trace")
+	)
+	if not OS.is_debug_build() or not input_trace_requested:
+		return
+	SFLog.force_enable(true)
+	SFLog.LOG_LEVEL = SFLog.Level.INFO
+	SFLog.set_quiet_mode(true)
+	SFLog.start_device_trace()
+	for tag in PackedStringArray([
+		"INPUT_POINTER_EVENT",
+		"HIVE_CLICK_DEBUG",
+		"INPUT_CLICK",
+		"HIVE_CLICK_LANE_FALLTHROUGH",
+		"HIVE_CLICK_UNSELECTABLE",
+		"INPUT_RELEASE_PICK",
+		"INPUT_RELEASE_STATE",
+		"INPUT_HIVE_NOT_SELECTABLE",
+		"SRC_DST_ACTION",
+		"INPUT_INTENT",
+		"INPUT_INTENT_REJECTED",
+		"LANE_DBL_SWARM",
+		"LANE_DBL_RETRACT",
+		"LANE_PICK_HIT",
+		"LANE_PICK_MISS"
+	]):
+		SFLog.allow_tag(tag)
+	print("SF_INPUT_TRACE_ENABLED")
+
 func _ready() -> void:
 	_install_error_hooks()
+	_configure_debug_input_trace()
 	_shell_ready_count += 1
 	if TRACE_SHELL_LOGS: print("SHELL_LIFECYCLE ready #", _shell_ready_count, " iid=", _iid(self), " path=", _np(self))
 	if TRACE_SHELL_LOGS: print("SHELL_READY_PROOF ", SHELL_PATCH_REV, " path=", get_path(), " script=", get_script())

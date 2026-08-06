@@ -26,6 +26,15 @@ func dev_mouse_pid(event: InputEventMouseButton) -> int:
 		return -1
 	return player_id_for_dev_pointer_button(event.button_index)
 
+func is_emulated_pointer_event(event: InputEvent) -> bool:
+	if not (
+		event is InputEventMouse
+		or event is InputEventScreenTouch
+		or event is InputEventScreenDrag
+	):
+		return false
+	return event.device == InputEvent.DEVICE_ID_EMULATION
+
 func screen_to_world(viewport: Viewport, fallback_world_pos: Vector2, screen_pos: Vector2) -> Vector2:
 	if viewport == null:
 		return fallback_world_pos

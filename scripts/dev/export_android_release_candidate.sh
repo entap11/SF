@@ -50,5 +50,10 @@ mkdir -p "${task_output_dir}"
 	--export-release "Android Release Emulator" \
 	"${task_output_dir}/swarmfront-0.1.2-rc1-emulator.apk"
 
+"${task_godot_bin}" --headless --path "${task_root_dir}" \
+	--export-release "Android Release Device" \
+	"${task_output_dir}/swarmfront-0.1.2-rc1-device.apk"
+
 printf 'AAB: %s\n' "${task_output_dir}/swarmfront-0.1.2-rc1.aab"
-printf 'APK: %s\n' "${task_output_dir}/swarmfront-0.1.2-rc1-emulator.apk"
+printf 'Emulator APK: %s\n' "${task_output_dir}/swarmfront-0.1.2-rc1-emulator.apk"
+printf 'Device APK: %s\n' "${task_output_dir}/swarmfront-0.1.2-rc1-device.apk"
