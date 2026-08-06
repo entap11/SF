@@ -59,6 +59,7 @@ var selection: SelectionState = null
 var grid_spec: Object = null
 
 var outgoing_by_hive: Dictionary = {}
+var _connectable_target_ids_by_hive: Dictionary = {}
 var spawns: Array = []
 var swarm_requests: Array = []
 var swarm_packets: Array = []
@@ -256,6 +257,7 @@ func reset_map_only() -> void:
 	walls = []
 	selection = SelectionState.new()
 	outgoing_by_hive.clear()
+	_connectable_target_ids_by_hive.clear()
 	spawns = []
 	swarm_requests = []
 	swarm_packets = []
@@ -829,6 +831,7 @@ func rebuild_indexes() -> void:
 	_refresh_hives_set_version()
 
 	rebuild_lane_adjacency()
+	_rebuild_connectable_target_cache()
 
 func allocate_lane_generation() -> int:
 	var generation: int = maxi(1, next_lane_generation)
@@ -878,6 +881,27 @@ func rebuild_lane_adjacency() -> void:
 
 		(outgoing_by_hive[a_id] as Array).append(ld)
 		(outgoing_by_hive[b_id] as Array).append(ld)
+
+func _rebuild_connectable_target_cache() -> void:
+	_connectable_target_ids_by_hive.clear()
+	for hive_any in hives:
+		var hive: HiveData = hive_any as HiveData
+		if hive != null:
+			_connectable_target_ids_by_hive[int(hive.id)] = []
+	for a_index in range(hives.size()):
+		var a_hive: HiveData = hives[a_index] as HiveData
+		if a_hive == null:
+			continue
+		var a_id: int = int(a_hive.id)
+		for b_index in range(a_index + 1, hives.size()):
+			var b_hive: HiveData = hives[b_index] as HiveData
+			if b_hive == null:
+				continue
+			var b_id: int = int(b_hive.id)
+			if not can_connect(a_id, b_id):
+				continue
+			(_connectable_target_ids_by_hive[a_id] as Array).append(b_id)
+			(_connectable_target_ids_by_hive[b_id] as Array).append(a_id)
 
 
 func _map_positive_integral_id(value: Variant) -> int:
@@ -1284,16 +1308,15 @@ func _available_lane_target_count(hive: HiveData) -> int:
 		return 0
 	var source_id: int = int(hive.id)
 	var count: int = 0
-	for other_any in hives:
-		var other: HiveData = other_any as HiveData
-		if other == null:
-			continue
-		var other_id: int = int(other.id)
-		if other_id == source_id:
-			continue
+	var target_ids_v: Variant = _connectable_target_ids_by_hive.get(source_id, null)
+	if typeof(target_ids_v) != TYPE_ARRAY:
+		# Defensive fallback for hand-built test states that have not rebuilt
+		# indexes yet. Normal map application populates the exact geometry cache.
+		_rebuild_connectable_target_cache()
+		target_ids_v = _connectable_target_ids_by_hive.get(source_id, [])
+	for other_id_any in target_ids_v as Array:
+		var other_id: int = int(other_id_any)
 		if is_outgoing_lane_active(source_id, other_id):
-			continue
-		if not can_connect(source_id, other_id):
 			continue
 		count += 1
 	return count

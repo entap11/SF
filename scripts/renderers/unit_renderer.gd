@@ -124,6 +124,7 @@ const UNIT_BASE_SCALE_META: StringName = &"unit_base_scale"
 const UNIT_OUTLINE_BASE_SCALE_META: StringName = &"unit_outline_base_scale"
 const UNIT_EMISSION_BASE_SCALE_META: StringName = &"unit_emission_base_scale"
 const UNIT_EMISSION_PREWARM_ID: int = 2147483000
+const BEE_CLIP_ACTIVE_ENDPOINT_RADIUS_PX: float = 192.0
 
 @export var debug_unit_logs: bool = false
 @export var debug_unit_owner_labels: bool = false
@@ -1954,6 +1955,12 @@ func _unit_emergence_axis_scale(reveal: float) -> float:
 func _apply_unit_emergence_visuals(node: Node2D, ud: Dictionary, hive_by_id: Dictionary, render_pos: Vector2, dir_local: Vector2) -> void:
 	if node == null:
 		return
+	var unit_id: int = int(node.get_meta("unit_id", -1))
+	if unit_id <= 0:
+		return
+	var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
+	if typeof(state_any) == TYPE_DICTIONARY and bool((state_any as Dictionary).get("emergence_complete", false)):
+		return
 	var reveal: float = _unit_emergence_reveal(ud, hive_by_id, render_pos, dir_local)
 	var sprite: Sprite2D = node.get_node_or_null("UnitSprite") as Sprite2D
 	var outline_sprite: Sprite2D = node.get_node_or_null("UnitOutlineSprite") as Sprite2D
@@ -1967,9 +1974,6 @@ func _apply_unit_emergence_visuals(node: Node2D, ud: Dictionary, hive_by_id: Dic
 	if emission_sprite != null:
 		emission_sprite.scale = _sprite_base_scale(emission_sprite, UNIT_EMISSION_BASE_SCALE_META)
 		emission_sprite.position = Vector2.ZERO
-	var unit_id: int = int(node.get_meta("unit_id", -1))
-	if unit_id <= 0:
-		return
 	var reveal_enabled: bool = reveal < UNIT_EMERGENCE_FULL_EPS
 	var reveal_dir: Vector2 = _bee_clip_local_cut_dir()
 	var controller: RefCounted = _bee_clip_by_unit_id.get(unit_id, null) as RefCounted
@@ -1981,6 +1985,10 @@ func _apply_unit_emergence_visuals(node: Node2D, ud: Dictionary, hive_by_id: Dic
 	var emission_controller: RefCounted = _bee_clip_emission_by_unit_id.get(unit_id, null) as RefCounted
 	if emission_controller != null and emission_controller.has_method("set_source_reveal"):
 		emission_controller.call("set_source_reveal", reveal_enabled, reveal, reveal_dir, UNIT_EMERGENCE_REVEAL_SOFTNESS)
+	if not reveal_enabled and typeof(state_any) == TYPE_DICTIONARY:
+		var completed_state: Dictionary = state_any as Dictionary
+		completed_state["emergence_complete"] = true
+		_unit_visual_by_id[unit_id] = completed_state
 
 func _unit_hive_occlusion_active(ud: Dictionary, hive_by_id: Dictionary, render_pos: Vector2, dir_local: Vector2) -> bool:
 	if not unit_emergence_enabled or ud.is_empty():
@@ -2018,6 +2026,10 @@ func _unit_directional_hive_hide(ud: Dictionary, hive_by_id: Dictionary, render_
 func _apply_unit_directional_visibility(node: Node2D, ud: Dictionary, hive_by_id: Dictionary, render_pos: Vector2, dir_local: Vector2) -> void:
 	if node == null:
 		return
+	var visibility_sig: int = 1 if debug_draw_units else 0
+	if int(node.get_meta("unit_visibility_sig", -1)) == visibility_sig:
+		return
+	node.set_meta("unit_visibility_sig", visibility_sig)
 	var sprite: Sprite2D = node.get_node_or_null("UnitSprite") as Sprite2D
 	if sprite != null:
 		sprite.visible = not debug_draw_units
@@ -2857,31 +2869,61 @@ func _compute_bee_visual_length_px_scaled(sprite: Sprite2D, length_scale: float)
 	var scaled_len: float = base_len * maxf(0.1, length_scale)
 	return maxf(1.0, maxf(bee_clip_min_visual_length_px, scaled_len))
 
-func _ensure_bee_clip_controller_from_store(store: Dictionary, unit_id: int, sprite: Sprite2D, clip_shader: Shader) -> RefCounted:
+func _ensure_bee_clip_controller_from_store(
+	store: Dictionary,
+	unit_id: int,
+	sprite: Sprite2D,
+	clip_shader: Shader,
+	force_configure: bool = false
+) -> RefCounted:
 	if unit_id <= 0 or sprite == null:
 		return null
 	var controller: RefCounted = store.get(unit_id, null) as RefCounted
+	var created: bool = controller == null
 	if controller == null:
 		controller = BeeClipControllerScript.new()
 		store[unit_id] = controller
-	if controller != null and controller.has_method("configure_sprite"):
+	# A pooled unit keeps the same sprite/controller pair for its lifetime.
+	# Reconfiguring it every render frame needlessly reassigns materials and
+	# shader parameters hundreds of times; style refreshes opt in explicitly.
+	if controller != null and controller.has_method("configure_sprite") and (created or force_configure):
 		controller.call("configure_sprite", sprite, clip_shader)
 		controller.call("set_local_cut_dir", _bee_clip_local_cut_dir())
 	return controller
 
-func _ensure_bee_clip_controller(unit_id: int, sprite: Sprite2D) -> RefCounted:
-	return _ensure_bee_clip_controller_from_store(_bee_clip_by_unit_id, unit_id, sprite, BEE_CLIP_SHADER)
+func _ensure_bee_clip_controller(unit_id: int, sprite: Sprite2D, force_configure: bool = false) -> RefCounted:
+	return _ensure_bee_clip_controller_from_store(_bee_clip_by_unit_id, unit_id, sprite, BEE_CLIP_SHADER, force_configure)
 
-func _ensure_bee_clip_outline_controller(unit_id: int, sprite: Sprite2D) -> RefCounted:
-	return _ensure_bee_clip_controller_from_store(_bee_clip_outline_by_unit_id, unit_id, sprite, BEE_CLIP_SHADER)
+func _ensure_bee_clip_outline_controller(unit_id: int, sprite: Sprite2D, force_configure: bool = false) -> RefCounted:
+	return _ensure_bee_clip_controller_from_store(_bee_clip_outline_by_unit_id, unit_id, sprite, BEE_CLIP_SHADER, force_configure)
 
-func _ensure_bee_clip_emission_controller(unit_id: int, sprite: Sprite2D) -> RefCounted:
-	return _ensure_bee_clip_controller_from_store(_bee_clip_emission_by_unit_id, unit_id, sprite, UNIT_EMISSION_SHADER)
+func _ensure_bee_clip_emission_controller(unit_id: int, sprite: Sprite2D, force_configure: bool = false) -> RefCounted:
+	return _ensure_bee_clip_controller_from_store(_bee_clip_emission_by_unit_id, unit_id, sprite, UNIT_EMISSION_SHADER, force_configure)
+
+func _unit_needs_live_bee_clip_update(unit_id: int, node: Node2D) -> bool:
+	if bool(_bee_clip_collision_active_by_unit_id.get(unit_id, false)):
+		return true
+	var samples_any: Variant = _unit_samples_by_id.get(unit_id, null)
+	if typeof(samples_any) != TYPE_DICTIONARY:
+		return true
+	var latest_any: Variant = (samples_any as Dictionary).get("s1", null)
+	if typeof(latest_any) != TYPE_DICTIONARY:
+		return true
+	var latest: Dictionary = latest_any as Dictionary
+	var a_any: Variant = latest.get("a", null)
+	var b_any: Variant = latest.get("b", null)
+	if not (a_any is Vector2 and b_any is Vector2):
+		return true
+	var pos: Vector2 = node.position
+	var radius_sq: float = BEE_CLIP_ACTIVE_ENDPOINT_RADIUS_PX * BEE_CLIP_ACTIVE_ENDPOINT_RADIUS_PX
+	return pos.distance_squared_to(a_any as Vector2) <= radius_sq or pos.distance_squared_to(b_any as Vector2) <= radius_sq
 
 func _update_bee_clip_for_unit(unit_id: int, node: Node2D, ud: Dictionary, hive_by_id: Dictionary) -> void:
 	if not bee_clip_enabled:
 		return
 	if unit_id <= 0 or node == null:
+		return
+	if not _unit_needs_live_bee_clip_update(unit_id, node):
 		return
 	var sprite: Sprite2D = _ensure_unit_sprite(node)
 	var outline_sprite: Sprite2D = _ensure_unit_outline_sprite(node)
@@ -2893,20 +2935,6 @@ func _update_bee_clip_for_unit(unit_id: int, node: Node2D, ud: Dictionary, hive_
 	var emission_controller: RefCounted = _ensure_bee_clip_emission_controller(unit_id, emission_sprite)
 	if controller == null or emission_controller == null:
 		return
-	var owner_id: int = _unit_owner_id(ud, hive_by_id)
-	var registry: SpriteRegistry = _get_sprite_registry()
-	var sprite_key: String = "unit.%s" % SpriteRegistry.owner_key(owner_id)
-	var key_params: Dictionary = _unit_colorkey_params(sprite_key, owner_id, registry)
-	var key_enabled: bool = false
-	var key_color: Color = key_params.get("color", Color(0.0, 0.0, 0.0, 1.0))
-	var key_threshold: float = float(key_params.get("threshold", 0.28))
-	var key_softness: float = float(key_params.get("softness", 0.10))
-	if controller.has_method("set_colorkey"):
-		controller.call("set_colorkey", key_enabled, key_color, key_threshold, key_softness)
-	if outline_controller != null and outline_controller.has_method("set_colorkey"):
-		outline_controller.call("set_colorkey", key_enabled, key_color, key_threshold, key_softness)
-	if emission_controller.has_method("set_colorkey"):
-		emission_controller.call("set_colorkey", key_enabled, key_color, key_threshold, key_softness)
 
 	var entrance_point_world: Vector2 = Vector2.ZERO
 	var travel_dir_world: Vector2 = Vector2.RIGHT
@@ -3346,6 +3374,22 @@ func _update_unit_sprite(
 		if emission_sprite != null:
 			emission_sprite.scale = sprite_scale
 		_remember_unit_base_scales(sprite, outline_sprite, emission_sprite)
+	if bee_clip_enabled and unit_id > 0:
+		var key_enabled: bool = false
+		var key_color: Color = key_params.get("color", Color(0.0, 0.0, 0.0, 1.0))
+		var key_threshold: float = float(key_params.get("threshold", 0.28))
+		var key_softness: float = float(key_params.get("softness", 0.10))
+		var clip_controller: RefCounted = _ensure_bee_clip_controller(unit_id, sprite, true)
+		if clip_controller != null and clip_controller.has_method("set_colorkey"):
+			clip_controller.call("set_colorkey", key_enabled, key_color, key_threshold, key_softness)
+		if UNIT_OUTLINE_ENABLED and outline_sprite != null:
+			var outline_controller: RefCounted = _ensure_bee_clip_outline_controller(unit_id, outline_sprite, true)
+			if outline_controller != null and outline_controller.has_method("set_colorkey"):
+				outline_controller.call("set_colorkey", key_enabled, key_color, key_threshold, key_softness)
+		if emission_sprite != null:
+			var emission_controller: RefCounted = _ensure_bee_clip_emission_controller(unit_id, emission_sprite, true)
+			if emission_controller != null and emission_controller.has_method("set_colorkey"):
+				emission_controller.call("set_colorkey", key_enabled, key_color, key_threshold, key_softness)
 	if apply_orientation:
 		var lane_id: int = int(ud.get("lane_id", 0))
 		_apply_unit_orientation(node, sprite, ud, hive_by_id, unit_id, owner_id, lane_id)
@@ -3476,6 +3520,8 @@ func _record_process_heartbeat(process_t0_us: int, now_ms: int) -> void:
 	var avg_ms: float = _process_hb_sum_ms / float(maxi(1, _process_hb_frames))
 	SFLog.info("RENDER_PROCESS_HEARTBEAT", {
 		"renderer": "unit",
+		"model_units": _unit_data_by_id.size(),
+		"live_nodes": unit_nodes_by_id.size(),
 		"frames": _process_hb_frames,
 		"max_process_ms": snapped(_process_hb_max_ms, 0.1),
 		"avg_process_ms": snapped(avg_ms, 0.1)
@@ -4106,11 +4152,12 @@ func _render_units(now_us: int) -> void:
 				state["warm_spawned"] = false
 				_unit_visual_by_id[unit_id] = state
 				var spawn_dir: Vector2 = state.get("dir", Vector2.RIGHT)
-				_reset_unit_emergence_visuals(node)
 				if not unit_data.is_empty():
 					_update_bee_clip_for_unit(unit_id, node, unit_data, hive_by_id)
 					_apply_unit_emergence_visuals(node, unit_data, hive_by_id, spawn_base_pos, spawn_dir)
 					_apply_unit_directional_visibility(node, unit_data, hive_by_id, spawn_base_pos, spawn_dir)
+				else:
+					_reset_unit_emergence_visuals(node)
 				continue
 			var alpha: float = _render_alpha_for_state(state, now_us, settle_active)
 			if settle_active and alpha > 1.0:
@@ -4129,11 +4176,12 @@ func _render_units(now_us: int) -> void:
 					state["warm_spawned"] = false
 					_unit_visual_by_id[unit_id] = state
 					var settle_dir: Vector2 = state.get("dir", Vector2.RIGHT)
-					_reset_unit_emergence_visuals(node)
 					if not unit_data.is_empty():
 						_update_bee_clip_for_unit(unit_id, node, unit_data, hive_by_id)
 						_apply_unit_emergence_visuals(node, unit_data, hive_by_id, settle_base_pos, settle_dir)
 						_apply_unit_directional_visibility(node, unit_data, hive_by_id, settle_base_pos, settle_dir)
+					else:
+						_reset_unit_emergence_visuals(node)
 					continue
 			if alpha > 1.0:
 				if not settle_active:
@@ -4155,21 +4203,25 @@ func _render_units(now_us: int) -> void:
 			state["warm_spawned"] = false
 			_unit_visual_by_id[unit_id] = state
 			var render_dir: Vector2 = state.get("dir", Vector2.RIGHT)
-			_reset_unit_emergence_visuals(node)
 			if not unit_data.is_empty():
 				_update_bee_clip_for_unit(unit_id, node, unit_data, hive_by_id)
 				_apply_unit_emergence_visuals(node, unit_data, hive_by_id, render_base_pos, render_dir)
 				_apply_unit_directional_visibility(node, unit_data, hive_by_id, render_base_pos, render_dir)
 			else:
+				_reset_unit_emergence_visuals(node)
 				_update_bee_clip_for_missing_unit(unit_id, node, now_us)
 
 func _apply_swarm_absorb_visual(node: Node2D, unit_id: int, unit_data: Dictionary, render_pos: Vector2, hive_by_id: Dictionary) -> Vector2:
 	if node == null:
 		return render_pos
-	node.scale = Vector2.ONE
-	node.modulate = Color(1.0, 1.0, 1.0, 1.0)
 	if not SWARM_ABSORB_VISUAL_ENABLED or unit_data.is_empty() or swarm_nodes_by_id.is_empty():
+		if node.scale != Vector2.ONE:
+			node.scale = Vector2.ONE
+		if node.modulate != Color.WHITE:
+			node.modulate = Color.WHITE
 		return render_pos
+	node.scale = Vector2.ONE
+	node.modulate = Color.WHITE
 	var absorb: Dictionary = _nearest_swarm_absorb_target(unit_id, unit_data, render_pos, hive_by_id)
 	if absorb.is_empty():
 		return render_pos

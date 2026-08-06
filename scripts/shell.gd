@@ -4325,7 +4325,14 @@ func _shell_display_name_for_seat(seat: int) -> String:
 	return "P%d" % seat_id
 
 func _maybe_start_soak_perf() -> bool:
-	var config: Dictionary = _parse_soak_perf_config(OS.get_cmdline_user_args())
+	# Android export preset arguments are engine arguments, while desktop test
+	# runners conventionally place soak arguments after `--` as user arguments.
+	# Accept both locations, but never expose the automated harness in a release.
+	if not OS.is_debug_build():
+		return false
+	var args: Array = OS.get_cmdline_args()
+	args.append_array(OS.get_cmdline_user_args())
+	var config: Dictionary = _parse_soak_perf_config(args)
 	if not bool(config.get("enabled", false)):
 		return false
 	call_deferred("_run_soak_perf", config)
@@ -4340,6 +4347,7 @@ func _parse_soak_perf_config(args: Array) -> Dictionary:
 		"pairs": SOAK_DEFAULT_PAIR_COUNT,
 		"reapply_ms": SOAK_DEFAULT_REAPPLY_MS,
 		"start_timeout_ms": SOAK_DEFAULT_START_TIMEOUT_MS,
+		"mode": "",
 		"profile_sim": false
 	}
 	for arg_any in args:
@@ -4358,6 +4366,8 @@ func _parse_soak_perf_config(args: Array) -> Dictionary:
 			config["reapply_ms"] = max(250, int(arg.trim_prefix("--soak-reapply-ms=")))
 		elif arg.begins_with("--soak-start-timeout-ms="):
 			config["start_timeout_ms"] = max(1000, int(arg.trim_prefix("--soak-start-timeout-ms=")))
+		elif arg.begins_with("--soak-mode="):
+			config["mode"] = arg.trim_prefix("--soak-mode=").strip_edges()
 		elif arg == "--soak-sim-profile":
 			config["profile_sim"] = true
 	return config
@@ -4394,10 +4404,12 @@ func _run_soak_perf(config: Dictionary) -> void:
 	var reapply_ms: int = int(config.get("reapply_ms", SOAK_DEFAULT_REAPPLY_MS))
 	var start_timeout_ms: int = int(config.get("start_timeout_ms", SOAK_DEFAULT_START_TIMEOUT_MS))
 	var profile_sim: bool = bool(config.get("profile_sim", false))
+	var soak_mode: String = _soak_resolve_mode(map_path, str(config.get("mode", "")))
 	if profile_sim:
 		SFLog.allow_tag("SIM_TICK_COST")
 		SFLog.allow_tag("SIM_TICK_PHASE")
 	get_tree().set_meta("soak_sim_profile", profile_sim)
+	_soak_apply_mode(soak_mode)
 	_stop_game()
 	await get_tree().process_frame
 	_apply_map_then_start(map_path)
@@ -4418,6 +4430,7 @@ func _run_soak_perf(config: Dictionary) -> void:
 	var failed_rounds: int = 0
 	SFLog.info("SOAK_START", {
 		"map": map_path,
+		"mode": soak_mode,
 		"seconds": soak_seconds,
 		"round_seconds": round_seconds,
 		"pairs": pair_count
@@ -4440,6 +4453,43 @@ func _run_soak_perf(config: Dictionary) -> void:
 	_stop_game()
 	await get_tree().process_frame
 	get_tree().quit(1 if failed_rounds > 0 else 0)
+
+func _soak_resolve_mode(map_path: String, requested_mode: String) -> String:
+	var clean_requested: String = requested_mode.strip_edges().to_upper().replace("_", " ")
+	match clean_requested:
+		"1V1", "2V2", "3P FFA", "4P FFA":
+			return clean_requested
+	var variant: String = MAP_REGISTRY.player_variant_for_path(map_path)
+	match variant:
+		"1p":
+			return "1V1"
+		"2p":
+			return "2V2"
+		"3p":
+			return "3P FFA"
+		"4p":
+			return "4P FFA"
+		_:
+			return "2V2"
+
+func _soak_apply_mode(mode: String) -> void:
+	var tree: SceneTree = get_tree()
+	if tree != null:
+		tree.set_meta("vs_mode", mode)
+		match mode:
+			"3P FFA":
+				tree.set_meta("vs_required_players", 3)
+			"2V2", "4P FFA":
+				tree.set_meta("vs_required_players", 4)
+			_:
+				tree.set_meta("vs_required_players", 2)
+	match mode:
+		"1V1":
+			_set_team_mode_ui("1p")
+		"3P FFA", "4P FFA":
+			_set_team_mode_ui("ffa")
+		_:
+			_set_team_mode_ui("2v2")
 
 func _run_soak_perf_round(
 	round_index: int,
