@@ -121,6 +121,10 @@ func _prewarm_vfx_nodes() -> void:
 		return
 	if not USE_VFX_POOL:
 		return
+	# The first opposing-unit contact also creates two additive spark lines and
+	# an IonPop. Prime those paths along with the pooled collision/impact nodes.
+	_spawn_collision_spark(VFX_OFFSCREEN_POS, Vector2.RIGHT, 1, 2, 0.2, 1)
+	_spawn_collision_ionpop(VFX_OFFSCREEN_POS, Vector2.RIGHT)
 	var impact_node: Node2D = _acquire_impact_node()
 	if impact_node != null and impact_node.has_method("play"):
 		impact_node.call(

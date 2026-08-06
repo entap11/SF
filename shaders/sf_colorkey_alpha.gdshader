@@ -25,8 +25,7 @@ uniform float body_pulse_strength = 0.0;
 uniform float body_pulse_speed = 4.8;
 uniform float body_pulse_phase = 0.0;
 
-float keyed_alpha_at(sampler2D source_texture, vec2 uv) {
-	vec4 sample_color = texture(source_texture, uv);
+float keyed_alpha_from_color(vec4 sample_color) {
 	float key_distance = distance(sample_color.rgb, key_color.rgb);
 	float key_alpha = smoothstep(threshold - softness, threshold + softness, key_distance);
 	return sample_color.a * key_alpha;
@@ -38,21 +37,8 @@ float body_mask_at(vec2 uv) {
 	return 1.0 - smoothstep(0.72, 1.0, length(body_delta));
 }
 
-float body_source_at(sampler2D source_texture, vec2 uv) {
-	return keyed_alpha_at(source_texture, uv) * body_mask_at(uv);
-}
-
-float body_ring_at(sampler2D source_texture, vec2 uv, float radius_uv) {
-	float diagonal = radius_uv * 0.70710678;
-	float ring = body_source_at(source_texture, uv + vec2(radius_uv, 0.0));
-	ring = max(ring, body_source_at(source_texture, uv + vec2(-radius_uv, 0.0)));
-	ring = max(ring, body_source_at(source_texture, uv + vec2(0.0, radius_uv)));
-	ring = max(ring, body_source_at(source_texture, uv + vec2(0.0, -radius_uv)));
-	ring = max(ring, body_source_at(source_texture, uv + vec2(diagonal, diagonal)));
-	ring = max(ring, body_source_at(source_texture, uv + vec2(-diagonal, diagonal)));
-	ring = max(ring, body_source_at(source_texture, uv + vec2(diagonal, -diagonal)));
-	ring = max(ring, body_source_at(source_texture, uv + vec2(-diagonal, -diagonal)));
-	return ring;
+float body_source_from_color(vec4 sample_color, vec2 uv) {
+	return keyed_alpha_from_color(sample_color) * body_mask_at(uv);
 }
 
 void fragment() {
@@ -84,8 +70,26 @@ void fragment() {
 	float body_mask = body_mask_at(UV);
 	float body_emission = base_alpha * body_mask * smoothstep(body_glow_luma_floor, 1.0, luma);
 	out_rgb += body_glow_color.rgb * body_emission * body_glow_strength * glow_pulse * body_burst;
-	float near_body = body_ring_at(TEXTURE, UV, body_halo_radius_uv * 0.52);
-	float far_body = body_ring_at(TEXTURE, UV, body_halo_radius_uv);
+	float near_radius = body_halo_radius_uv * 0.52;
+	float near_diagonal = near_radius * 0.70710678;
+	float near_body = body_source_from_color(texture(TEXTURE, UV + vec2(near_radius, 0.0)), UV + vec2(near_radius, 0.0));
+	near_body = max(near_body, body_source_from_color(texture(TEXTURE, UV + vec2(-near_radius, 0.0)), UV + vec2(-near_radius, 0.0)));
+	near_body = max(near_body, body_source_from_color(texture(TEXTURE, UV + vec2(0.0, near_radius)), UV + vec2(0.0, near_radius)));
+	near_body = max(near_body, body_source_from_color(texture(TEXTURE, UV + vec2(0.0, -near_radius)), UV + vec2(0.0, -near_radius)));
+	near_body = max(near_body, body_source_from_color(texture(TEXTURE, UV + vec2(near_diagonal, near_diagonal)), UV + vec2(near_diagonal, near_diagonal)));
+	near_body = max(near_body, body_source_from_color(texture(TEXTURE, UV + vec2(-near_diagonal, near_diagonal)), UV + vec2(-near_diagonal, near_diagonal)));
+	near_body = max(near_body, body_source_from_color(texture(TEXTURE, UV + vec2(near_diagonal, -near_diagonal)), UV + vec2(near_diagonal, -near_diagonal)));
+	near_body = max(near_body, body_source_from_color(texture(TEXTURE, UV + vec2(-near_diagonal, -near_diagonal)), UV + vec2(-near_diagonal, -near_diagonal)));
+	float far_radius = body_halo_radius_uv;
+	float far_diagonal = far_radius * 0.70710678;
+	float far_body = body_source_from_color(texture(TEXTURE, UV + vec2(far_radius, 0.0)), UV + vec2(far_radius, 0.0));
+	far_body = max(far_body, body_source_from_color(texture(TEXTURE, UV + vec2(-far_radius, 0.0)), UV + vec2(-far_radius, 0.0)));
+	far_body = max(far_body, body_source_from_color(texture(TEXTURE, UV + vec2(0.0, far_radius)), UV + vec2(0.0, far_radius)));
+	far_body = max(far_body, body_source_from_color(texture(TEXTURE, UV + vec2(0.0, -far_radius)), UV + vec2(0.0, -far_radius)));
+	far_body = max(far_body, body_source_from_color(texture(TEXTURE, UV + vec2(far_diagonal, far_diagonal)), UV + vec2(far_diagonal, far_diagonal)));
+	far_body = max(far_body, body_source_from_color(texture(TEXTURE, UV + vec2(-far_diagonal, far_diagonal)), UV + vec2(-far_diagonal, far_diagonal)));
+	far_body = max(far_body, body_source_from_color(texture(TEXTURE, UV + vec2(far_diagonal, -far_diagonal)), UV + vec2(far_diagonal, -far_diagonal)));
+	far_body = max(far_body, body_source_from_color(texture(TEXTURE, UV + vec2(-far_diagonal, -far_diagonal)), UV + vec2(-far_diagonal, -far_diagonal)));
 	float body_halo = max(near_body * 0.78, far_body * 0.42) * (1.0 - base_alpha);
 	float halo_alpha = clamp(body_halo * body_halo_alpha, 0.0, 1.0);
 	out_rgb = mix(out_rgb, body_glow_color.rgb * body_halo_brightness * glow_pulse * body_burst, halo_alpha);

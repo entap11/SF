@@ -598,6 +598,9 @@ func _release_prewarm_unit_next_frame(node: Node2D) -> void:
 	await get_tree().process_frame
 	if not _assert_not_freed(node):
 		return
+	var prewarm_unit_id: int = int(node.get_meta("unit_id", -1))
+	if prewarm_unit_id == UNIT_EMISSION_PREWARM_ID:
+		_clear_bee_clip_state(prewarm_unit_id)
 	_pool_release(node)
 
 func set_model(m: Dictionary) -> void:
@@ -769,6 +772,11 @@ func _prewarm_unit_assets() -> void:
 		prewarm_sprite = _ensure_unit_sprite(prewarm_node)
 		prewarm_emission_sprite = _ensure_unit_emission_sprite(prewarm_node)
 		prewarm_node.set_meta("unit_id", UNIT_EMISSION_PREWARM_ID)
+		# Keep the warm-up drawable alive for a rendered frame. Assigning a
+		# ShaderMaterial and immediately returning an invisible pooled node does
+		# not force Android's renderer to build the canvas pipeline.
+		prewarm_node.position = Vector2.ZERO
+		prewarm_node.visible = true
 	var keys: Array[String] = ["unit.neutral", "unit.p1", "unit.p2", "unit.p3", "unit.p4"]
 	for sprite_key in keys:
 		var owner_id: int = _owner_id_from_unit_sprite_key(sprite_key)
@@ -784,15 +792,33 @@ func _prewarm_unit_assets() -> void:
 		if prewarm_sprite != null:
 			prewarm_sprite.texture = tex
 			prewarm_sprite.material = mat
+			prewarm_sprite.self_modulate.a = 0.001
 			prewarm_sprite.visible = true
 		if prewarm_emission_sprite != null:
 			prewarm_emission_sprite.texture = tex
 			prewarm_emission_sprite.self_modulate = _owner_color(owner_id).lightened(0.10)
+			prewarm_emission_sprite.self_modulate.a = 0.001
 			_ensure_bee_clip_emission_controller(UNIT_EMISSION_PREWARM_ID, prewarm_emission_sprite)
 			prewarm_emission_sprite.visible = true
 	if prewarm_node != null:
-		_clear_bee_clip_state(UNIT_EMISSION_PREWARM_ID)
-		_pool_release(prewarm_node)
+		# Exercise the exact shader/controller operations used on the first
+		# opposing-unit collision while the match cover is still present.
+		var collision_controller: RefCounted = _ensure_bee_clip_controller(
+			UNIT_EMISSION_PREWARM_ID,
+			prewarm_sprite
+		)
+		if collision_controller != null:
+			collision_controller.call("reset")
+			collision_controller.call("set_first_contact_snap", true, 0.5)
+			collision_controller.call("set_plane", prewarm_node.global_position, Vector2.RIGHT)
+			collision_controller.call("set_visual_length_px", 24.0)
+			collision_controller.call(
+				"update_from_world_position",
+				prewarm_node.global_position + Vector2(6.0, 0.0),
+				0.0,
+				0.0
+			)
+		call_deferred("_release_prewarm_unit_next_frame", prewarm_node)
 	_unit_assets_prewarmed = true
 
 func _collect_active_lane_entries() -> Array:

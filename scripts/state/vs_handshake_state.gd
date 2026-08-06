@@ -692,6 +692,52 @@ func _call_transport(action: String, payload: Dictionary) -> Dictionary:
 		return {"handled": true, "result": result}
 	return {"handled": true, "result": result}
 
+func _call_transport_async(action: String, payload: Dictionary) -> Dictionary:
+	if _transport_http == null or not _transport_http.configured():
+		if _release_requires_authoritative_transport():
+			var blocker: String = get_authoritative_transport_blocker()
+			var unavailable_result: Dictionary = {
+				"ok": false,
+				"transport_error": true,
+				"err": "authoritative_transport_required",
+				"message": blocker
+			}
+			_last_transport_error = unavailable_result.duplicate(true)
+			_record_diagnostic(action, payload, unavailable_result, "blocked")
+			return {"handled": true, "result": unavailable_result}
+		return {"handled": false}
+	var now_msec: int = Time.get_ticks_msec()
+	if _transport_backoff_until_msec > now_msec:
+		var backoff_result: Dictionary = _last_transport_error.duplicate(true)
+		if backoff_result.is_empty():
+			backoff_result = {
+				"ok": false,
+				"transport_error": true,
+				"err": "transport_backoff"
+			}
+		backoff_result["backoff_ms_remaining"] = _transport_backoff_until_msec - now_msec
+		_record_diagnostic(action, payload, backoff_result, "backoff")
+		return {"handled": true, "result": backoff_result}
+	var result: Dictionary = await _transport_http.call_action_async(self, action, payload)
+	_record_diagnostic(action, payload, result, "http_async")
+	if bool(result.get("ok", false)):
+		_transport_error_logged = false
+		_last_transport_error = {}
+		_transport_backoff_until_msec = 0
+		return {"handled": true, "result": result}
+	if bool(result.get("transport_error", false)):
+		_last_transport_error = result.duplicate(true)
+		_transport_backoff_until_msec = Time.get_ticks_msec() + TRANSPORT_ERROR_BACKOFF_MS
+		if not _transport_error_logged:
+			_transport_error_logged = true
+			SFLog.allow_tag("VS_TRANSPORT_FALLBACK")
+			SFLog.warn("VS_TRANSPORT_FALLBACK", {
+				"action": action,
+				"err": str(result.get("err", "transport_error")),
+				"mode": _transport_mode
+			}, "", 3000)
+	return {"handled": true, "result": result}
+
 func create_invite(profile: Dictionary, context: Dictionary = {}) -> Dictionary:
 	var transport := _call_transport("create_invite", {
 		"profile": profile,
@@ -1514,6 +1560,15 @@ func heartbeat(profile: Dictionary) -> Dictionary:
 	var transport := _call_transport("heartbeat", {"profile": profile})
 	if bool(transport.get("handled", false)):
 		return transport.get("result", {}) as Dictionary
+	return _heartbeat_local(profile)
+
+func heartbeat_async(profile: Dictionary) -> Dictionary:
+	var transport: Dictionary = await _call_transport_async("heartbeat", {"profile": profile})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return _heartbeat_local(profile)
+
+func _heartbeat_local(profile: Dictionary) -> Dictionary:
 	var player: Dictionary = _normalize_profile(profile)
 	if player.is_empty():
 		return {"ok": false, "err": "invalid_profile"}
@@ -1533,6 +1588,18 @@ func list_online_friends(uid: String, friends: Array) -> Dictionary:
 	})
 	if bool(transport.get("handled", false)):
 		return transport.get("result", {}) as Dictionary
+	return _list_online_friends_local(uid, friends)
+
+func list_online_friends_async(uid: String, friends: Array) -> Dictionary:
+	var transport: Dictionary = await _call_transport_async("list_online_friends", {
+		"uid": uid,
+		"friends": friends
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return _list_online_friends_local(uid, friends)
+
+func _list_online_friends_local(uid: String, friends: Array) -> Dictionary:
 	_prune()
 	var now_unix: int = int(Time.get_unix_time_from_system())
 	var out: Array = []
@@ -1587,6 +1654,15 @@ func poll_friend_invites(uid: String) -> Dictionary:
 	var transport := _call_transport("poll_friend_invites", {"uid": uid})
 	if bool(transport.get("handled", false)):
 		return transport.get("result", {}) as Dictionary
+	return _poll_friend_invites_local(uid)
+
+func poll_friend_invites_async(uid: String) -> Dictionary:
+	var transport: Dictionary = await _call_transport_async("poll_friend_invites", {"uid": uid})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return _poll_friend_invites_local(uid)
+
+func _poll_friend_invites_local(uid: String) -> Dictionary:
 	_prune()
 	var clean_uid: String = uid.strip_edges()
 	if clean_uid.is_empty():

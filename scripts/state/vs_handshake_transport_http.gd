@@ -61,6 +61,94 @@ func call_action(action: String, payload: Dictionary) -> Dictionary:
 		"err": "invalid_json_body"
 	}
 
+func call_action_async(owner: Node, action: String, payload: Dictionary) -> Dictionary:
+	if _unsafe_test_backend_blocked:
+		return {
+			"ok": false,
+			"err": "unsafe_test_backend",
+			"code": "unsafe_test_backend",
+			"network_attempted": false
+		}
+	if not configured():
+		return {
+			"ok": false,
+			"transport_error": true,
+			"err": "transport_not_configured"
+		}
+	if owner == null or not is_instance_valid(owner) or not owner.is_inside_tree():
+		return {
+			"ok": false,
+			"transport_error": true,
+			"err": "async_owner_unavailable"
+		}
+	var action_path: String = action.strip_edges().trim_prefix("/")
+	if action_path.is_empty():
+		return {
+			"ok": false,
+			"transport_error": true,
+			"err": "invalid_action"
+		}
+	var request := HTTPRequest.new()
+	request.name = "VsHandshakeRequest_%s" % action_path.replace("/", "_")
+	request.timeout = _timeout_sec
+	owner.add_child(request)
+	var headers: PackedStringArray = PackedStringArray([
+		"Content-Type: application/json",
+		"Accept: application/json"
+	])
+	if not _auth_token.is_empty():
+		headers.append("Authorization: Bearer %s" % _auth_token)
+	var url: String = "%s/%s" % [_base_url, action_path]
+	var request_err: Error = request.request(
+		url,
+		headers,
+		HTTPClient.METHOD_POST,
+		JSON.stringify(payload)
+	)
+	if request_err != OK:
+		request.queue_free()
+		return {
+			"ok": false,
+			"transport_error": true,
+			"err": "request_failed",
+			"code": int(request_err)
+		}
+	var completed: Array = await request.request_completed
+	request.queue_free()
+	if completed.size() < 4:
+		return {
+			"ok": false,
+			"transport_error": true,
+			"err": "invalid_async_response"
+		}
+	var request_result: int = int(completed[0])
+	var response_code: int = int(completed[1])
+	if request_result != HTTPRequest.RESULT_SUCCESS:
+		return {
+			"ok": false,
+			"transport_error": true,
+			"err": "async_request_failed",
+			"code": request_result,
+			"status": response_code
+		}
+	var body_bytes: PackedByteArray = completed[3] as PackedByteArray
+	var body_text: String = body_bytes.get_string_from_utf8()
+	if body_text.strip_edges().is_empty():
+		return {"ok": true, "status": response_code}
+	var json := JSON.new()
+	var parse_err: Error = json.parse(body_text)
+	if parse_err != OK or typeof(json.data) != TYPE_DICTIONARY:
+		return {
+			"ok": false,
+			"transport_error": true,
+			"err": "invalid_json_body",
+			"status": response_code
+		}
+	var parsed: Dictionary = json.data as Dictionary
+	if not parsed.has("ok"):
+		parsed["ok"] = true
+	return parsed
+
 func _post_json(url: String, payload: Dictionary) -> Dictionary:
 	var parsed: Dictionary = _parse_http_url(url)
 	if not bool(parsed.get("ok", false)):

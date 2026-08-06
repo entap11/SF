@@ -425,6 +425,8 @@ var _scholastic_last_cta_unix: int = 0
 var _friends_list_vbox: VBoxContainer = null
 var _friends_empty_label: Label = null
 var _friend_presence_timer: Timer = null
+var _friend_presence_poll_in_flight: bool = false
+var _friends_refresh_in_flight: bool = false
 var _pending_friend_invite: Dictionary = {}
 var _dash_active_tab: String = DASH_HERO_TAB_GARAGE
 var _honey_widget: Control = null
@@ -7644,11 +7646,23 @@ func _build_friends_panel() -> Control:
 	return panel
 
 func _refresh_friends_panel() -> void:
+	if _friends_refresh_in_flight:
+		return
+	_refresh_friends_panel_async()
+
+func _refresh_friends_panel_async() -> void:
 	if _friends_list_vbox == null:
 		return
+	_friends_refresh_in_flight = true
+	var friends: Array = await _online_friends_async()
+	_friends_refresh_in_flight = false
+	if _friends_list_vbox == null or not is_instance_valid(_friends_list_vbox):
+		return
+	_render_friends_panel(friends)
+
+func _render_friends_panel(friends: Array) -> void:
 	for child in _friends_list_vbox.get_children():
 		child.queue_free()
-	var friends: Array = _online_friends()
 	if _friends_empty_label != null:
 		_friends_empty_label.visible = friends.is_empty()
 	for friend_any in friends:
@@ -7676,14 +7690,18 @@ func _refresh_friends_panel() -> void:
 			_invite_online_friend(friend)
 		)
 
-func _online_friends() -> Array:
+func _online_friends_async() -> Array:
 	var handshake: Node = get_node_or_null("/root/VsHandshake")
-	if handshake == null or not handshake.has_method("list_online_friends"):
+	if handshake == null:
 		return []
 	var friend_ids: Array = _local_friend_ids()
 	if friend_ids.is_empty():
 		return []
-	var result: Dictionary = handshake.call("list_online_friends", _local_user_id(), friend_ids) as Dictionary
+	var result: Dictionary = {}
+	if handshake.has_method("list_online_friends_async"):
+		result = await handshake.call("list_online_friends_async", _local_user_id(), friend_ids)
+	elif handshake.has_method("list_online_friends"):
+		result = handshake.call("list_online_friends", _local_user_id(), friend_ids) as Dictionary
 	if not bool(result.get("ok", false)):
 		return []
 	var online_any: Variant = result.get("online", [])
@@ -7758,15 +7776,31 @@ func _start_friend_presence_poll() -> void:
 	call_deferred("_poll_friend_presence")
 
 func _poll_friend_presence() -> void:
+	if _friend_presence_poll_in_flight:
+		return
+	_poll_friend_presence_async()
+
+func _poll_friend_presence_async() -> void:
 	var handshake: Node = get_node_or_null("/root/VsHandshake")
 	if handshake == null:
 		return
-	if handshake.has_method("heartbeat"):
+	_friend_presence_poll_in_flight = true
+	if handshake.has_method("heartbeat_async"):
+		await handshake.call("heartbeat_async", _local_vs_profile())
+	elif handshake.has_method("heartbeat"):
 		handshake.call("heartbeat", _local_vs_profile())
 	if _dash_active_tab == DASH_HERO_TAB_FRIENDS and _dash_friends_panel != null and _dash_friends_panel.visible:
 		_refresh_friends_panel()
-	if handshake.has_method("poll_friend_invites"):
-		var result: Dictionary = handshake.call("poll_friend_invites", _local_user_id()) as Dictionary
+	var result: Dictionary = {}
+	if handshake.has_method("poll_friend_invites_async"):
+		result = await handshake.call("poll_friend_invites_async", _local_user_id())
+	elif handshake.has_method("poll_friend_invites"):
+		result = handshake.call("poll_friend_invites", _local_user_id()) as Dictionary
+	else:
+		_friend_presence_poll_in_flight = false
+		return
+	_friend_presence_poll_in_flight = false
+	if not result.is_empty():
 		if not bool(result.get("ok", false)):
 			return
 		var invites_any: Variant = result.get("invites", [])
