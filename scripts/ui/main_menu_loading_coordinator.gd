@@ -1,12 +1,14 @@
 extends CanvasLayer
 
-const DEFAULT_MIN_VISIBLE_SECONDS: float = 1.75
+const DEFAULT_MIN_VISIBLE_SECONDS: float = 5.0
 const DEFAULT_FADE_SECONDS: float = 0.22
-const DEFAULT_EYE_FADE_DELAY_SECONDS: float = 0.65
-const DEFAULT_EYE_FADE_SECONDS: float = 0.55
+const DEFAULT_EYE_FADE_DELAY_SECONDS: float = 0.35
+const DEFAULT_EYE_FADE_SECONDS: float = 2.6
 const DEFAULT_EYE_FINAL_BRIGHTEN_SECONDS: float = 0.1
 const EYE_CRUISE_ALPHA: float = 0.9
-const EYE_LOADING_HANDOFF_ALPHA: float = 0.5
+# Tween interpolation can finish a few floating-point ulps below its target.
+# A 99% threshold is visually complete without relying on exact float equality.
+const EYE_LOADING_HANDOFF_ALPHA: float = EYE_CRUISE_ALPHA * 0.99
 
 @export_range(0.0, 5.0, 0.05) var minimum_visible_seconds: float = DEFAULT_MIN_VISIBLE_SECONDS
 @export_range(0.0, 2.0, 0.01) var fade_seconds: float = DEFAULT_FADE_SECONDS
@@ -70,7 +72,11 @@ func release_after_main_menu_ready() -> void:
 		hide_immediately()
 		return
 	var elapsed_seconds: float = float(Time.get_ticks_msec() - _shown_at_msec) / 1000.0
-	var remaining_seconds: float = maxf(0.0, minimum_visible_seconds - elapsed_seconds)
+	# The configured minimum describes the complete branded transition, including
+	# the final eye brighten and cover fade, so a five-second presentation does
+	# not accidentally become 5.32 seconds.
+	var exit_seconds: float = maxf(0.0, eye_final_brighten_seconds) + maxf(0.0, fade_seconds)
+	var remaining_seconds: float = maxf(0.0, minimum_visible_seconds - elapsed_seconds - exit_seconds)
 	if remaining_seconds > 0.0:
 		await tree.create_timer(remaining_seconds, true, false, true).timeout
 	if release_generation != _transition_generation or not _active:
@@ -132,7 +138,9 @@ func _begin_logo_eyes_fade(generation: int) -> void:
 		_set_logo_eyes_alpha(EYE_CRUISE_ALPHA)
 		return
 	_eye_fade_tween = create_tween()
-	_eye_fade_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
+	# A symmetric ease keeps the glow from popping into visibility at the start;
+	# it builds gently, blooms through the middle, then settles into cruise.
+	_eye_fade_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN_OUT)
 	_eye_fade_tween.tween_property(logo_eyes, "modulate:a", EYE_CRUISE_ALPHA, eye_fade_seconds)
 
 func _finish_logo_eyes_fade(generation: int) -> void:

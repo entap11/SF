@@ -31,7 +31,10 @@ func _run() -> void:
 	_expect(cover.has_method("present_for_main_menu"), "loading cover should support a guaranteed rendered presentation")
 	_expect(cover.has_method("release_after_main_menu_ready"), "loading cover should wait for explicit main-menu readiness")
 	_expect(cover.has_method("hide_immediately"), "loading cover should support failure cleanup")
-	_expect(float(cover.get("eye_fade_seconds")) <= 0.75, "logo eyes should reach visible brightness quickly", {
+	_expect(float(cover.get("minimum_visible_seconds")) >= 5.0, "loading cover should reserve a deliberate five-second branding beat", {
+		"minimum_visible_seconds": cover.get("minimum_visible_seconds")
+	})
+	_expect(float(cover.get("eye_fade_seconds")) >= 2.5 and float(cover.get("eye_fade_seconds")) <= 3.0, "logo glow should use a slow, controlled build", {
 		"eye_fade_seconds": cover.get("eye_fade_seconds")
 	})
 	var black: ColorRect = cover.get_node_or_null("Black") as ColorRect
@@ -63,7 +66,7 @@ func _run() -> void:
 	cover.set("eye_fade_seconds", 0.2)
 	cover.set("eye_final_brighten_seconds", 0.01)
 	await cover.present_for_main_menu()
-	_expect(logo_eyes.modulate.a >= 0.45, "coordinator should draw visibly lit logo eyes before handing off to menu loading", {
+	_expect(logo_eyes.modulate.a >= 0.88, "coordinator should complete the logo glow before handing off to menu loading", {
 		"alpha": logo_eyes.modulate.a
 	})
 	cover.hide_immediately()
