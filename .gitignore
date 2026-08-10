@@ -21,7 +21,8 @@ Thumbs.db
 *.log
 tmp/
 debug_reports/
-artifacts/
+artifacts/*
+!artifacts/.gdignore
 
 # Local tools
 tools/analytics/.env
