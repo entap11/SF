@@ -271,7 +271,7 @@ func _print_step(step: String, message: String, details: Dictionary = {}) -> voi
 	print("[VS_PVP_SMOKE][%s] %s :: %s" % [step, message, str(details)])
 
 func _arg_value(prefix: String) -> String:
-	for arg in OS.get_cmdline_args():
+	for arg in _all_cmdline_args():
 		var value: String = str(arg)
 		if not value.begins_with(prefix):
 			continue
@@ -279,7 +279,12 @@ func _arg_value(prefix: String) -> String:
 	return ""
 
 func _has_arg(flag: String) -> bool:
-	for arg in OS.get_cmdline_args():
+	for arg in _all_cmdline_args():
 		if str(arg) == flag:
 			return true
 	return false
+
+func _all_cmdline_args() -> PackedStringArray:
+	var args: PackedStringArray = OS.get_cmdline_args()
+	args.append_array(OS.get_cmdline_user_args())
+	return args

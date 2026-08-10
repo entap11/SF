@@ -12,6 +12,8 @@ func _run() -> void:
 		return _fail("OpsConfig autoload missing")
 	if analytics == null:
 		return _fail("AnalyticsClient autoload missing")
+	if not bool(analytics.call("set_perf_harness_isolation", false)):
+		return _fail("could not enable the explicit analytics smoke seam")
 	ops_config.call("force_config_for_smoke", {
 		"schema_version": 1,
 		"config_version": "analytics-smoke",
