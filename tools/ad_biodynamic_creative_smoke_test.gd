@@ -32,6 +32,7 @@ func _run() -> void:
 	root_control.size = Vector2(760.0, 520.0)
 	root.add_child(root_control)
 	var cases: Array[Dictionary] = [
+		{"slot": "match_loading_handshake", "placement": "handshake", "size": Vector2(468.0, 176.0), "light_backdrop": true},
 		{"slot": "prematch_handshake", "placement": "handshake", "size": Vector2(468.0, 60.0)},
 		{"slot": "vs_handshake", "placement": "handshake", "size": Vector2(468.0, 60.0)},
 		{"slot": "in_game_hud", "placement": "in_game", "size": Vector2(320.0, 50.0)},
@@ -42,6 +43,7 @@ func _run() -> void:
 	for case in cases:
 		var surface: Control = AdSurfaceScript.new() as Control
 		root_control.add_child(surface)
+		surface.set("light_creative_backdrop", bool(case.get("light_backdrop", false)))
 		surface.position = Vector2(20.0, y)
 		surface.call("configure", str(case.get("slot", "")), str(case.get("placement", "")), case.get("size", Vector2.ZERO), false)
 		surfaces.append(surface)
@@ -61,6 +63,11 @@ func _run() -> void:
 		if texture_rect.stretch_mode != TextureRect.STRETCH_SCALE:
 			_fail("%s should stretch the banner to fill its surface" % slot_id)
 			return
+		if bool(case.get("light_backdrop", false)):
+			var style: StyleBoxFlat = surface.get_theme_stylebox("panel") as StyleBoxFlat
+			if style == null or style.bg_color.get_luminance() < 0.9:
+				_fail("%s should render the transparent creative on a light backplate" % slot_id)
+				return
 		var label: Label = surface.get_node_or_null("PlaceholderLabel") as Label
 		if label != null and label.visible:
 			_fail("%s should be image-only, but label is visible" % slot_id)
@@ -97,7 +104,7 @@ func _run() -> void:
 
 func _cleanup(manager: Node) -> void:
 	ProjectSettings.set_setting("swarmfront/ads/dev_biodynamic_test_ads", false)
-	ProjectSettings.set_setting("swarmfront/ads/dev_biodynamic_open_url_on_tap", true)
+	ProjectSettings.set_setting("swarmfront/ads/dev_biodynamic_open_url_on_tap", false)
 	if manager != null and manager.has_method("clear_provider"):
 		manager.call("clear_provider")
 

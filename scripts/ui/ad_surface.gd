@@ -22,6 +22,8 @@ var reserved_size: Vector2 = Vector2(320.0, 50.0)
 var reserve_when_empty: bool = false
 var ticker_items: Array[String] = []
 
+@export var light_creative_backdrop: bool = false
+
 var _label: Label = null
 var _creative_texture_rect: TextureRect = null
 var _ad_available: bool = false
@@ -147,9 +149,10 @@ func _sync_empty_state() -> void:
 	var policy_allows_ads: bool = _ads_allowed_by_policy()
 	var show_internal_ticker: bool = _should_show_internal_ticker()
 	var show_placeholder: bool = policy_allows_ads and _placeholders_enabled()
+	var show_reserved_empty: bool = policy_allows_ads and reserve_when_empty and not _ad_available
 	var has_presentable_content: bool = show_internal_ticker or (policy_allows_ads and (_ad_available or reserve_when_empty or show_placeholder))
 	visible = _presentation_enabled and has_presentable_content
-	modulate.a = 1.0 if _presentation_enabled and (_ad_available or show_placeholder or show_internal_ticker) else 0.0
+	modulate.a = 1.0 if _presentation_enabled and (_ad_available or show_placeholder or show_reserved_empty or show_internal_ticker) else 0.0
 	set_meta("ad_surface_content_mode", _current_content_mode())
 	set_meta("ad_surface_presentation_enabled", _presentation_enabled)
 	mouse_filter = Control.MOUSE_FILTER_STOP if _presentation_enabled and _interaction_enabled and _ad_available and _current_content_mode() == CONTENT_MODE_AD else Control.MOUSE_FILTER_IGNORE
@@ -168,7 +171,7 @@ func _sync_empty_state() -> void:
 			_label.visible = true
 		else:
 			_label.text = "AD SPACE" if slot_id.is_empty() else "AD SPACE: %s" % slot_id
-			_label.visible = show_placeholder and not _ad_available
+			_label.visible = (show_placeholder or show_reserved_empty) and not _ad_available
 
 func _placeholders_enabled() -> bool:
 	var env_value: String = OS.get_environment(PLACEHOLDER_ENV).strip_edges().to_lower()
@@ -445,12 +448,20 @@ func _apply_surface_style(internal_ticker: bool) -> void:
 		style.border_color = Color(0.95, 0.82, 0.24, 0.58)
 		if _label != null:
 			_label.add_theme_color_override("font_color", Color(1.0, 0.93, 0.62, 0.96))
+	elif light_creative_backdrop and (_ad_available or reserve_when_empty):
+		# Some provider creatives intentionally ship with transparent pixels. The
+		# loading placement uses a neutral paper-like backplate so dark artwork
+		# cannot disappear into Swarmfront's black transition screen.
+		style.bg_color = Color(0.96, 0.97, 0.98, 1.0)
+		style.border_color = Color(1.0, 0.78, 0.08, 0.96)
+		if _label != null:
+			_label.add_theme_color_override("font_color", Color(0.06, 0.07, 0.08, 0.96))
 	else:
 		style.bg_color = Color(0.02, 0.025, 0.03, 0.72)
 		style.border_color = Color(0.8, 0.86, 0.95, 0.35)
 		if _label != null:
 			_label.add_theme_color_override("font_color", Color(0.88, 0.90, 0.96, 0.82))
-	style.set_border_width_all(1)
+	style.set_border_width_all(3 if light_creative_backdrop and (_ad_available or reserve_when_empty) and not internal_ticker else 1)
 	style.corner_radius_top_left = 6
 	style.corner_radius_top_right = 6
 	style.corner_radius_bottom_left = 6

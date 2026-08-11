@@ -180,7 +180,9 @@ func begin_synchronized_match_ad(start_unix_ms: int, server_offset_ms: int, prem
 	if remaining_ms <= 0:
 		return
 	if match_ad_surface != null:
-		match_ad_surface.call("configure", MATCH_LOADING_AD_SLOT, MATCH_LOADING_AD_PLACEMENT, MATCH_LOADING_AD_SIZE, false)
+		# Reserve the scheduled rectangle even if the certification provider ever
+		# misses a fill, so a failed creative cannot masquerade as empty loading UI.
+		match_ad_surface.call("configure", MATCH_LOADING_AD_SLOT, MATCH_LOADING_AD_PLACEMENT, MATCH_LOADING_AD_SIZE, true)
 		if match_ad_surface.has_method("set_interaction_enabled"):
 			match_ad_surface.call("set_interaction_enabled", false)
 		if match_ad_surface.has_method("set_presentation_enabled"):

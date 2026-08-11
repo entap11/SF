@@ -87,12 +87,12 @@ theme_override_constants/separation = 8
 
 [node name="Disclosure" type="Label" parent="MatchAdPanel"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.82, 0.84, 0.88, 0.92)
+theme_override_colors/font_color = Color(1, 0.82, 0.16, 1)
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.92)
 theme_override_constants/shadow_offset_x = 2
 theme_override_constants/shadow_offset_y = 2
 theme_override_fonts/font = ExtResource("4_font")
-theme_override_font_sizes/font_size = 28
+theme_override_font_sizes/font_size = 34
 text = "ADVERTISEMENT"
 horizontal_alignment = 1
 
@@ -100,6 +100,7 @@ horizontal_alignment = 1
 custom_minimum_size = Vector2(780, 292)
 layout_mode = 2
 script = ExtResource("5_ad_surface")
+light_creative_backdrop = true
 
 [node name="Countdown" type="Label" parent="MatchAdPanel"]
 layout_mode = 2

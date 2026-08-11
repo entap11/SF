@@ -119,6 +119,8 @@ func _run() -> void:
 	cover.begin_synchronized_match_ad(test_start_ms, 0, 10000)
 	_expect(match_ad_panel.visible, "server start epoch should reveal the match-loading ad surface")
 	_expect(match_ad_surface.mouse_filter == Control.MOUSE_FILTER_IGNORE, "scheduled gameplay ads should not offer a tap that can pull players out of the match")
+	_expect(bool(match_ad_surface.get("light_creative_backdrop")), "match-loading creative should opt into a high-contrast backplate")
+	_expect(bool(match_ad_surface.get("reserve_when_empty")), "match-loading surface should remain visibly reserved if its provider misses a fill")
 	_expect(match_ad_countdown.text.contains("8s"), "match-loading ad should reserve an eight-second display window", {
 		"text": match_ad_countdown.text
 	})

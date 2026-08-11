@@ -33,7 +33,7 @@ class DevBiodynamicTestProvider:
 
 	var image_path: String = ""
 	var destination_url: String = ""
-	var open_url_on_tap: bool = true
+	var open_url_on_tap: bool = false
 	var opened_urls: Array[String] = []
 	var recorded_events: Array[Dictionary] = []
 
@@ -406,7 +406,7 @@ func _install_dev_biodynamic_provider_if_enabled() -> void:
 		return
 	var image_path: String = str(ProjectSettings.get_setting(SETTINGS_DEV_BIODYNAMIC_IMAGE_PATH, DEV_BIODYNAMIC_DEFAULT_IMAGE_PATH)).strip_edges()
 	var destination_url: String = str(ProjectSettings.get_setting(SETTINGS_DEV_BIODYNAMIC_DESTINATION_URL, DEV_BIODYNAMIC_DEFAULT_DESTINATION_URL)).strip_edges()
-	var open_url_on_tap: bool = bool(ProjectSettings.get_setting(SETTINGS_DEV_BIODYNAMIC_OPEN_URL_ON_TAP, true))
+	var open_url_on_tap: bool = bool(ProjectSettings.get_setting(SETTINGS_DEV_BIODYNAMIC_OPEN_URL_ON_TAP, false))
 	_provider = DevBiodynamicTestProvider.new(image_path, destination_url, open_url_on_tap)
 	_provider_is_dev_test = true
 
