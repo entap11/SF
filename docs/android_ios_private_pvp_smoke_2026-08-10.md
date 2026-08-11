@@ -31,6 +31,29 @@ build time.
 
 ## Install and preflight
 
+New physical-device candidates must be exported with the
+`private_pvp_certification` feature. Use the **Android Release Device** and
+**iOS Private PvP Certification** presets; the archived `08c2066` artifacts
+listed above predate the certification UI and must not be used for the
+controlled matrix. The feature exposes **Create Invite** and the invite-code
+**Join** row only in these certification builds. It also keeps the lobby from
+automatically entering Quick Match. Store/public builds omit the feature and
+retain the rollout gates.
+
+Export the candidates on the signing machine with Godot 4.7.1:
+
+```sh
+scripts/dev/export_android_release_candidate.sh
+mkdir -p artifacts/ios/certification
+"${GODOT_BIN}" --headless --path . \
+  --export-debug "iOS Private PvP Certification" \
+  artifacts/ios/certification/swarmfront-private-pvp.xcodeproj
+```
+
+The Android script also produces the store AAB and emulator APK, but only the
+**Android Release Device** APK carries the certification feature. The AAB and
+ordinary iOS preset remain unchanged and must not expose the private controls.
+
 1. Make both phones available for the test. They do not need to be in the same
    room or on the same network: the relay test traverses Render. Connecting
    both to the Mac merely makes installation and log collection easier.
@@ -40,11 +63,22 @@ build time.
 3. Install Android:
 
    `adb install -r artifacts/android/current/release-2abf9b2/swarmfront-0.1.2-rc1-device.apk`
-4. Open the generated Xcode project and run the `swarmfront-2abf9b2` target on
-   the connected iPhone, or install the signed `.app` with Xcode's Devices and
-   Simulators window.
+4. Export **iOS Private PvP Certification**, open the generated Xcode project,
+   and run its Swarmfront target on the connected iPhone. Do not use the
+   ordinary **iOS** preset for this matrix.
 5. Confirm both clients reach the menu without a timeout or loading-screen
    stall.
+
+## Controlled handshake
+
+1. On the designated host, open the free Human 1V1 lobby and tap
+   **Create Invite**.
+2. Read the displayed `VS...` invite code.
+3. On the other phone, open the same free Human 1V1 lobby, enter that code,
+   and tap **Join**.
+4. Confirm both phones show the opponent and enter the same Arena. Do not use
+   Quick Match for the private certification rows.
+5. Leave the session cleanly, then repeat with the phone roles reversed.
 
 ## Required two-phone matrix
 

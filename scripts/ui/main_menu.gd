@@ -3,6 +3,7 @@ extends Control
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
 const EconomyQuarantineUiPolicyScript = preload("res://scripts/ui/economy_quarantine_ui_policy.gd")
+const PrivatePvpCertificationPolicy = preload("res://scripts/state/private_pvp_certification_policy.gd")
 const MAP_LOADER = preload("res://scripts/maps/map_loader.gd")
 const MAP_REGISTRY = preload("res://scripts/maps/map_registry.gd")
 const MAP_MODE_RULES = preload("res://scripts/maps/map_mode_rules.gd")
@@ -14539,7 +14540,8 @@ func _on_touch_drag_scroll_gui_input(event: InputEvent, scroll: ScrollContainer)
 func _on_human_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
 	if _block_for_active_hive_tournament("human matches"):
 		return
-	if not _public_rollout_allows_mode(mode_id):
+	if not _public_rollout_allows_mode(mode_id) \
+		and not PrivatePvpCertificationPolicy.allows_rollout_bypass(mode_id, paid):
 		status_label.text = "%s is not open in the current rollout." % mode_id.capitalize()
 		return
 	if paid and not _paid_entries_enabled():

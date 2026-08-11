@@ -5,6 +5,7 @@ const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 const MapModeRules := preload("res://scripts/maps/map_mode_rules.gd")
 const MatchSetupRandomizer := preload("res://scripts/state/match_setup_randomizer.gd")
 const CrucibleRulesetPolicy := preload("res://scripts/state/crucible_ruleset_policy.gd")
+const PrivatePvpCertificationPolicy := preload("res://scripts/state/private_pvp_certification_policy.gd")
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
 
 signal closed
@@ -91,6 +92,7 @@ var _context_meta: Dictionary = {}
 var _force_async_window: bool = false
 var _auto_start_quick_search: bool = false
 var _durable_public_1v1: bool = false
+var _private_pvp_certification_enabled: bool = PrivatePvpCertificationPolicy.is_enabled()
 
 var _local_uid: String = ""
 var _local_name: String = "You"
@@ -123,7 +125,9 @@ func configure(mode: String, map_count: int, price_usd: int, free_roll: bool, op
 	_standard_bot_style = ""
 	_standard_bot_tier = ""
 	_force_async_window = bool(options.get("force_async_window", false))
-	_auto_start_quick_search = bool(options.get("human_pvp", false)) and not _force_async_window
+	_auto_start_quick_search = bool(options.get("human_pvp", false)) \
+		and not _force_async_window \
+		and not _private_pvp_certification_enabled
 	var normalized_mode: String = _mode.strip_edges().to_upper().replace(" ", "_").replace("-", "_")
 	_durable_public_1v1 = bool(options.get("durable_public_1v1", false)) \
 		and bool(options.get("human_pvp", false)) \
@@ -177,8 +181,7 @@ func _ready() -> void:
 	_contest_window_open = false
 	_invite_code = ""
 	invite_label.visible = false
-	sms_button.visible = false
-	join_row.visible = false
+	_apply_private_pvp_certification_ui(_private_pvp_certification_enabled)
 	_dev_min_players_override = false
 	dev_min_override_button.visible = OS.is_debug_build()
 	_setup_dev_bot_options()
@@ -515,7 +518,7 @@ func _refresh_sync_session_ui() -> void:
 		_status("Lobby")
 	if _session_role == "host" and not _invite_code.is_empty() and open_slots > 0:
 		invite_label.text = "Invite code: %s\nLink: sf://vs/%s" % [_invite_code, _invite_code]
-		invite_label.visible = false
+		invite_label.visible = _private_pvp_certification_enabled
 	else:
 		invite_label.visible = false
 	_sync_quick_button_text()
@@ -2025,7 +2028,18 @@ func _sync_quick_button_text() -> void:
 func _sync_join_row_visibility() -> void:
 	if join_row == null:
 		return
-	join_row.visible = false
+	join_row.visible = _private_pvp_certification_enabled \
+		and not _uses_async_window() \
+		and not _bot_filled_match \
+		and _session_id.is_empty() \
+		and _quick_ticket_id.is_empty()
+
+func _apply_private_pvp_certification_ui(enabled: bool) -> void:
+	_private_pvp_certification_enabled = enabled
+	if sms_button != null:
+		sms_button.text = "Create Invite" if enabled else "VS via SMS"
+		sms_button.visible = enabled and not _uses_async_window()
+	_sync_join_row_visibility()
 
 func _is_human_pvp_context() -> bool:
 	return bool(_context_meta.get("human_pvp", false))
