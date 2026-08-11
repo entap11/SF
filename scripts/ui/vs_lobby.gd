@@ -501,8 +501,11 @@ func _refresh_sync_session_ui() -> void:
 		else:
 			_status("Joined lobby")
 	elif status == "matched":
-		_status("Roster complete. Starting")
-		if _session_role == "host":
+		if _uses_private_synchronized_start_barrier():
+			_status("Roster complete. Loading match")
+			_start_match(true)
+		elif _session_role == "host":
+			_status("Roster complete. Starting")
 			var start_result: Dictionary = handshake.call("start_session", _session_id, _local_uid) as Dictionary
 			if bool(start_result.get("ok", false)):
 				_apply_session_context(start_result.get("session", {}) as Dictionary)
@@ -1091,6 +1094,7 @@ func _start_match(session_already_started: bool = false) -> void:
 	tree.set_meta("vs_open_slots", maxi(_max_players() - _assigned_players.size(), 0))
 	tree.set_meta("vs_required_players", _effective_required_players())
 	tree.set_meta("vs_sync_start", not _uses_async_window())
+	tree.set_meta("vs_synchronized_start_barrier", _uses_private_synchronized_start_barrier())
 	tree.set_meta("vs_sync_join_sec", _sync_join_sec)
 	tree.set_meta("vs_window_sec", _window_sec)
 	tree.set_meta("vs_window_started_unix", _contest_started_unix)
@@ -1291,6 +1295,8 @@ func _bot_fill_jukebox_clear_keys() -> Array[String]:
 		"vs_open_slots",
 		"vs_required_players",
 		"vs_sync_start",
+		"vs_synchronized_start_barrier",
+		"vs_synchronized_start_consumed",
 		"vs_sync_join_sec",
 		"vs_window_sec",
 		"vs_window_started_unix",
@@ -1364,6 +1370,8 @@ func _vs_launch_clear_keys() -> Array[String]:
 		"vs_open_slots",
 		"vs_required_players",
 		"vs_sync_start",
+		"vs_synchronized_start_barrier",
+		"vs_synchronized_start_consumed",
 		"vs_sync_join_sec",
 		"vs_window_sec",
 		"vs_window_started_unix",
@@ -2043,6 +2051,14 @@ func _apply_private_pvp_certification_ui(enabled: bool) -> void:
 
 func _is_human_pvp_context() -> bool:
 	return bool(_context_meta.get("human_pvp", false))
+
+func _uses_private_synchronized_start_barrier() -> bool:
+	return _is_human_pvp_context() \
+		and _free_roll \
+		and not _durable_public_1v1 \
+		and not _bot_filled_match \
+		and not bool(_context_meta.get("vs_crucible", false)) \
+		and str(_context_meta.get("vs_ruleset", "")).strip_edges().to_upper() != "CRUCIBLE"
 
 func _is_pregame_setup_key(key: String) -> bool:
 	return key == "map_ids" or key == "stage_map_paths" or key == MatchSetupRandomizer.CONTEXT_KEY

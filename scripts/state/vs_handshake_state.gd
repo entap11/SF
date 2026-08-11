@@ -29,6 +29,7 @@ const DIAGNOSTIC_LOG_PATH: String = "user://vs_handshake_diagnostics.jsonl"
 const DIAGNOSTIC_MAX_PAYLOAD_CHARS: int = 1200
 const SESSION_CONTRACT_VERSION: int = 2
 const PUBLIC_MATCH_PROTOCOL_VERSION: int = 2
+const SYNCHRONIZED_START_LEAD_MS: int = 15000
 const SETTINGS_PUBLIC_CLIENT_BUILD: String = "swarmfront/vs/public_client_build"
 const MAX_SYNC_PLAYERS: int = 4
 const TIER_ORDER: Array[String] = [
@@ -796,7 +797,7 @@ func join_invite(invite_code: String, profile: Dictionary) -> Dictionary:
 	if existing_index < 0:
 		roster.append(_roster_player_from_profile(guest, roster.size() + 1, false))
 	_set_session_roster(session, roster)
-	if _session_has_required_players(session):
+	if _session_has_required_players(session) and not _session_uses_synchronized_start(session):
 		var start_result: Dictionary = _mark_session_started(session)
 		if not bool(start_result.get("ok", false)):
 			return start_result
@@ -833,7 +834,7 @@ func enqueue_quick_match(profile: Dictionary, context: Dictionary = {}) -> Dicti
 			return {"ok": true, "matched": true, "session_id": open_session_id, "session": _dup_session(open_session)}
 		open_roster.append(_roster_player_from_profile(player, open_roster.size() + 1, false))
 		_set_session_roster(open_session, open_roster)
-		if _session_has_required_players(open_session):
+		if _session_has_required_players(open_session) and not _session_uses_synchronized_start(open_session):
 			var open_start: Dictionary = _mark_session_started(open_session)
 			if not bool(open_start.get("ok", false)):
 				return open_start
@@ -878,7 +879,7 @@ func enqueue_quick_match(profile: Dictionary, context: Dictionary = {}) -> Dicti
 			_roster_player_from_profile(host, 1, true),
 			_roster_player_from_profile(player, 2, false)
 		])
-		if _session_has_required_players(session):
+		if _session_has_required_players(session) and not _session_uses_synchronized_start(session):
 			var start_result: Dictionary = _mark_session_started(session)
 			if not bool(start_result.get("ok", false)):
 				return start_result
@@ -1252,6 +1253,57 @@ func get_session(session_id: String) -> Dictionary:
 		return {}
 	return _dup_session(_sessions.get(sid, {}) as Dictionary)
 
+func get_session_sync_async(session_id: String) -> Dictionary:
+	var started_ticks_ms: int = Time.get_ticks_msec()
+	var started_unix_ms: int = int(round(Time.get_unix_time_from_system() * 1000.0))
+	var transport: Dictionary = await _call_transport_async("get_session", {"session_id": session_id})
+	if bool(transport.get("handled", false)):
+		return _with_client_clock_sample(transport.get("result", {}) as Dictionary, started_ticks_ms, started_unix_ms)
+	var session: Dictionary = get_session(session_id)
+	var local_result: Dictionary = {"ok": not session.is_empty(), "session": session}
+	if session.is_empty():
+		local_result["err"] = "session_not_found"
+	return _with_client_clock_sample(_with_server_perf_meta(local_result, started_ticks_ms), started_ticks_ms, started_unix_ms)
+
+func set_ready_sync_async(session_id: String, uid: String, ready: bool) -> Dictionary:
+	var started_ticks_ms: int = Time.get_ticks_msec()
+	var started_unix_ms: int = int(round(Time.get_unix_time_from_system() * 1000.0))
+	var transport: Dictionary = await _call_transport_async("set_ready", {
+		"session_id": session_id,
+		"uid": uid,
+		"ready": ready
+	})
+	if bool(transport.get("handled", false)):
+		return _with_client_clock_sample(transport.get("result", {}) as Dictionary, started_ticks_ms, started_unix_ms)
+	var local_result: Dictionary = set_ready(session_id, uid, ready)
+	return _with_client_clock_sample(_with_server_perf_meta(local_result, started_ticks_ms), started_ticks_ms, started_unix_ms)
+
+func start_session_sync_async(session_id: String, uid: String) -> Dictionary:
+	var started_ticks_ms: int = Time.get_ticks_msec()
+	var started_unix_ms: int = int(round(Time.get_unix_time_from_system() * 1000.0))
+	var transport: Dictionary = await _call_transport_async("start_session", {
+		"session_id": session_id,
+		"uid": uid
+	})
+	if bool(transport.get("handled", false)):
+		return _with_client_clock_sample(transport.get("result", {}) as Dictionary, started_ticks_ms, started_unix_ms)
+	var local_result: Dictionary = start_session(session_id, uid)
+	return _with_client_clock_sample(_with_server_perf_meta(local_result, started_ticks_ms), started_ticks_ms, started_unix_ms)
+
+func _with_client_clock_sample(result: Dictionary, started_ticks_ms: int, started_unix_ms: int) -> Dictionary:
+	var out: Dictionary = result.duplicate(true)
+	var finished_ticks_ms: int = Time.get_ticks_msec()
+	var finished_unix_ms: int = int(round(Time.get_unix_time_from_system() * 1000.0))
+	var round_trip_ms: int = maxi(0, finished_ticks_ms - started_ticks_ms)
+	var server_unix_ms: int = int(out.get("server_unix_ms", 0))
+	out["client_round_trip_ms"] = round_trip_ms
+	if server_unix_ms > 0:
+		var local_midpoint_unix_ms: int = int(round((float(started_unix_ms) + float(finished_unix_ms)) * 0.5))
+		var clock_offset_ms: int = server_unix_ms - local_midpoint_unix_ms
+		out["client_server_clock_offset_ms"] = clock_offset_ms
+		out["estimated_server_now_ms"] = finished_unix_ms + clock_offset_ms
+	return out
+
 func set_ready(session_id: String, uid: String, ready: bool) -> Dictionary:
 	if _durable_public_match_ids.has(session_id.strip_edges()):
 		return set_public_1v1_ready(session_id, ready)
@@ -1304,7 +1356,8 @@ func can_start(session_id: String, uid: String) -> bool:
 	var session: Dictionary = _sessions.get(sid, {}) as Dictionary
 	if not _session_has_required_players(session):
 		return false
-	if not ["matched", "ready", "started"].has(str(session.get("status", ""))):
+	var allowed_statuses: Array[String] = ["ready", "started"] if _session_uses_synchronized_start(session) else ["matched", "ready", "started"]
+	if not allowed_statuses.has(str(session.get("status", ""))):
 		return false
 	var host: Dictionary = session.get("host", {}) as Dictionary
 	return str(host.get("uid", "")) == player_uid
@@ -2309,6 +2362,14 @@ func _session_refresh_status(session: Dictionary) -> void:
 		return
 	session["status"] = "matched"
 
+func _session_uses_synchronized_start(session: Dictionary) -> bool:
+	var context: Dictionary = session.get("context", {}) as Dictionary
+	return bool(context.get("human_pvp", false)) \
+		and bool(context.get("free_roll", false)) \
+		and not bool(context.get("paid_entry", false)) \
+		and not bool(context.get("vs_crucible", false)) \
+		and str(context.get("vs_ruleset", "")).strip_edges().to_upper() != "CRUCIBLE"
+
 func _mark_session_started(session: Dictionary) -> Dictionary:
 	if not _session_has_required_players(session):
 		return {
@@ -2322,7 +2383,10 @@ func _mark_session_started(session: Dictionary) -> Dictionary:
 	if not bool(escrow_result.get("ok", false)):
 		return escrow_result
 	session["status"] = "started"
-	session["started_unix"] = int(Time.get_unix_time_from_system())
+	var lead_ms: int = SYNCHRONIZED_START_LEAD_MS if _session_uses_synchronized_start(session) else 0
+	var start_unix_ms: int = int(round(Time.get_unix_time_from_system() * 1000.0)) + lead_ms
+	session["start_unix_ms"] = start_unix_ms
+	session["started_unix"] = int(floor(float(start_unix_ms) / 1000.0))
 	return {"ok": true, "session": _dup_session(session)}
 
 func _ensure_money_escrow_for_session(session: Dictionary) -> Dictionary:

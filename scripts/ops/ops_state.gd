@@ -4215,7 +4215,7 @@ func _apply_lane_intent(lane: LaneData, src_id: int, dst_id: int, enable: bool, 
 			lane.retract_a = false
 			if not was_send_a:
 				lane.establish_a = true
-				lane.establish_t0_ms = Time.get_ticks_msec()
+				lane.establish_t0_ms = int(st._sim_time_us / 1000)
 				lane.build_t = 0.0
 				lane.a_stream_len = 0.0
 		else:
@@ -4232,7 +4232,7 @@ func _apply_lane_intent(lane: LaneData, src_id: int, dst_id: int, enable: bool, 
 			lane.retract_b = false
 			if not was_send_b:
 				lane.establish_b = true
-				lane.establish_t0_ms = Time.get_ticks_msec()
+				lane.establish_t0_ms = int(st._sim_time_us / 1000)
 				lane.build_t = 0.0
 				lane.b_stream_len = 0.0
 		else:

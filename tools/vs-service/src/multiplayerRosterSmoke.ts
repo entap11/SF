@@ -59,8 +59,20 @@ async function main(): Promise<void> {
     for (let seat = 2; seat <= 4; seat += 1) {
       const joined = await post(baseUrl, "join_invite", { invite_code: code, profile: { uid: `team_p${seat}`, display_name: `P${seat}` } });
       expect(rosterFrom(joined).length === seat, `join did not fill seat ${seat}`, joined);
-      expect(String(sessionFrom(joined).status) === (seat === 4 ? "started" : "waiting"), `wrong status at seat ${seat}`, joined);
+      expect(String(sessionFrom(joined).status) === (seat === 4 ? "matched" : "waiting"), `wrong status at seat ${seat}`, joined);
     }
+
+    const prematureStart = await postRaw(baseUrl, "start_session", { session_id: sessionId, uid: "team_p1" });
+    expect(prematureStart.ok === false && prematureStart.err === "not_ready_or_not_host", "synchronized session started before every player loaded", prematureStart);
+    for (let seat = 1; seat <= 4; seat += 1) {
+      const ready = await post(baseUrl, "set_ready", { session_id: sessionId, uid: `team_p${seat}`, ready: true });
+      expect(String(sessionFrom(ready).status) === (seat === 4 ? "ready" : "matched"), `wrong ready status at seat ${seat}`, ready);
+    }
+    const started = await post(baseUrl, "start_session", { session_id: sessionId, uid: "team_p1" });
+    const startEpoch = Number(sessionFrom(started).start_unix_ms ?? 0);
+    expect(String(sessionFrom(started).status) === "started" && startEpoch > Number(started.server_unix_ms), "shared future start epoch missing", started);
+    const duplicateStart = await post(baseUrl, "start_session", { session_id: sessionId, uid: "team_p1" });
+    expect(Number(sessionFrom(duplicateStart).start_unix_ms ?? 0) === startEpoch, "idempotent start changed the shared epoch", duplicateStart);
     const overflow = await postRaw(baseUrl, "join_invite", { invite_code: code, profile: { uid: "team_p5", display_name: "P5" } });
     expect(overflow.ok === false && overflow.err === "invite_full", "full roster accepted another player", overflow);
     const spoofedSeat = await postRaw(baseUrl, "publish_intent", {
@@ -87,7 +99,7 @@ async function main(): Promise<void> {
     const q3 = await post(baseUrl, "enqueue_quick_match", { profile: { uid: "quick_p3", display_name: "Q3" }, context: quickContext });
     expect(q1.matched === false, "first 3P player should remain queued", q1);
     expect(q2.matched === true && String(sessionFrom(q2).status) === "waiting", "second 3P player should form a partial roster", q2);
-    expect(q3.matched === true && String(sessionFrom(q3).status) === "started" && rosterFrom(q3).length === 3, "third 3P player should complete and start the roster", q3);
+    expect(q3.matched === true && String(sessionFrom(q3).status) === "matched" && rosterFrom(q3).length === 3, "third 3P player should complete the loading roster", q3);
     const q1Poll = await post(baseUrl, "poll_quick_match", { ticket_id: q1.ticket_id });
     expect(q1Poll.matched === true && rosterFrom(q1Poll).length === 3, "first ticket did not resolve to the full 3P roster", q1Poll);
 

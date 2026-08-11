@@ -95,6 +95,7 @@ type Session = {
   created_unix: number;
   expires_unix: number;
   started_unix?: number;
+  start_unix_ms?: number;
   status: "waiting" | "matched" | "ready" | "started" | "closed";
   host: Player;
   guest: Player;
@@ -104,6 +105,8 @@ type Session = {
   contract_hash: string;
   close_reason: string;
 };
+
+const SYNCHRONIZED_START_LEAD_MS = 15_000;
 
 type QueueTicket = {
   id: string;
@@ -568,9 +571,16 @@ function sessionIsFull(session: Session): boolean {
   return session.roster.length >= session.required_players;
 }
 
+function sessionUsesSynchronizedStart(session: Session): boolean {
+  return boolValue(session.context.human_pvp) && boolValue(session.context.free_roll)
+    && !contextIsPaid(session.context) && !contextIsCrucible(session.context);
+}
+
 function markSessionStarted(session: Session): void {
+  const startUnixMs = Date.now() + (sessionUsesSynchronizedStart(session) ? SYNCHRONIZED_START_LEAD_MS : 0);
   session.status = "started";
-  session.started_unix = nowUnix();
+  session.start_unix_ms = startUnixMs;
+  session.started_unix = Math.floor(startUnixMs / 1000);
 }
 
 function contextIsPaid(context: JsonRecord): boolean {
@@ -1387,7 +1397,7 @@ function joinInvite(req: Request, res: Response): void {
   if (existingIndex < 0) {
     syncSessionRoster(session, [...session.roster, guest]);
   }
-  if (sessionIsFull(session)) {
+  if (sessionIsFull(session) && !sessionUsesSynchronizedStart(session)) {
     const startResult = startSessionAuthoritatively(session);
     if (startResult.ok !== true) {
       syncSessionRoster(session, previousRoster);
@@ -1420,7 +1430,7 @@ function enqueueQuickMatch(req: Request, res: Response): void {
   );
   if (openSession) {
     syncSessionRoster(openSession, [...openSession.roster, player]);
-    if (sessionIsFull(openSession)) {
+    if (sessionIsFull(openSession) && !sessionUsesSynchronizedStart(openSession)) {
       const startResult = startSessionAuthoritatively(openSession);
       if (startResult.ok !== true) {
         syncSessionRoster(openSession, openSession.roster.filter((entry) => entry.uid !== player.uid));
@@ -1460,7 +1470,7 @@ function enqueueQuickMatch(req: Request, res: Response): void {
       crucible_wax_millis: player.crucible_wax_millis
     };
     syncSessionRoster(session, [host, guestPlayer]);
-    if (sessionIsFull(session)) {
+    if (sessionIsFull(session) && !sessionUsesSynchronizedStart(session)) {
       const startResult = startSessionAuthoritatively(session);
       if (startResult.ok !== true) {
         queue.splice(matchIndex, 0, other);
@@ -1730,7 +1740,8 @@ function canStart(req: Request, res: Response): void {
   const sessionId = stringValue(req.body?.session_id);
   const uid = stringValue(req.body?.uid);
   const session = sessions.get(sessionId);
-  const allowed = Boolean(session && sessionIsFull(session) && ["matched", "ready", "started"].includes(session.status) && session.host.uid === uid);
+  const allowedStatuses = session && sessionUsesSynchronizedStart(session) ? ["ready", "started"] : ["matched", "ready", "started"];
+  const allowed = Boolean(session && sessionIsFull(session) && allowedStatuses.includes(session.status) && session.host.uid === uid);
   return ok(res, { can_start: allowed });
 }
 
@@ -1744,7 +1755,8 @@ function startSession(req: Request, res: Response): void {
   if (session.status === "started" && session.host.uid === uid) {
     return ok(res, { session: cloneSession(session) });
   }
-  if (!sessionIsFull(session) || !["matched", "ready"].includes(session.status) || session.host.uid !== uid) {
+  const allowedStatuses = sessionUsesSynchronizedStart(session) ? ["ready"] : ["matched", "ready"];
+  if (!sessionIsFull(session) || !allowedStatuses.includes(session.status) || session.host.uid !== uid) {
     return fail(res, "not_ready_or_not_host");
   }
   const startResult = startSessionAuthoritatively(session);
@@ -2397,7 +2409,7 @@ function respondFriendInvite(req: Request, res: Response): void {
     }
     syncSessionRoster(session, [...session.roster, guest]);
   }
-  if (sessionIsFull(session)) {
+  if (sessionIsFull(session) && !sessionUsesSynchronizedStart(session)) {
     const startResult = startSessionAuthoritatively(session);
     if (startResult.ok !== true) {
       syncSessionRoster(session, previousRoster);

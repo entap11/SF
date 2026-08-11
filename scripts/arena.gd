@@ -211,6 +211,7 @@ const PREMATCH_IDENTITY_CARD_FADE_SEC: float = 0.25
 const PREMATCH_HIVE_FOCUS_START_MS: int = 5250
 const PREMATCH_HIVE_PULSE_SEC: float = 0.42
 const PREMATCH_COUNTDOWN_RETURN_MS: int = 3000
+const SYNCHRONIZED_START_POLL_SEC: float = 0.25
 const PREMATCH_HIVE_FOCUS_ZOOM_MULT: float = 1.45
 const PREMATCH_TEAM_BUFFER_ALPHA: float = 0.22
 const MM_BACKGROUND_ART_TEXTURE: Texture2D = preload("res://assets/sprites/sf_skin_v1/mm_back_art.png")
@@ -379,6 +380,13 @@ var _prematch_gameplay_camera_position: Vector2 = Vector2.ZERO
 var _prematch_gameplay_camera_zoom: Vector2 = Vector2.ONE
 var _prematch_ui_bind_logged: bool = false
 var _prematch_ui_state_logged: bool = false
+var _synchronized_start_barrier_active: bool = false
+var _synchronized_start_request_in_flight: bool = false
+var _synchronized_start_ready_sent: bool = false
+var _synchronized_start_unix_ms: int = 0
+var _synchronized_start_server_offset_ms: int = 0
+var _synchronized_start_status: String = ""
+var _synchronized_start_countdown_audio_started: bool = false
 var _postmatch_ui_missing_logged: bool = false
 var _match_started: bool = false
 var _ctf_click_consumed: bool = false
@@ -1537,6 +1545,8 @@ func _begin_prematch() -> void:
 	_ensure_match_roster()
 	_configure_vs_pvp_runtime()
 	_configure_special_victory_mode()
+	_reset_synchronized_start_barrier()
+	_synchronized_start_barrier_active = _should_use_synchronized_start_barrier()
 	_match_started = false
 	var prematch_dur_ms: int = OpsState.prematch_duration_ms
 	if prematch_dur_ms <= 0:
@@ -1562,7 +1572,8 @@ func _begin_prematch() -> void:
 		"phase": int(OpsState.match_phase),
 		"ms": int(OpsState.prematch_remaining_ms)
 	})
-	_play_prematch_countdown_sfx()
+	if not _synchronized_start_barrier_active:
+		_play_prematch_countdown_sfx()
 	_prematch_last_sec = -1
 	_prematch_records_faded = false
 	_prematch_countdown_faded = false
@@ -1576,9 +1587,96 @@ func _begin_prematch() -> void:
 	_show_prematch_ui()
 	if sim_runner != null:
 		sim_runner.set_running(false, "prematch_hold")
+	if _synchronized_start_barrier_active:
+		call_deferred("_run_synchronized_start_barrier")
 	SFLog.info("PREMATCH_START", {
 		"duration_s": int(round(float(OpsState.prematch_duration_ms) / 1000.0))
 	})
+
+func _reset_synchronized_start_barrier() -> void:
+	_synchronized_start_barrier_active = false
+	_synchronized_start_request_in_flight = false
+	_synchronized_start_ready_sent = false
+	_synchronized_start_unix_ms = 0
+	_synchronized_start_server_offset_ms = 0
+	_synchronized_start_status = ""
+	_synchronized_start_countdown_audio_started = false
+
+func _should_use_synchronized_start_barrier() -> bool:
+	var tree: SceneTree = get_tree()
+	if tree == null or not bool(tree.get_meta("vs_synchronized_start_barrier", false)):
+		return false
+	if bool(tree.get_meta("vs_synchronized_start_consumed", false)):
+		return false
+	if str(tree.get_meta("vs_handshake_session_id", "")).strip_edges().is_empty():
+		return false
+	return _is_pvp_runtime_active()
+
+func _run_synchronized_start_barrier() -> void:
+	if not _synchronized_start_barrier_active or _synchronized_start_request_in_flight:
+		return
+	var tree: SceneTree = get_tree()
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	if tree == null or handshake == null \
+	or not handshake.has_method("set_ready_sync_async") \
+	or not handshake.has_method("get_session_sync_async") \
+	or not handshake.has_method("start_session_sync_async"):
+		_synchronized_start_status = "Synchronization service unavailable"
+		SFLog.warn("PVP_START_BARRIER_UNAVAILABLE", {})
+		return
+	var session_id: String = str(tree.get_meta("vs_handshake_session_id", "")).strip_edges()
+	var local_profile: Dictionary = tree.get_meta("vs_local_profile", {}) as Dictionary
+	var local_uid: String = str(local_profile.get("uid", ProfileManager.get_user_id())).strip_edges()
+	var role: String = str(tree.get_meta("vs_handshake_role", "guest")).strip_edges().to_lower()
+	if session_id.is_empty() or local_uid.is_empty():
+		_synchronized_start_status = "Match identity unavailable"
+		SFLog.warn("PVP_START_BARRIER_IDENTITY_MISSING", {"session_id": session_id, "uid": local_uid})
+		return
+	_synchronized_start_request_in_flight = true
+	_synchronized_start_status = "Waiting for opponent to load"
+	var response_any: Variant = await handshake.call("set_ready_sync_async", session_id, local_uid, true)
+	if not is_inside_tree() or not _synchronized_start_barrier_active:
+		_synchronized_start_request_in_flight = false
+		return
+	var response: Dictionary = response_any as Dictionary
+	_synchronized_start_ready_sent = bool(response.get("ok", false))
+	while is_inside_tree() and _synchronized_start_barrier_active:
+		_apply_synchronized_start_clock_sample(response)
+		var session: Dictionary = response.get("session", {}) as Dictionary
+		var status: String = str(session.get("status", "")).strip_edges().to_lower()
+		if status == "started":
+			_synchronized_start_unix_ms = int(session.get("start_unix_ms", 0))
+			if _synchronized_start_unix_ms <= 0:
+				_synchronized_start_status = "Invalid synchronized start"
+				SFLog.warn("PVP_START_EPOCH_MISSING", {"session_id": session_id})
+			else:
+				_synchronized_start_status = "Match synchronized"
+				SFLog.info("PVP_START_EPOCH_ACCEPTED", {
+					"session_id": session_id,
+					"start_unix_ms": _synchronized_start_unix_ms,
+					"clock_offset_ms": _synchronized_start_server_offset_ms,
+					"round_trip_ms": int(response.get("client_round_trip_ms", 0))
+				})
+			_synchronized_start_request_in_flight = false
+			return
+		if status == "ready" and role == "host":
+			_synchronized_start_status = "Scheduling shared start"
+			response_any = await handshake.call("start_session_sync_async", session_id, local_uid)
+		else:
+			_synchronized_start_status = "Waiting for opponent to load" if status == "matched" else "Synchronizing match"
+			await get_tree().create_timer(SYNCHRONIZED_START_POLL_SEC).timeout
+			if not is_inside_tree() or not _synchronized_start_barrier_active:
+				break
+			response_any = await handshake.call("get_session_sync_async", session_id)
+		response = response_any as Dictionary
+	_synchronized_start_request_in_flight = false
+
+func _apply_synchronized_start_clock_sample(response: Dictionary) -> void:
+	if response.has("client_server_clock_offset_ms"):
+		_synchronized_start_server_offset_ms = int(response.get("client_server_clock_offset_ms", 0))
+
+func _synchronized_server_now_ms() -> int:
+	return int(round(Time.get_unix_time_from_system() * 1000.0)) + _synchronized_start_server_offset_ms
 
 func _play_prematch_countdown_sfx() -> void:
 	if not _is_game_sfx_enabled():
@@ -4341,7 +4439,46 @@ func _display_name_for_seat(seat: int, uid: String, is_cpu: bool) -> String:
 func _update_prematch_flow(delta: float) -> void:
 	if OpsState.match_phase != OpsState.MatchPhase.PREMATCH:
 		return
-	_prematch_remaining_ms_f = max(0.0, _prematch_remaining_ms_f - delta * 1000.0)
+	if _synchronized_start_barrier_active:
+		if _synchronized_start_unix_ms <= 0:
+			_prematch_remaining_ms_f = float(OpsState.prematch_duration_ms)
+			OpsState.sim_mutate("Arena._update_prematch_flow.sync_wait", func() -> void:
+				OpsState.set_prematch_remaining_ms(int(ceil(_prematch_remaining_ms_f)), "Arena._update_prematch_flow.sync_wait")
+			)
+			if _prematch_countdown_label != null:
+				_prematch_countdown_label.text = "SYNC"
+				_prematch_countdown_label.visible = true
+			if _prematch_record_h2h != null:
+				_prematch_record_h2h.text = _synchronized_start_status
+			return
+		var actual_remaining_ms: int = maxi(0, _synchronized_start_unix_ms - _synchronized_server_now_ms())
+		if actual_remaining_ms > OpsState.prematch_duration_ms:
+			_prematch_remaining_ms_f = float(OpsState.prematch_duration_ms)
+			OpsState.sim_mutate("Arena._update_prematch_flow.sync_loaded", func() -> void:
+				OpsState.set_prematch_remaining_ms(int(ceil(_prematch_remaining_ms_f)), "Arena._update_prematch_flow.sync_loaded")
+			)
+			if _prematch_countdown_label != null:
+				_prematch_countdown_label.text = "READY"
+				_prematch_countdown_label.visible = true
+			if _prematch_record_h2h != null:
+				_prematch_record_h2h.text = "All players loaded"
+			return
+		_prematch_remaining_ms_f = float(actual_remaining_ms)
+		if not _synchronized_start_countdown_audio_started:
+			_synchronized_start_countdown_audio_started = true
+			_play_prematch_countdown_sfx()
+		if actual_remaining_ms <= 0:
+			OpsState.sim_mutate("Arena._update_prematch_flow.sync_start", func() -> void:
+				OpsState.set_prematch_remaining_ms(0, "Arena._update_prematch_flow.sync_start")
+			)
+			_synchronized_start_barrier_active = false
+			var tree: SceneTree = get_tree()
+			if tree != null:
+				tree.set_meta("vs_synchronized_start_consumed", true)
+			_finish_prematch()
+			return
+	else:
+		_prematch_remaining_ms_f = max(0.0, _prematch_remaining_ms_f - delta * 1000.0)
 	OpsState.sim_mutate("Arena._update_prematch_flow", func() -> void:
 		OpsState.set_prematch_remaining_ms(int(ceil(_prematch_remaining_ms_f)), "Arena._update_prematch_flow")
 	)

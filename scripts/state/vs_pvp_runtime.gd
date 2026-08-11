@@ -61,6 +61,8 @@ var _pending_remote_commands: Array[Dictionary] = []
 var _local_hash_by_tick: Dictionary = {}
 var _remote_hash_by_tick: Dictionary = {}
 var _remote_hash_by_peer_tick: Dictionary = {}
+var _local_hash_debug_by_tick: Dictionary = {}
+var _remote_hash_debug_by_tick: Dictionary = {}
 var _packet_tx: int = 0
 var _packet_rx: int = 0
 var _packet_dropped: int = 0
@@ -161,6 +163,8 @@ func clear() -> void:
 	_local_hash_by_tick.clear()
 	_remote_hash_by_tick.clear()
 	_remote_hash_by_peer_tick.clear()
+	_local_hash_debug_by_tick.clear()
+	_remote_hash_debug_by_tick.clear()
 	_debug_event_log.clear()
 	_last_debug_event = {}
 	_desync_event_before_divergence = {}
@@ -407,6 +411,9 @@ func record_local_state_hash(tick: int, state_hash: String, authority_snapshot: 
 	if clean_hash.is_empty():
 		return _contract_violation("local_state_hash_empty", {"tick": safe_tick})
 	_local_hash_by_tick[safe_tick] = clean_hash
+	var state_debug: Dictionary = _certification_hash_debug_snapshot()
+	if not state_debug.is_empty():
+		_local_hash_debug_by_tick[safe_tick] = state_debug
 	_record_authority_snapshot(safe_tick, clean_hash, authority_snapshot)
 	_prune_hash_windows(safe_tick)
 	_compare_state_hash_if_ready(safe_tick)
@@ -415,6 +422,8 @@ func record_local_state_hash(tick: int, state_hash: String, authority_snapshot: 
 		"hash_tick": safe_tick,
 		"state_hash": clean_hash
 	})
+	if not state_debug.is_empty():
+		command["state_debug"] = state_debug.duplicate(true)
 	if not _validate_contract_command(command, "outgoing"):
 		return false
 	return _publish_command(command)
@@ -640,6 +649,9 @@ func _handle_remote_state_hash(command: Dictionary) -> void:
 		peer_hashes[sender_uid] = state_hash
 		_remote_hash_by_peer_tick[hash_tick] = peer_hashes
 	_remote_hash_by_tick[hash_tick] = state_hash
+	var state_debug_any: Variant = command.get("state_debug", {})
+	if typeof(state_debug_any) == TYPE_DICTIONARY and not (state_debug_any as Dictionary).is_empty():
+		_remote_hash_debug_by_tick[hash_tick] = (state_debug_any as Dictionary).duplicate(true)
 	_prune_hash_windows(hash_tick)
 	_compare_state_hash_if_ready(hash_tick)
 
@@ -696,7 +708,7 @@ func _reset_hash_mismatch_tracking() -> void:
 	_hash_mismatch_last_details = {}
 
 func _hash_mismatch_payload(hash_tick: int, local_hash: String, remote_hash: String) -> Dictionary:
-	return {
+	var payload: Dictionary = {
 		"tick": int(hash_tick),
 		"local_hash": local_hash,
 		"remote_hash": remote_hash,
@@ -721,6 +733,13 @@ func _hash_mismatch_payload(hash_tick: int, local_hash: String, remote_hash: Str
 		},
 		"last_event": _last_debug_event.duplicate(true)
 	}
+	var local_debug_any: Variant = _local_hash_debug_by_tick.get(hash_tick, {})
+	if typeof(local_debug_any) == TYPE_DICTIONARY and not (local_debug_any as Dictionary).is_empty():
+		payload["local_state_debug"] = (local_debug_any as Dictionary).duplicate(true)
+	var remote_debug_any: Variant = _remote_hash_debug_by_tick.get(hash_tick, {})
+	if typeof(remote_debug_any) == TYPE_DICTIONARY and not (remote_debug_any as Dictionary).is_empty():
+		payload["remote_state_debug"] = (remote_debug_any as Dictionary).duplicate(true)
+	return payload
 
 func _command_log_edge_snapshot() -> Dictionary:
 	var size: int = _accepted_command_log.size()
@@ -897,6 +916,22 @@ func _prune_hash_windows(latest_tick: int) -> void:
 	for tick_any in _remote_hash_by_peer_tick.keys():
 		if int(tick_any) < min_tick:
 			_remote_hash_by_peer_tick.erase(tick_any)
+	for tick_any in _local_hash_debug_by_tick.keys():
+		if int(tick_any) < min_tick:
+			_local_hash_debug_by_tick.erase(tick_any)
+	for tick_any in _remote_hash_debug_by_tick.keys():
+		if int(tick_any) < min_tick:
+			_remote_hash_debug_by_tick.erase(tick_any)
+
+func _certification_hash_debug_snapshot() -> Dictionary:
+	if not OS.has_feature("private_pvp_certification"):
+		return {}
+	if OpsState == null or not OpsState.has_method("get_pvp_debug_state_snapshot"):
+		return {}
+	var snapshot_any: Variant = OpsState.call("get_pvp_debug_state_snapshot")
+	if typeof(snapshot_any) != TYPE_DICTIONARY:
+		return {}
+	return (snapshot_any as Dictionary).duplicate(true)
 
 func get_last_contract_violation() -> Dictionary:
 	return _last_contract_violation.duplicate(true)

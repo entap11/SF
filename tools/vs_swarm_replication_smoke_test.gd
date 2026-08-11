@@ -20,6 +20,7 @@ func _init() -> void:
 	failed = _test_invalid_remote_command_trips_contract_guard() or failed
 	failed = _test_late_scheduled_command_delivers_and_updates_diagnostics() or failed
 	failed = _test_same_authoritative_command_log_hashes_match() or failed
+	failed = _test_lane_establishment_uses_sim_clock() or failed
 	failed = _test_contract_hash_ignores_clock_and_visual_drift() or failed
 	failed = _test_state_hash_mismatch_threshold_and_self_heal() or failed
 	failed = _test_desync_recovery_uses_snapshot_and_command_log() or failed
@@ -602,6 +603,45 @@ func _test_contract_hash_ignores_clock_and_visual_drift() -> bool:
 	var drift_hash: String = str(ops_state.call("get_contract_state_hash"))
 	if drift_hash != baseline_hash:
 		return _fail("contract hash should ignore clock and visual lane drift: before=%s after=%s" % [baseline_hash, drift_hash])
+	return false
+
+func _test_lane_establishment_uses_sim_clock() -> bool:
+	var root_node: Window = get_root()
+	var ops_state: Node = root_node.get_node_or_null("/root/OpsState")
+	var runtime: Node = root_node.get_node_or_null("/root/VsPvpRuntime")
+	if ops_state == null:
+		return _fail("OpsState autoload missing")
+	if runtime != null and runtime.has_method("clear"):
+		runtime.call("clear")
+	ops_state.call("reset_state_from_map", _deterministic_authority_map())
+	ops_state.set("match_phase", 1)
+	var state: GameState = ops_state.call("get_state") as GameState
+	if state == null:
+		return _fail("sim-clock lane fixture state missing")
+	state._sim_time_us = 2_000_000
+	var open_result: Dictionary = ops_state.call("apply_lane_intent", 1, 2, "attack") as Dictionary
+	if not bool(open_result.get("ok", false)):
+		return _fail("sim-clock lane fixture failed to open lane: %s" % str(open_result))
+	var lane_index: int = state.lane_index_between(1, 2)
+	if lane_index < 0:
+		return _fail("sim-clock lane fixture did not create lane")
+	var lane: LaneData = state.lanes[lane_index] as LaneData
+	if lane == null or int(lane.establish_t0_ms) != 2000:
+		return _fail("lane establishment did not stamp authoritative sim time: %s" % str(lane.establish_t0_ms if lane != null else -1))
+	var lane_system := LaneSystem.new()
+	root_node.add_child(lane_system)
+	lane_system.bind_state(state)
+	state._sim_time_us = 2_250_000
+	lane_system.tick_lane_fronts(0.1)
+	if not is_equal_approx(float(lane.build_t), 0.5):
+		lane_system.free()
+		return _fail("lane build progress did not derive from sim time: %s" % str(lane.build_t))
+	state._sim_time_us = 2_500_000
+	lane_system.tick_lane_fronts(0.1)
+	var completed: bool = is_equal_approx(float(lane.build_t), 1.0) and not bool(lane.establish_a)
+	lane_system.free()
+	if not completed:
+		return _fail("lane build did not complete at the deterministic sim deadline")
 	return false
 
 func _test_state_hash_mismatch_threshold_and_self_heal() -> bool:

@@ -301,7 +301,9 @@ func tick_lane_fronts(dt: float) -> void:
 		return
 	if dt <= 0.0:
 		return
-	var now_ms := Time.get_ticks_msec()
+	# Lane construction gates authoritative spawning, so its clock must advance
+	# with the fixed-step simulation rather than each device's wall-clock uptime.
+	var now_ms: int = int(state._sim_time_us / 1000)
 	for lane_any in state.lanes:
 		var lane_id := -1
 		var send_a := false
