@@ -20,6 +20,7 @@ func _run() -> void:
 	ProjectSettings.set_setting("swarmfront/ads/dev_biodynamic_image_path", CREATIVE_IMAGE_PATH)
 	ProjectSettings.set_setting("swarmfront/ads/dev_biodynamic_destination_url", DESTINATION_URL)
 	ProjectSettings.set_setting("swarmfront/ads/dev_biodynamic_open_url_on_tap", false)
+	_force_external_ads_config()
 	if manager.has_method("clear_measurement_events"):
 		manager.call("clear_measurement_events")
 	manager.call("_install_dev_biodynamic_provider_if_enabled")
@@ -99,6 +100,23 @@ func _cleanup(manager: Node) -> void:
 	ProjectSettings.set_setting("swarmfront/ads/dev_biodynamic_open_url_on_tap", true)
 	if manager != null and manager.has_method("clear_provider"):
 		manager.call("clear_provider")
+
+func _force_external_ads_config() -> void:
+	var ops_config: Node = root.get_node_or_null("OpsConfig")
+	if ops_config == null or not ops_config.has_method("force_config_for_smoke"):
+		return
+	var config: Dictionary = ops_config.call("get_config_snapshot") as Dictionary
+	config["config_version"] = "ad-biodynamic-creative-smoke"
+	var flags: Dictionary = config.get("feature_flags", {}) as Dictionary
+	flags["enable_ads"] = true
+	flags["enable_house_ads"] = false
+	config["feature_flags"] = flags
+	var ads: Dictionary = config.get("ads", {}) as Dictionary
+	ads["external_ads_enabled"] = true
+	ads["house_ads_enabled"] = false
+	ads["placements"] = {"handshake": true, "in_game": true, "post_match": true}
+	config["ads"] = ads
+	ops_config.call("force_config_for_smoke", config, "remote_fresh")
 
 func _fail(message: String) -> void:
 	_cleanup(root.get_node_or_null("AdManager"))

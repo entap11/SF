@@ -1437,13 +1437,15 @@ func _ready() -> void:
 	_start_scholastic_cta_timer()
 	call_deferred("_sync_main_art_shroud")
 	call_deferred("_play_mm_boot_sound")
-	call_deferred("_auto_start_home_replay")
 	call_deferred("_layout_payout_proof_button")
 	call_deferred("_apply_ops_config_menu_gates")
 	call_deferred("_release_main_menu_loading_cover")
 
-func _run_menu_boot_step(_step_name: String, step: Callable) -> void:
+func _run_menu_boot_step(step_name: String, step: Callable) -> void:
 	step.call()
+	var loading_coordinator: Variant = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null and loading_coordinator.has_method("note_main_menu_boot_step"):
+		loading_coordinator.call("note_main_menu_boot_step", step_name)
 
 func _release_main_menu_loading_cover() -> void:
 	var loading_coordinator: Variant = get_node_or_null("/root/MainMenuLoadingCoordinator")
@@ -1506,6 +1508,9 @@ func _finish_noncritical_menu_boot() -> void:
 		await tree.process_frame
 	_run_menu_boot_step("load_match_history", _load_match_history)
 	_run_menu_boot_step("home_replay_hint", _refresh_home_replay_hint)
+	# Autoplay depends on _load_match_history populating _last_replay_data. Keep
+	# it in this sequence so Android's staggered boot cannot run it a frame early.
+	_auto_start_home_replay()
 	if OS.has_feature("android") and tree != null:
 		await tree.process_frame
 	await _configure_dash_account_surfaces()

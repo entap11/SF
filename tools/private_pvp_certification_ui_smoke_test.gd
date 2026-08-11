@@ -36,6 +36,7 @@ func _run() -> void:
 	var join_row: HBoxContainer = lobby.get_node("Panel/VBox/JoinRow") as HBoxContainer
 	var join_button: Button = lobby.get_node("Panel/VBox/JoinRow/JoinButton") as Button
 	_expect(create_button.visible and create_button.text == "Create Invite", "certification build should expose create invite")
+	_expect(create_button.get_theme_font_size("font_size") == 135, "create invite text should be three times its ordinary size")
 	_expect(join_row.visible and join_button.visible, "certification build should expose invite-code join")
 	_expect(not bool(lobby.get("_auto_start_quick_search")), "certification lobby must not auto-start public quick match")
 	var lobby_source: String = FileAccess.get_file_as_string("res://scripts/ui/vs_lobby.gd")
@@ -48,6 +49,7 @@ func _run() -> void:
 	lobby.set("_session_id", "")
 	lobby.call("_apply_private_pvp_certification_ui", false)
 	_expect(not create_button.visible and not join_row.visible, "ordinary builds should keep private controls hidden")
+	_expect(create_button.get_theme_font_size("font_size") == 45, "ordinary invite text should retain its baseline size")
 	_finish()
 
 

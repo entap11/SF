@@ -71,6 +71,8 @@ async function main(): Promise<void> {
     const started = await post(baseUrl, "start_session", { session_id: sessionId, uid: "team_p1" });
     const startEpoch = Number(sessionFrom(started).start_unix_ms ?? 0);
     expect(String(sessionFrom(started).status) === "started" && startEpoch > Number(started.server_unix_ms), "shared future start epoch missing", started);
+    const synchronizedLeadMs = startEpoch - Number(started.server_unix_ms);
+    expect(synchronizedLeadMs >= 17_500 && synchronizedLeadMs <= 18_500, "shared start should reserve the 8-second ad window before prematch", started);
     const duplicateStart = await post(baseUrl, "start_session", { session_id: sessionId, uid: "team_p1" });
     expect(Number(sessionFrom(duplicateStart).start_unix_ms ?? 0) === startEpoch, "idempotent start changed the shared epoch", duplicateStart);
     const overflow = await postRaw(baseUrl, "join_invite", { invite_code: code, profile: { uid: "team_p5", display_name: "P5" } });

@@ -19,6 +19,7 @@ const CONTENT_MODE_HIDDEN: String = "hidden"
 const MEASUREMENT_SCHEMA_VERSION: int = 1
 const DEV_BIODYNAMIC_DEFAULT_IMAGE_PATH: String = "res://assets/ads/test_creatives/biodynamic_laser_cleaning_banner.png"
 const DEV_BIODYNAMIC_DEFAULT_DESTINATION_URL: String = "https://www.biodynamicusa.com"
+const CERTIFICATION_MATCH_LOADING_SLOT: String = "match_loading_handshake"
 
 var _provider: Object = null
 var _measurement_sink: Object = null
@@ -105,7 +106,8 @@ func get_policy(slot_id: String, placement: String) -> Dictionary:
 	var placement_allowed: bool = _is_approved_placement(clean_placement)
 	var zero_ads: bool = _has_zero_ads_entitlement()
 	var family_safe_only: bool = _requires_family_safe_ads()
-	var external_ads_allowed: bool = placement_allowed and not zero_ads and _external_ads_enabled()
+	var certification_test_ad: bool = _certification_test_ad_allowed(clean_slot, clean_placement)
+	var external_ads_allowed: bool = placement_allowed and not zero_ads and (_external_ads_enabled() or certification_test_ad)
 	var house_ads_allowed: bool = placement_allowed and _house_ads_enabled()
 	return {
 		"allowed": external_ads_allowed,
@@ -119,6 +121,7 @@ func get_policy(slot_id: String, placement: String) -> Dictionary:
 		"house_ads_allowed": house_ads_allowed,
 		"family_safe_only": family_safe_only,
 		"personalized_ads_allowed": false,
+		"certification_test_ad": certification_test_ad,
 		"auto_dismiss_sec": _auto_dismiss_sec_for_placement(clean_placement),
 		"external_open_requires_tap": true,
 		"interrupts_gameplay": false
@@ -377,6 +380,12 @@ func _external_ads_enabled() -> bool:
 	if ops_config != null and ops_config.has_method("external_ads_enabled"):
 		return bool(ops_config.call("external_ads_enabled"))
 	return false
+
+func _certification_test_ad_allowed(slot_id: String, placement: String) -> bool:
+	return OS.has_feature("private_pvp_certification") \
+		and _provider_is_dev_test \
+		and slot_id == CERTIFICATION_MATCH_LOADING_SLOT \
+		and placement == PLACEMENT_HANDSHAKE
 
 func _house_ads_enabled() -> bool:
 	var ops_config: Node = get_node_or_null("/root/OpsConfig")

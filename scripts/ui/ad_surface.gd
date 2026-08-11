@@ -31,6 +31,7 @@ var _viewable_ms: float = 0.0
 var _impression_recorded: bool = false
 var _loaded_creative_path: String = ""
 var _presentation_enabled: bool = true
+var _interaction_enabled: bool = true
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -81,6 +82,10 @@ func set_presentation_enabled(enabled: bool) -> void:
 
 func is_presentation_enabled() -> bool:
 	return _presentation_enabled
+
+func set_interaction_enabled(enabled: bool) -> void:
+	_interaction_enabled = enabled
+	_sync_empty_state()
 
 func set_internal_ticker_items(items: Array) -> void:
 	ticker_items.clear()
@@ -147,7 +152,7 @@ func _sync_empty_state() -> void:
 	modulate.a = 1.0 if _presentation_enabled and (_ad_available or show_placeholder or show_internal_ticker) else 0.0
 	set_meta("ad_surface_content_mode", _current_content_mode())
 	set_meta("ad_surface_presentation_enabled", _presentation_enabled)
-	mouse_filter = Control.MOUSE_FILTER_STOP if _presentation_enabled and _ad_available and _current_content_mode() == CONTENT_MODE_AD else Control.MOUSE_FILTER_IGNORE
+	mouse_filter = Control.MOUSE_FILTER_STOP if _presentation_enabled and _interaction_enabled and _ad_available and _current_content_mode() == CONTENT_MODE_AD else Control.MOUSE_FILTER_IGNORE
 	set_process(_presentation_enabled and _ad_available and not _impression_recorded)
 	_apply_surface_style(show_internal_ticker)
 	if _label != null:
@@ -288,7 +293,7 @@ func _process(delta: float) -> void:
 		_record_viewable_impression()
 
 func _gui_input(event: InputEvent) -> void:
-	if not _presentation_enabled or not _ad_available or _current_content_mode() != CONTENT_MODE_AD:
+	if not _presentation_enabled or not _interaction_enabled or not _ad_available or _current_content_mode() != CONTENT_MODE_AD:
 		return
 	var pressed: bool = false
 	if event is InputEventMouseButton:
@@ -400,6 +405,7 @@ func _surface_measurement_context(reason: String) -> Dictionary:
 		"reason": reason,
 		"content_mode": _current_content_mode(),
 		"surface_visible": visible and is_visible_in_tree(),
+		"interaction_enabled": _interaction_enabled,
 		"viewable_ms": int(_viewable_ms),
 		"reserved_size": {"x": reserved_size.x, "y": reserved_size.y},
 		"global_rect": {

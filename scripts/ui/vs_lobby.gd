@@ -34,6 +34,8 @@ const SLOT_FILL_NAMES := ["Atlas", "Nova", "Rook", "Kite", "Echo", "Vex", "Mako"
 const POPUP_BASE_SIZE: Vector2 = Vector2(980.0, 760.0)
 const POPUP_MARGIN: float = 32.0
 const READABLE_FONT_SCALE: int = 3
+const SMS_INVITE_FONT_BASE_SIZE: int = 15
+const CREATE_INVITE_FONT_MULTIPLIER: int = 3
 const BOT_FILL_DIALOG_SIZE: Vector2i = Vector2i(720, 420)
 const DEFAULT_STAGE_MAP_IDS: Array[String] = []
 const CTF_STAGE_MAP_IDS: Array[String] = [
@@ -1139,6 +1141,13 @@ func _start_match(session_already_started: bool = false) -> void:
 		tree.set_meta("miss_n_out_local_player_id", _local_name)
 		tree.set_meta("miss_n_out_eliminated", false)
 		tree.set_meta("miss_n_out_notice", "")
+	if bool(tree.get_meta("vs_synchronized_start_barrier", false)):
+		var loading_coordinator: Variant = get_node_or_null("/root/MainMenuLoadingCoordinator")
+		if loading_coordinator != null and loading_coordinator.has_method("present_for_match_loading"):
+			await loading_coordinator.call("present_for_match_loading")
+			if not is_inside_tree():
+				return
+			loading_coordinator.call("update_match_loading_progress", 14, "Drawing the battle lines...")
 	var shell: Node = get_node_or_null("/root/Shell")
 	if shell != null and shell.has_method("_apply_map_then_start"):
 		_apply_team_mode_override_for_match()
@@ -2046,6 +2055,10 @@ func _apply_private_pvp_certification_ui(enabled: bool) -> void:
 	_private_pvp_certification_enabled = enabled
 	if sms_button != null:
 		sms_button.text = "Create Invite" if enabled else "VS via SMS"
+		var invite_font_size: int = _readable_size(SMS_INVITE_FONT_BASE_SIZE)
+		if enabled:
+			invite_font_size *= CREATE_INVITE_FONT_MULTIPLIER
+		sms_button.add_theme_font_size_override("font_size", invite_font_size)
 		sms_button.visible = enabled and not _uses_async_window()
 	_sync_join_row_visibility()
 
@@ -2476,7 +2489,7 @@ func _apply_static_fonts() -> void:
 	_apply_font(back_button, _font_regular, _readable_size(16))
 	_apply_font(summary_label, _font_regular, _readable_size(16))
 	_apply_quick_button_font()
-	_apply_free_roll_atlas_font(sms_button, _readable_size(15))
+	_apply_free_roll_atlas_font(sms_button, _readable_size(SMS_INVITE_FONT_BASE_SIZE))
 	_apply_font(dev_min_override_button, _font_regular, _readable_size(14))
 	_apply_font(dev_bot_label, _font_semibold, _readable_size(15))
 	_apply_font(dev_bot_style_option, _font_regular, _readable_size(15))

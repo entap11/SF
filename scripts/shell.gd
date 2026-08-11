@@ -1454,12 +1454,14 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 	if TRACE_SHELL_LOGS: print("APPLY_MAP_THEN_START 010", {"map_path": map_path})
 	if TRACE_SHELL_LOGS: print("APPLY_MAP_THEN_START_BEGIN", {"map_path": map_path})
 	if map_path == "":
+		_cancel_match_loading_cover()
 		_set_shell_status("Launch blocked. No map path resolved.", "error")
 		SFLog.warn("MAP_APPLY_FAIL_WARN", {"map_path": map_path, "err": "empty_path"})
 		SFLog.error("APPLY_MAP_EMPTY_PATH", {})
 		SFLog.error("APPLY_MAP_BAIL_EMPTY_PATH", {})
 		return
 	if not FileAccess.file_exists(map_path):
+		_cancel_match_loading_cover()
 		_set_shell_status("Launch blocked. Map file missing: %s." % _map_display_name(map_path), "error")
 		SFLog.warn("MAP_APPLY_FAIL_WARN", {"map_path": map_path, "err": "file_missing"})
 		SFLog.error("APPLY_MAP_FILE_MISSING", {"path": map_path})
@@ -1477,6 +1479,7 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 			_clear_tutorial_controls_followup_tree_meta(tree)
 	var mode_validation: Dictionary = _validate_launch_map_mode_contract(map_path, tree)
 	if not bool(mode_validation.get("ok", false)):
+		_cancel_match_loading_cover()
 		_set_shell_status("Launch blocked. %s does not support this mode." % _map_display_name(map_path), "error")
 		_report_map_mode_contract_violation(str(mode_validation.get("mode", "")), map_path, str(mode_validation.get("reason", "invalid_map_mode")))
 		return
@@ -1485,9 +1488,11 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 		tree.set_meta(TREE_META_TUTORIAL_ACTIVE, not clean_tutorial_section.is_empty())
 		tree.set_meta(TREE_META_TUTORIAL_SECTION, clean_tutorial_section)
 	_hide_arena_for_map_transition()
+	_update_match_loading_cover(24, "Packing the pollen...")
 	_request_match_scene_preload()
 	_request_map_prewarm(map_path)
 	await _wait_for_launch_prewarm(map_path, 900)
+	_update_match_loading_cover(46, "Building the honeycomb...")
 	if _arena_instance == null:
 		SFLog.info("APPLY_MAP_THEN_START_DEFERRED_NO_ARENA", {"map_path": map_path})
 		_pending_map_path = map_path
@@ -1501,6 +1506,7 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 	SFLog.info("MAP_APPLY_REQUEST", {"map_path": map_path})
 	SFLog.info("MAP_APPLY_ENTRY", {"map_path": map_path})
 	if not _apply_map_direct_to_arena(map_path):
+		_cancel_match_loading_cover()
 		_show_arena_after_failed_map_transition()
 		_set_shell_status("Launch failed while applying %s." % _map_display_name(map_path), "error")
 		SFLog.warn("MAP_APPLY_FAIL_WARN", {"map_path": map_path, "err": "direct_apply_failed"})
@@ -1701,16 +1707,19 @@ func _ensure_game_instance() -> void:
 	if packed == null:
 		packed = load(game_scene_path) as PackedScene
 	if packed == null:
+		_cancel_match_loading_cover()
 		if SFLog.LOGGING_ENABLED:
 			push_error("SHELL: game_scene_path invalid: %s" % game_scene_path)
 		return
 	var inst := packed.instantiate()
+	_update_match_loading_cover(62, "Waking the queen...")
 	_arena_instance = inst
 	if inst.has_method("start_game"):
 		inst.set("start_in_menu", true)
 		inst.set("enable_dev_map_loader", enable_dev_map_loader)
 		inst.set("show_dev_map_loader_in_game", show_dev_map_loader_in_game)
 	arena_root.add_child(inst)
+	_update_match_loading_cover(72, "Charging the bees...")
 	var hud_layer: CanvasLayer = get_node_or_null("/root/Shell/HUDCanvasLayer") as CanvasLayer
 	var world_layer: CanvasLayer = inst.get_node_or_null("WorldCanvasLayer") as CanvasLayer
 	if hud_layer != null and world_layer != null and hud_layer.layer <= world_layer.layer:
@@ -1739,6 +1748,7 @@ func _enter_game() -> void:
 	_set_menu_state(false)
 	if arena_root != null:
 		arena_root.modulate.a = 0.0
+	_update_match_loading_cover(78, "Calibrating the swarm...")
 	_ensure_vs_frame_visible()
 	call_deferred("_sync_power_bar_buffer_placement")
 	call_deferred("_sync_buff_ui")
@@ -1808,6 +1818,16 @@ func _hide_vs_frame() -> void:
 func _start_game() -> void:
 	_ensure_game_instance()
 	_enter_game()
+
+func _update_match_loading_cover(progress_percent: int, message: String) -> void:
+	var loading_coordinator: Variant = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null and loading_coordinator.has_method("update_match_loading_progress"):
+		loading_coordinator.call("update_match_loading_progress", progress_percent, message)
+
+func _cancel_match_loading_cover() -> void:
+	var loading_coordinator: Variant = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null and loading_coordinator.has_method("cancel_match_loading"):
+		loading_coordinator.call("cancel_match_loading")
 
 
 func _on_back_pressed() -> void:

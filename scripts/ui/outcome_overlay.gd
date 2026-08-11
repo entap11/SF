@@ -1363,4 +1363,7 @@ func _format_stage_time(ms: int) -> String:
 	return "%02d:%02d" % [minutes, seconds]
 
 func _exit_to_menu() -> void:
+	var loading_coordinator: Variant = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null and loading_coordinator.has_method("present_for_main_menu"):
+		await loading_coordinator.call("present_for_main_menu")
 	get_tree().change_scene_to_file("res://scenes/MainMenu.tscn")

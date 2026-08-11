@@ -387,6 +387,8 @@ var _synchronized_start_unix_ms: int = 0
 var _synchronized_start_server_offset_ms: int = 0
 var _synchronized_start_status: String = ""
 var _synchronized_start_countdown_audio_started: bool = false
+var _synchronized_start_loading_cover_release_started: bool = false
+const SYNCHRONIZED_START_COVER_REVEAL_LEAD_MS: int = 350
 var _postmatch_ui_missing_logged: bool = false
 var _match_started: bool = false
 var _ctf_click_consumed: bool = false
@@ -1588,6 +1590,7 @@ func _begin_prematch() -> void:
 	if sim_runner != null:
 		sim_runner.set_running(false, "prematch_hold")
 	if _synchronized_start_barrier_active:
+		_update_synchronized_match_loading_cover(84, "Finalizing the arena...")
 		call_deferred("_run_synchronized_start_barrier")
 	SFLog.info("PREMATCH_START", {
 		"duration_s": int(round(float(OpsState.prematch_duration_ms) / 1000.0))
@@ -1601,6 +1604,7 @@ func _reset_synchronized_start_barrier() -> void:
 	_synchronized_start_server_offset_ms = 0
 	_synchronized_start_status = ""
 	_synchronized_start_countdown_audio_started = false
+	_synchronized_start_loading_cover_release_started = false
 
 func _should_use_synchronized_start_barrier() -> bool:
 	var tree: SceneTree = get_tree()
@@ -1634,6 +1638,7 @@ func _run_synchronized_start_barrier() -> void:
 		return
 	_synchronized_start_request_in_flight = true
 	_synchronized_start_status = "Waiting for opponent to load"
+	_update_synchronized_match_loading_cover(90, "Waiting for the other hive...")
 	var response_any: Variant = await handshake.call("set_ready_sync_async", session_id, local_uid, true)
 	if not is_inside_tree() or not _synchronized_start_barrier_active:
 		_synchronized_start_request_in_flight = false
@@ -1651,6 +1656,8 @@ func _run_synchronized_start_barrier() -> void:
 				SFLog.warn("PVP_START_EPOCH_MISSING", {"session_id": session_id})
 			else:
 				_synchronized_start_status = "Match synchronized"
+				_update_synchronized_match_loading_cover(97, "Synchronizing wingbeats...")
+				_begin_synchronized_match_loading_ad()
 				SFLog.info("PVP_START_EPOCH_ACCEPTED", {
 					"session_id": session_id,
 					"start_unix_ms": _synchronized_start_unix_ms,
@@ -1661,6 +1668,7 @@ func _run_synchronized_start_barrier() -> void:
 			return
 		if status == "ready" and role == "host":
 			_synchronized_start_status = "Scheduling shared start"
+			_update_synchronized_match_loading_cover(94, "Setting the swarm clock...")
 			response_any = await handshake.call("start_session_sync_async", session_id, local_uid)
 		else:
 			_synchronized_start_status = "Waiting for opponent to load" if status == "matched" else "Synchronizing match"
@@ -1677,6 +1685,26 @@ func _apply_synchronized_start_clock_sample(response: Dictionary) -> void:
 
 func _synchronized_server_now_ms() -> int:
 	return int(round(Time.get_unix_time_from_system() * 1000.0)) + _synchronized_start_server_offset_ms
+
+func _update_synchronized_match_loading_cover(progress_percent: int, message: String) -> void:
+	var loading_coordinator: Variant = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null and loading_coordinator.has_method("update_match_loading_progress"):
+		loading_coordinator.call("update_match_loading_progress", progress_percent, message)
+
+func _release_synchronized_match_loading_cover() -> void:
+	var loading_coordinator: Variant = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null and loading_coordinator.has_method("release_for_synchronized_prematch"):
+		await loading_coordinator.call("release_for_synchronized_prematch")
+
+func _begin_synchronized_match_loading_ad() -> void:
+	var loading_coordinator: Variant = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null and loading_coordinator.has_method("begin_synchronized_match_ad"):
+		loading_coordinator.call(
+			"begin_synchronized_match_ad",
+			_synchronized_start_unix_ms,
+			_synchronized_start_server_offset_ms,
+			int(OpsState.prematch_duration_ms)
+		)
 
 func _play_prematch_countdown_sfx() -> void:
 	if not _is_game_sfx_enabled():
@@ -4452,6 +4480,10 @@ func _update_prematch_flow(delta: float) -> void:
 				_prematch_record_h2h.text = _synchronized_start_status
 			return
 		var actual_remaining_ms: int = maxi(0, _synchronized_start_unix_ms - _synchronized_server_now_ms())
+		if not _synchronized_start_loading_cover_release_started \
+		and actual_remaining_ms <= OpsState.prematch_duration_ms + SYNCHRONIZED_START_COVER_REVEAL_LEAD_MS:
+			_synchronized_start_loading_cover_release_started = true
+			call_deferred("_release_synchronized_match_loading_cover")
 		if actual_remaining_ms > OpsState.prematch_duration_ms:
 			_prematch_remaining_ms_f = float(OpsState.prematch_duration_ms)
 			OpsState.sim_mutate("Arena._update_prematch_flow.sync_loaded", func() -> void:
@@ -7365,13 +7397,16 @@ func _money_cents_text(amount_cents: int) -> String:
 	return "$%d.%02d" % [safe_amount / 100, safe_amount % 100]
 
 func _return_to_main_menu() -> void:
-	if outcome_overlay != null:
-		outcome_overlay.hide_overlay()
 	if sim_runner != null:
 		sim_runner.log_pause_snapshot("arena_return_to_main_menu")
 	var tree: SceneTree = get_tree()
 	if tree != null and tree.has_meta(TREE_META_ASYNC_BUFF_CONTEST_STATE):
 		tree.remove_meta(TREE_META_ASYNC_BUFF_CONTEST_STATE)
+	var loading_coordinator: Variant = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null and loading_coordinator.has_method("present_for_main_menu"):
+		await loading_coordinator.call("present_for_main_menu")
+	if outcome_overlay != null:
+		outcome_overlay.hide_overlay()
 	await _fade_out_post_match_song_blocking()
 	get_tree().change_scene_to_file("res://scenes/MainMenu.tscn")
 

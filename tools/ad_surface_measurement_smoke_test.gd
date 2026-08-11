@@ -13,6 +13,7 @@ func _run() -> void:
 	if manager.has_method("clear_measurement_events"):
 		manager.call("clear_measurement_events")
 	ProjectSettings.set_setting("swarmfront/ads/fake_ads", true)
+	_force_external_ads_config()
 	var root_control := Control.new()
 	root_control.size = Vector2(640.0, 480.0)
 	root.add_child(root_control)
@@ -52,3 +53,20 @@ func _fail(message: String) -> void:
 	ProjectSettings.set_setting("swarmfront/ads/fake_ads", false)
 	push_error("AD_SURFACE_MEASUREMENT_SMOKE: %s" % message)
 	quit(1)
+
+func _force_external_ads_config() -> void:
+	var ops_config: Node = root.get_node_or_null("OpsConfig")
+	if ops_config == null or not ops_config.has_method("force_config_for_smoke"):
+		return
+	var config: Dictionary = ops_config.call("get_config_snapshot") as Dictionary
+	config["config_version"] = "ad-surface-measurement-smoke"
+	var flags: Dictionary = config.get("feature_flags", {}) as Dictionary
+	flags["enable_ads"] = true
+	flags["enable_house_ads"] = false
+	config["feature_flags"] = flags
+	var ads: Dictionary = config.get("ads", {}) as Dictionary
+	ads["external_ads_enabled"] = true
+	ads["house_ads_enabled"] = false
+	ads["placements"] = {"handshake": true, "in_game": true, "post_match": true}
+	config["ads"] = ads
+	ops_config.call("force_config_for_smoke", config, "remote_fresh")

@@ -1,8 +1,29 @@
-[gd_scene load_steps=4 format=3]
+[gd_scene load_steps=8 format=3]
 
 [ext_resource type="Texture2D" uid="uid://dwclf0rr04bi2" path="res://assets/sprites/sf_skin_v1/signage_main_yellow.png" id="1_signage"]
 [ext_resource type="Script" path="res://scripts/ui/main_menu_loading_coordinator.gd" id="2_coordinator"]
 [ext_resource type="Texture2D" uid="uid://5my64casxvc0" path="res://assets/branding/swarmfront_logo_1024.png" id="3_logo_eyes"]
+[ext_resource type="FontFile" path="res://assets/fonts/brand/Iceland/Iceland-Regular.ttf" id="4_font"]
+[ext_resource type="Script" path="res://scripts/ui/ad_surface.gd" id="5_ad_surface"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_progress_background"]
+bg_color = Color(0.055, 0.055, 0.055, 0.96)
+border_width_left = 3
+border_width_top = 3
+border_width_right = 3
+border_width_bottom = 3
+border_color = Color(0.98, 0.76, 0.08, 0.72)
+corner_radius_top_left = 13
+corner_radius_top_right = 13
+corner_radius_bottom_right = 13
+corner_radius_bottom_left = 13
+
+[sub_resource type="StyleBoxFlat" id="StyleBox_progress_fill"]
+bg_color = Color(1, 0.78, 0.04, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
 
 [node name="MainMenuLoadingCover" type="CanvasLayer"]
 visible = false
@@ -47,3 +68,97 @@ mouse_filter = 2
 texture = ExtResource("3_logo_eyes")
 expand_mode = 1
 stretch_mode = 5
+
+[node name="MatchAdPanel" type="VBoxContainer" parent="."]
+visible = false
+anchors_preset = 0
+anchor_left = 0.5
+anchor_top = 0.53
+anchor_right = 0.5
+anchor_bottom = 0.53
+offset_left = -390.0
+offset_top = -174.0
+offset_right = 390.0
+offset_bottom = 174.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_constants/separation = 8
+
+[node name="Disclosure" type="Label" parent="MatchAdPanel"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.82, 0.84, 0.88, 0.92)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.92)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_fonts/font = ExtResource("4_font")
+theme_override_font_sizes/font_size = 28
+text = "ADVERTISEMENT"
+horizontal_alignment = 1
+
+[node name="Surface" type="PanelContainer" parent="MatchAdPanel"]
+custom_minimum_size = Vector2(780, 292)
+layout_mode = 2
+script = ExtResource("5_ad_surface")
+
+[node name="Countdown" type="Label" parent="MatchAdPanel"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.82, 0.16, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.92)
+theme_override_constants/shadow_offset_x = 2
+theme_override_constants/shadow_offset_y = 2
+theme_override_fonts/font = ExtResource("4_font")
+theme_override_font_sizes/font_size = 30
+text = "Match countdown follows • 8s"
+horizontal_alignment = 1
+
+[node name="LoadingPanel" type="VBoxContainer" parent="."]
+anchors_preset = 0
+anchor_left = 0.5
+anchor_top = 0.7
+anchor_right = 0.5
+anchor_bottom = 0.7
+offset_left = -390.0
+offset_top = -78.0
+offset_right = 390.0
+offset_bottom = 112.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_constants/separation = 14
+
+[node name="Status" type="Label" parent="LoadingPanel"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.82, 0.16, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.92)
+theme_override_constants/shadow_offset_x = 3
+theme_override_constants/shadow_offset_y = 3
+theme_override_fonts/font = ExtResource("4_font")
+theme_override_font_sizes/font_size = 40
+text = "Waking the hive..."
+horizontal_alignment = 1
+
+[node name="ProgressRow" type="HBoxContainer" parent="LoadingPanel"]
+layout_mode = 2
+theme_override_constants/separation = 20
+
+[node name="ProgressBar" type="ProgressBar" parent="LoadingPanel/ProgressRow"]
+custom_minimum_size = Vector2(0, 38)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_styles/background = SubResource("StyleBox_progress_background")
+theme_override_styles/fill = SubResource("StyleBox_progress_fill")
+value = 0.0
+show_percentage = false
+
+[node name="Percent" type="Label" parent="LoadingPanel/ProgressRow"]
+custom_minimum_size = Vector2(118, 0)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.9, 0.42, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.92)
+theme_override_constants/shadow_offset_x = 3
+theme_override_constants/shadow_offset_y = 3
+theme_override_fonts/font = ExtResource("4_font")
+theme_override_font_sizes/font_size = 38
+text = "0%"
+horizontal_alignment = 2
