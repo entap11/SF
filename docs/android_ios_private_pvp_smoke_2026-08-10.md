@@ -6,19 +6,20 @@ economic mutation.
 
 ## Candidate identity
 
-- Source commit: `08c2066` (`Prepare cross-platform PvP release candidates`)
-- Backend contract/build source: the same branch and commit
+- Archived phone/backend source: `08c2066` (`Prepare cross-platform PvP release candidates`)
+- New phone certification source: `18e0d0c6` (`Expose private PvP certification invites`)
+- Live backend build: `08c2066` from the same release-candidate branch
 - Android application ID: `com.entap.swarmfront`
 - iOS application ID: `com.matthew.swarmfront`
 - iOS signing team: `SH6675DXQ5`
 
-Android device APK:
+Archived Android device APK (pre-certification UI):
 
 `artifacts/android/current/release-2abf9b2/swarmfront-0.1.2-rc1-device.apk`
 
 SHA-256: `d485a2b92abf9ec3de431df87bc8694bedcb8b24370787a06cbd234ec72cc8d8`
 
-iOS device app:
+Archived iOS device app (pre-certification UI):
 
 `artifacts/ios/current/DerivedData-device/Build/Products/Debug-iphoneos/swarmfront-2abf9b2.app`
 
@@ -62,7 +63,7 @@ ordinary iOS preset remain unchanged and must not expose the private controls.
    `curl -fsS https://sf-zr2m.onrender.com/v1/health`
 3. Install Android:
 
-   `adb install -r artifacts/android/current/release-2abf9b2/swarmfront-0.1.2-rc1-device.apk`
+   `adb install -r artifacts/android/release/swarmfront-0.1.2-rc1-device.apk`
 4. Export **iOS Private PvP Certification**, open the generated Xcode project,
    and run its Swarmfront target on the connected iPhone. Do not use the
    ordinary **iOS** preset for this matrix.
@@ -112,6 +113,58 @@ change: both sides must derive the same result from authoritative state.
 
 Any failed row keeps the private phone certification open. Public or economic
 features remain disabled regardless of this matrix's result.
+
+## Work-machine handoff
+
+The implementation prerequisite is pushed to
+`origin/codex/android-release-candidate-4.7.1` at `18e0d0c6`. That commit:
+
+- adds a `private_pvp_certification` policy that permits only free private 1v1;
+- exposes **Create Invite**, the invite-code field, and **Join** in
+  certification exports;
+- suppresses automatic Quick Match so host and joiner roles are controlled;
+- adds a separate **iOS Private PvP Certification** preset;
+- enables the feature on **Android Release Device** only, leaving the Android
+  store AAB and ordinary iOS preset unchanged; and
+- adds `tools/private_pvp_certification_ui_smoke_test.gd`.
+
+Validation completed before handoff:
+
+- private certification UI smoke: PASS;
+- live Render create/join/intent/leave relay smoke: PASS;
+- release guard against unsafe/fake multiplayer: PASS;
+- durable-public 1v1 isolation smoke: PASS; and
+- 1v1 map-contract smoke: PASS.
+
+The home Mac cannot produce the signed candidates. It has Godot 4.2.2 and only
+4.2.2 export templates, no Android SDK, and no Android release-keystore
+environment. Its available Apple Development identity is team `GP77ZSW359`,
+while this project is configured for team `SH6675DXQ5`. The paired iPhone still
+has the older `0.1.1` app, and the Android phone was not visible through ADB.
+
+Resume on the configured office signing machine:
+
+```sh
+git switch codex/android-release-candidate-4.7.1
+git pull --ff-only
+git status --short --branch
+
+curl -fsS https://sf-zr2m.onrender.com/v1/health
+scripts/dev/export_android_release_candidate.sh
+
+mkdir -p artifacts/ios/certification
+"${GODOT_BIN}" --headless --path . \
+  --export-debug "iOS Private PvP Certification" \
+  artifacts/ios/certification/swarmfront-private-pvp.xcodeproj
+```
+
+Before installation, verify that the source contains `18e0d0c6`, Godot and its
+export templates are 4.7.1, the Android signing variables resolve without
+printing their values, and the Apple signing identity covers `SH6675DXQ5`.
+Install the new APK with the command above, run the generated iOS Xcode project
+on the paired iPhone, and execute Cases A through G. Do not reuse either
+archived `08c2066` phone artifact because neither exposes the controlled invite
+UI.
 
 ## Current rollout boundary
 
