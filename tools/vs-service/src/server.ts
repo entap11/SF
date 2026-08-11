@@ -87,6 +87,31 @@ type Player = {
   team_id?: number;
 };
 
+type MatchPresence = {
+  uid: string;
+  seen: boolean;
+  connected: boolean;
+  last_seen_unix_ms: number;
+  sim_tick: number;
+  disconnect_strikes: number;
+};
+
+type MatchLifecycle = {
+  phase: "running" | "grace" | "resuming" | "forfeit" | "no_contest";
+  epoch: number;
+  players: Record<string, MatchPresence>;
+  disconnected_uid: string;
+  disconnect_reason: string;
+  grace_deadline_unix_ms: number;
+  resume_unix_ms: number;
+  resume_snapshot_ready: boolean;
+  resume_snapshot_tick: number;
+  resume_acknowledged: boolean;
+  winner_uid: string;
+  loser_uid: string;
+  terminal_reason: string;
+};
+
 type Session = {
   id: string;
   invite_code: string;
@@ -104,6 +129,7 @@ type Session = {
   contract_version: number;
   contract_hash: string;
   close_reason: string;
+  match_lifecycle?: MatchLifecycle;
 };
 
 const SYNCHRONIZED_MATCH_LOADING_MIN_MS = 7_000;
@@ -112,6 +138,10 @@ const SYNCHRONIZED_PREMATCH_MS = 10_000;
 const SYNCHRONIZED_START_LEAD_MS = SYNCHRONIZED_MATCH_LOADING_MIN_MS
   + SYNCHRONIZED_START_NETWORK_BUFFER_MS
   + SYNCHRONIZED_PREMATCH_MS;
+const MATCH_RECONNECT_GRACE_MS = 60_000;
+const MATCH_PRESENCE_STALE_MS = 2_500;
+const MATCH_RESUME_LEAD_MS = 1_000;
+const MATCH_DISCONNECT_STRIKE_LIMIT = 3;
 
 type QueueTicket = {
   id: string;
@@ -193,6 +223,7 @@ const sessions = new Map<string, Session>();
 const inviteToSession = new Map<string, string>();
 const queue: QueueTicket[] = [];
 const intentStreams = new Map<string, IntentStream>();
+const matchReconnectSnapshots = new Map<string, JsonRecord>();
 const presenceByUid = new Map<string, Presence>();
 const friendInvites = new Map<string, FriendInvite>();
 const spectatorGrants = new Map<string, SpectatorGrant>();
@@ -586,6 +617,134 @@ function markSessionStarted(session: Session): void {
   session.status = "started";
   session.start_unix_ms = startUnixMs;
   session.started_unix = Math.floor(startUnixMs / 1000);
+  initializeMatchLifecycle(session);
+}
+
+function initializeMatchLifecycle(session: Session): MatchLifecycle {
+  const existing = session.match_lifecycle;
+  if (existing) return existing;
+  const players: Record<string, MatchPresence> = {};
+  for (const player of session.roster) {
+    if (!player.uid) continue;
+    players[player.uid] = {
+      uid: player.uid,
+      seen: false,
+      connected: true,
+      last_seen_unix_ms: 0,
+      sim_tick: 0,
+      disconnect_strikes: 0
+    };
+  }
+  const lifecycle: MatchLifecycle = {
+    phase: "running",
+    epoch: 1,
+    players,
+    disconnected_uid: "",
+    disconnect_reason: "",
+    grace_deadline_unix_ms: 0,
+    resume_unix_ms: 0,
+    resume_snapshot_ready: false,
+    resume_snapshot_tick: -1,
+    resume_acknowledged: false,
+    winner_uid: "",
+    loser_uid: "",
+    terminal_reason: ""
+  };
+  session.match_lifecycle = lifecycle;
+  return lifecycle;
+}
+
+function lifecycleOpponentUid(session: Session, uid: string): string {
+  return session.roster.find((player) => player.uid && player.uid !== uid)?.uid ?? "";
+}
+
+function enterMatchDisconnectGrace(session: Session, uid: string, reason: string, nowMs: number): void {
+  const lifecycle = initializeMatchLifecycle(session);
+  if (lifecycle.phase !== "running") return;
+  const presence = lifecycle.players[uid];
+  if (!presence) return;
+  presence.connected = false;
+  presence.disconnect_strikes += 1;
+  lifecycle.epoch += 1;
+  lifecycle.disconnected_uid = uid;
+  lifecycle.disconnect_reason = reason || "connection_lost";
+  lifecycle.resume_snapshot_ready = false;
+  lifecycle.resume_snapshot_tick = -1;
+  lifecycle.resume_acknowledged = false;
+  lifecycle.resume_unix_ms = 0;
+  matchReconnectSnapshots.delete(session.id);
+  if (presence.disconnect_strikes >= MATCH_DISCONNECT_STRIKE_LIMIT) {
+    lifecycle.phase = "forfeit";
+    lifecycle.winner_uid = lifecycleOpponentUid(session, uid);
+    lifecycle.loser_uid = uid;
+    lifecycle.terminal_reason = "disconnect_strike_limit";
+    lifecycle.grace_deadline_unix_ms = 0;
+    return;
+  }
+  lifecycle.phase = "grace";
+  lifecycle.grace_deadline_unix_ms = nowMs + MATCH_RECONNECT_GRACE_MS;
+}
+
+function evaluateMatchLifecycle(session: Session, nowMs: number): MatchLifecycle {
+  const lifecycle = initializeMatchLifecycle(session);
+  if (lifecycle.phase === "grace" && lifecycle.grace_deadline_unix_ms > 0 && nowMs >= lifecycle.grace_deadline_unix_ms) {
+    lifecycle.phase = "forfeit";
+    lifecycle.winner_uid = lifecycleOpponentUid(session, lifecycle.disconnected_uid);
+    lifecycle.loser_uid = lifecycle.disconnected_uid;
+    lifecycle.terminal_reason = "disconnect_timeout";
+    lifecycle.epoch += 1;
+  } else if (lifecycle.phase === "resuming" && lifecycle.resume_acknowledged
+      && lifecycle.resume_unix_ms > 0 && nowMs >= lifecycle.resume_unix_ms) {
+    lifecycle.phase = "running";
+    lifecycle.disconnected_uid = "";
+    lifecycle.disconnect_reason = "";
+    lifecycle.grace_deadline_unix_ms = 0;
+    lifecycle.resume_unix_ms = 0;
+    lifecycle.resume_snapshot_ready = false;
+    lifecycle.resume_snapshot_tick = -1;
+    lifecycle.resume_acknowledged = false;
+    lifecycle.epoch += 1;
+    matchReconnectSnapshots.delete(session.id);
+  }
+  if (lifecycle.phase === "running") {
+    const presenceValues = Object.values(lifecycle.players);
+    if (presenceValues.length >= 2 && presenceValues.every((presence) => presence.seen)) {
+      const stale = presenceValues.find((presence) => nowMs - presence.last_seen_unix_ms >= MATCH_PRESENCE_STALE_MS);
+      if (stale) enterMatchDisconnectGrace(session, stale.uid, "presence_timeout", nowMs);
+    }
+  }
+  return lifecycle;
+}
+
+function publicMatchLifecycle(session: Session, viewerUid: string): JsonRecord {
+  const lifecycle = initializeMatchLifecycle(session);
+  const viewerPresence = lifecycle.players[viewerUid];
+  const disconnectedPresence = lifecycle.players[lifecycle.disconnected_uid];
+  const payload: JsonRecord = {
+    phase: lifecycle.phase,
+    epoch: lifecycle.epoch,
+    server_unix_ms: Date.now(),
+    disconnected_uid: lifecycle.disconnected_uid,
+    disconnect_reason: lifecycle.disconnect_reason,
+    grace_deadline_unix_ms: lifecycle.grace_deadline_unix_ms,
+    resume_unix_ms: lifecycle.resume_unix_ms,
+    resume_snapshot_ready: lifecycle.resume_snapshot_ready,
+    resume_snapshot_tick: lifecycle.resume_snapshot_tick,
+    winner_uid: lifecycle.winner_uid,
+    loser_uid: lifecycle.loser_uid,
+    terminal_reason: lifecycle.terminal_reason,
+    local_disconnect_strikes: viewerPresence?.disconnect_strikes ?? 0,
+    disconnected_player_strikes: disconnectedPresence?.disconnect_strikes ?? 0,
+    strike_limit: MATCH_DISCONNECT_STRIKE_LIMIT,
+    reconnect_grace_sec: Math.trunc(MATCH_RECONNECT_GRACE_MS / 1000),
+    local_is_disconnected_player: lifecycle.disconnected_uid === viewerUid,
+    snapshot_requested: lifecycle.phase === "grace" && lifecycle.disconnected_uid !== viewerUid
+      && !lifecycle.resume_snapshot_ready
+  };
+  if (lifecycle.phase === "resuming" && lifecycle.disconnected_uid === viewerUid && lifecycle.resume_snapshot_ready) {
+    payload.resume_snapshot = matchReconnectSnapshots.get(session.id) ?? {};
+  }
+  return payload;
 }
 
 function contextIsPaid(context: JsonRecord): boolean {
@@ -751,6 +910,7 @@ function closeSession(sessionId: string, reason: string): void {
   sessions.delete(sessionId);
   inviteToSession.delete(session.invite_code);
   intentStreams.delete(sessionId);
+  matchReconnectSnapshots.delete(sessionId);
   spectatorSnapshotStreams.delete(sessionId);
   for (const [token, grant] of spectatorGrants.entries()) {
     if (grant.session_id === sessionId) {
@@ -1086,6 +1246,8 @@ async function handleAction(req: Request, res: Response): Promise<void> {
       return publishIntent(req, res);
     case "poll_intents":
       return pollIntents(req, res);
+    case "match_presence":
+      return matchPresence(req, res);
     default:
       return fail(res, "unknown_action", 404, { action: actionName(req) });
   }
@@ -2439,6 +2601,10 @@ function publishIntent(req: Request, res: Response): void {
   if (!sessionHasPlayer(session, uid)) {
     return fail(res, "player_not_in_session");
   }
+  const lifecycle = evaluateMatchLifecycle(session, Date.now());
+  if (lifecycle.phase !== "running") {
+    return fail(res, "match_temporarily_paused", 409, { match_lifecycle: publicMatchLifecycle(session, uid) });
+  }
   const player = session.roster.find((entry) => entry.uid === uid);
   const expectedSeat = Number(player?.seat ?? 0);
   const claimedSeat = Math.trunc(numberValue(command.sender_seat, 0));
@@ -2506,13 +2672,80 @@ function pollIntents(req: Request, res: Response): void {
   if (!sessionHasPlayer(session, uid)) {
     return fail(res, "player_not_in_session");
   }
+  const nowMs = Date.now();
+  let lifecycle = evaluateMatchLifecycle(session, nowMs);
+  const presence = lifecycle.players[uid];
+  if (presence) {
+    presence.seen = true;
+    presence.connected = true;
+    presence.last_seen_unix_ms = nowMs;
+    presence.sim_tick = Math.max(0, Math.trunc(numberValue(req.body?.sim_tick, presence.sim_tick)));
+  }
+  if (lifecycle.phase === "grace" && lifecycle.disconnected_uid === uid && lifecycle.resume_snapshot_ready) {
+    lifecycle.phase = "resuming";
+    lifecycle.resume_acknowledged = false;
+    lifecycle.epoch += 1;
+  }
+  lifecycle = evaluateMatchLifecycle(session, nowMs);
+  const matchLifecycle = publicMatchLifecycle(session, uid);
   const stream = intentStreams.get(sessionId);
   if (!stream) {
-    return ok(res, { latest_seq: Math.max(0, afterSeq), events: [] });
+    return ok(res, { latest_seq: Math.max(0, afterSeq), events: [], match_lifecycle: matchLifecycle });
   }
   const latestSeq = Math.max(0, stream.nextSeq - 1, afterSeq);
   const events = stream.events.filter((event) => event.seq > afterSeq).map((event) => ({ ...event, command: { ...event.command } }));
-  return ok(res, { latest_seq: latestSeq, events });
+  return ok(res, { latest_seq: latestSeq, events, match_lifecycle: matchLifecycle });
+}
+
+function matchPresence(req: Request, res: Response): void {
+  const sessionId = stringValue(req.body?.session_id);
+  const uid = stringValue(req.body?.uid);
+  const status = stringValue(req.body?.status).trim().toLowerCase();
+  const session = sessions.get(sessionId);
+  if (!session || !uid || !status) return fail(res, "invalid_args");
+  if (!sessionHasPlayer(session, uid)) return fail(res, "player_not_in_session");
+  const nowMs = Date.now();
+  let lifecycle = evaluateMatchLifecycle(session, nowMs);
+  const presence = lifecycle.players[uid];
+  if (!presence) return fail(res, "player_presence_missing");
+  if (status === "backgrounded") {
+    presence.seen = true;
+    presence.last_seen_unix_ms = nowMs;
+    presence.sim_tick = Math.max(0, Math.trunc(numberValue(req.body?.sim_tick, presence.sim_tick)));
+    enterMatchDisconnectGrace(session, uid, stringValue(req.body?.reason) || "app_backgrounded", nowMs);
+  } else if (status === "active" || status === "foregrounded") {
+    presence.seen = true;
+    presence.connected = true;
+    presence.last_seen_unix_ms = nowMs;
+    presence.sim_tick = Math.max(0, Math.trunc(numberValue(req.body?.sim_tick, presence.sim_tick)));
+    lifecycle = evaluateMatchLifecycle(session, nowMs);
+    if (lifecycle.phase === "grace" && lifecycle.disconnected_uid === uid && lifecycle.resume_snapshot_ready) {
+      lifecycle.phase = "resuming";
+      lifecycle.resume_acknowledged = false;
+      lifecycle.epoch += 1;
+    }
+  } else if (status === "snapshot") {
+    if (lifecycle.phase !== "grace" || lifecycle.disconnected_uid === uid) {
+      return fail(res, "snapshot_not_requested", 409, { match_lifecycle: publicMatchLifecycle(session, uid) });
+    }
+    const snapshot = req.body?.snapshot;
+    if (!isRecord(snapshot)) return fail(res, "snapshot_missing");
+    matchReconnectSnapshots.set(sessionId, cloneContext(snapshot));
+    lifecycle.resume_snapshot_ready = true;
+    lifecycle.resume_snapshot_tick = Math.max(0, Math.trunc(numberValue(req.body?.sim_tick, 0)));
+    lifecycle.epoch += 1;
+  } else if (status === "resume_ack") {
+    if (lifecycle.phase !== "resuming" || lifecycle.disconnected_uid !== uid || !lifecycle.resume_snapshot_ready) {
+      return fail(res, "resume_not_ready", 409, { match_lifecycle: publicMatchLifecycle(session, uid) });
+    }
+    lifecycle.resume_acknowledged = true;
+    lifecycle.resume_unix_ms = nowMs + MATCH_RESUME_LEAD_MS;
+    lifecycle.epoch += 1;
+  } else {
+    return fail(res, "invalid_presence_status");
+  }
+  lifecycle = evaluateMatchLifecycle(session, nowMs);
+  return ok(res, { match_lifecycle: publicMatchLifecycle(session, uid) });
 }
 
 function healthPayload(): JsonRecord {
@@ -2566,7 +2799,9 @@ export function createApp(): express.Express {
   if (config.corsEnabled) {
     app.use(cors());
   }
-  app.use(express.json({ limit: "256kb" }));
+  // Reconnect checkpoints contain the complete authoritative OpsState snapshot.
+  // Keep the cap finite, but large enough for late-match unit/lane state.
+  app.use(express.json({ limit: "2mb" }));
   app.use((req: Request, res: Response, next: NextFunction) => {
     const started = Date.now();
     res.locals.startedMs = started;

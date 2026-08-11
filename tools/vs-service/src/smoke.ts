@@ -157,6 +157,103 @@ async function main(): Promise<void> {
     const hostEvents = hostPoll.events as JsonRecord[];
     expect(Array.isArray(hostEvents) && hostEvents.some((event) => event.uid === guest.uid), "host did not receive guest event", hostPoll);
 
+    const firstDisconnect = await post(baseUrl, "match_presence", {
+      session_id: sessionId, uid: host.uid, status: "backgrounded", reason: "smoke_call", sim_tick: 20
+    });
+    const firstLifecycle = firstDisconnect.match_lifecycle as JsonRecord;
+    expect(firstLifecycle.phase === "grace" && Number(firstLifecycle.local_disconnect_strikes) === 1,
+      "first disconnect did not start grace", firstDisconnect);
+    const blockedPublish = await postRaw(baseUrl, "publish_intent", {
+      session_id: sessionId,
+      uid: guest.uid,
+      command: { kind: "lane_intent", src: 2, dst: 1, intent: "attack", issued_tick: 21 }
+    }, matchHeaders);
+    expect(blockedPublish.http_status === 409 && blockedPublish.err === "match_temporarily_paused",
+      "gameplay intent was accepted during reconnect grace", blockedPublish);
+    const waitingPoll = await post(baseUrl, "poll_intents", {
+      session_id: sessionId, uid: guest.uid, after_seq: Number(hostPoll.latest_seq ?? 0), sim_tick: 23
+    });
+    expect((waitingPoll.match_lifecycle as JsonRecord).snapshot_requested === true,
+      "waiting player was not asked for a reconnect snapshot", waitingPoll);
+    await post(baseUrl, "match_presence", {
+      session_id: sessionId, uid: guest.uid, status: "snapshot", sim_tick: 23,
+      snapshot: { version: 2, tick: 23, state: { tick: 23 } }
+    });
+    const firstReturn = await post(baseUrl, "match_presence", {
+      session_id: sessionId, uid: host.uid, status: "foregrounded", sim_tick: 20
+    });
+    const firstReturnLifecycle = firstReturn.match_lifecycle as JsonRecord;
+    expect(firstReturnLifecycle.phase === "resuming"
+      && typeof firstReturnLifecycle.resume_snapshot === "object" && firstReturnLifecycle.resume_snapshot !== null,
+      "returning player did not receive reconnect snapshot", firstReturn);
+    const firstAck = await post(baseUrl, "match_presence", {
+      session_id: sessionId, uid: host.uid, status: "resume_ack", sim_tick: 23
+    });
+    expect((firstAck.match_lifecycle as JsonRecord).phase === "resuming"
+      && Number((firstAck.match_lifecycle as JsonRecord).resume_unix_ms) > Date.now(),
+      "synchronized resume was not scheduled", firstAck);
+    await new Promise((resolve) => setTimeout(resolve, 1_050));
+    const resumedPoll = await post(baseUrl, "poll_intents", {
+      session_id: sessionId, uid: host.uid, after_seq: Number(hostPoll.latest_seq ?? 0), sim_tick: 24
+    });
+    expect((resumedPoll.match_lifecycle as JsonRecord).phase === "running",
+      "match did not resume after reconnect acknowledgement", resumedPoll);
+
+    for (let strike = 2; strike <= 3; strike += 1) {
+      const disconnected = await post(baseUrl, "match_presence", {
+        session_id: sessionId, uid: host.uid, status: "backgrounded", reason: "smoke_call", sim_tick: 24 + strike
+      });
+      const lifecycle = disconnected.match_lifecycle as JsonRecord;
+      expect(Number(lifecycle.local_disconnect_strikes) === strike, `disconnect strike ${strike} not recorded`, disconnected);
+      if (strike === 3) {
+        expect(lifecycle.phase === "forfeit" && lifecycle.winner_uid === guest.uid
+          && lifecycle.terminal_reason === "disconnect_strike_limit",
+          "third disconnect did not forfeit", disconnected);
+        break;
+      }
+      await post(baseUrl, "match_presence", {
+        session_id: sessionId, uid: guest.uid, status: "snapshot", sim_tick: 30,
+        snapshot: { version: 2, tick: 30, state: { tick: 30 } }
+      });
+      await post(baseUrl, "match_presence", {
+        session_id: sessionId, uid: host.uid, status: "foregrounded", sim_tick: 26
+      });
+      await post(baseUrl, "match_presence", {
+        session_id: sessionId, uid: host.uid, status: "resume_ack", sim_tick: 30
+      });
+      await new Promise((resolve) => setTimeout(resolve, 1_050));
+      await post(baseUrl, "poll_intents", {
+        session_id: sessionId, uid: host.uid, after_seq: Number(hostPoll.latest_seq ?? 0), sim_tick: 31
+      });
+    }
+
+    const timeoutHost = { uid: "timeout_host", display_name: "Timeout Host" };
+    const timeoutGuest = { uid: "timeout_guest", display_name: "Timeout Guest" };
+    const timeoutInvite = await post(baseUrl, "create_invite", { profile: timeoutHost, context });
+    const timeoutSessionId = String(timeoutInvite.session_id ?? "");
+    await post(baseUrl, "join_invite", {
+      invite_code: String(timeoutInvite.invite_code ?? ""), profile: timeoutGuest
+    });
+    await post(baseUrl, "poll_intents", { session_id: timeoutSessionId, uid: timeoutHost.uid, after_seq: 0, sim_tick: 10 });
+    await post(baseUrl, "poll_intents", { session_id: timeoutSessionId, uid: timeoutGuest.uid, after_seq: 0, sim_tick: 10 });
+    const timeoutDisconnect = await post(baseUrl, "match_presence", {
+      session_id: timeoutSessionId, uid: timeoutHost.uid, status: "backgrounded", sim_tick: 10
+    });
+    const timeoutDeadline = Number((timeoutDisconnect.match_lifecycle as JsonRecord).grace_deadline_unix_ms ?? 0);
+    const realDateNow = Date.now;
+    try {
+      Date.now = () => timeoutDeadline + 1;
+      const timeoutPoll = await post(baseUrl, "poll_intents", {
+        session_id: timeoutSessionId, uid: timeoutGuest.uid, after_seq: 0, sim_tick: 11
+      });
+      const timeoutLifecycle = timeoutPoll.match_lifecycle as JsonRecord;
+      expect(timeoutLifecycle.phase === "forfeit" && timeoutLifecycle.winner_uid === timeoutGuest.uid
+        && timeoutLifecycle.terminal_reason === "disconnect_timeout",
+        "60-second reconnect expiry did not award the waiting player", timeoutPoll);
+    } finally {
+      Date.now = realDateNow;
+    }
+
     const q1 = await post(baseUrl, "enqueue_quick_match", { profile: { uid: "q1", display_name: "Q1" }, context });
     expect(q1.matched === false && String(q1.ticket_id ?? "").length > 0, "first quick ticket failed", q1);
     const q2 = await post(baseUrl, "enqueue_quick_match", { profile: { uid: "q2", display_name: "Q2" }, context });

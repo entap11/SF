@@ -234,6 +234,16 @@ func start_sim() -> void:
 	SFLog.info("SIM_START_MANUAL", {"iid": int(bound_iid)})
 	_start_if_ready()
 
+func resolve_authoritative_forfeit(winner_id: int, reason: String) -> void:
+	if state_ref == null or OpsState == null:
+		return
+	if int(OpsState.match_phase) != int(OpsState.MatchPhase.RUNNING):
+		return
+	_set_running(false, "authoritative_forfeit")
+	OpsState.begin_match_end(maxi(0, winner_id), reason, 0)
+	OpsState.finalize_match_end()
+	_emit_match_end_if_needed()
+
 func start() -> void:
 	_pending_start = true
 	_tick_accum = 0.0

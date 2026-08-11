@@ -1,6 +1,7 @@
 extends Node
 
 signal command_publish_result(payload: Dictionary)
+signal match_lifecycle_changed(snapshot: Dictionary)
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const VsHandshakeTransportHttp := preload("res://scripts/state/vs_handshake_transport_http.gd")
@@ -56,6 +57,8 @@ var _remote_seat: int = 2
 var _remote_uids: PackedStringArray = PackedStringArray()
 var _remote_seat_by_uid: Dictionary = {}
 var _last_seq: int = 0
+var _match_lifecycle: Dictionary = {"phase": "running", "epoch": 0}
+var _match_lifecycle_signature: String = ""
 var _poll_accum: float = 0.0
 var _pending_remote_commands: Array[Dictionary] = []
 var _local_hash_by_tick: Dictionary = {}
@@ -158,6 +161,8 @@ func clear() -> void:
 	_remote_uids = PackedStringArray()
 	_remote_seat_by_uid.clear()
 	_last_seq = 0
+	_match_lifecycle = {"phase": "running", "epoch": 0}
+	_match_lifecycle_signature = ""
 	_poll_accum = 0.0
 	_pending_remote_commands.clear()
 	_local_hash_by_tick.clear()
@@ -275,8 +280,25 @@ func get_local_seat() -> int:
 func get_remote_seat() -> int:
 	return _remote_seat
 
+func get_seat_for_uid(uid: String) -> int:
+	var clean_uid: String = uid.strip_edges()
+	if clean_uid == _local_uid:
+		return _local_seat
+	if clean_uid == _remote_uid:
+		return _remote_seat
+	return int(_remote_seat_by_uid.get(clean_uid, 0))
+
 func get_role() -> String:
 	return _role
+
+func get_local_uid() -> String:
+	return _local_uid
+
+func get_match_lifecycle() -> Dictionary:
+	return _match_lifecycle.duplicate(true)
+
+func get_match_lifecycle_phase() -> String:
+	return str(_match_lifecycle.get("phase", "running")).strip_edges().to_lower()
 
 func get_debug_event_log() -> Array:
 	return _debug_event_log.duplicate(true)
@@ -353,7 +375,94 @@ func is_recovering_or_ended() -> bool:
 	return _recovery_state == RECOVERY_STATE_DESYNC_RECOVERY or _recovery_state == RECOVERY_STATE_DESYNC_ENDED
 
 func can_accept_gameplay_intents() -> bool:
-	return is_active() and _recovery_state == RECOVERY_STATE_RUNNING
+	return is_active() and _recovery_state == RECOVERY_STATE_RUNNING and get_match_lifecycle_phase() == "running"
+
+func notify_match_backgrounded(reason: String) -> Dictionary:
+	return _send_match_presence("backgrounded", {
+		"reason": reason,
+		"sim_tick": _current_sim_tick()
+	})
+
+func notify_match_foregrounded(reason: String) -> Dictionary:
+	return _send_match_presence("foregrounded", {
+		"reason": reason,
+		"sim_tick": _current_sim_tick()
+	})
+
+func publish_reconnect_snapshot(snapshot: Dictionary) -> Dictionary:
+	if snapshot.is_empty():
+		return {"ok": false, "err": "snapshot_missing"}
+	return _send_match_presence("snapshot", {
+		"sim_tick": int(snapshot.get("tick", _current_sim_tick())),
+		"snapshot": snapshot.duplicate(true)
+	})
+
+func acknowledge_reconnect_snapshot() -> Dictionary:
+	return _send_match_presence("resume_ack", {"sim_tick": _current_sim_tick()})
+
+func complete_reconnect_snapshot_restore(snapshot_tick: int) -> void:
+	var restored_tick: int = maxi(0, snapshot_tick)
+	var remaining_commands: Array[Dictionary] = []
+	for command_any in _pending_remote_commands:
+		var command: Dictionary = command_any as Dictionary
+		if int(command.get("execute_tick", -1)) > restored_tick:
+			remaining_commands.append(command)
+	_pending_remote_commands = remaining_commands
+	var remaining_log: Array[Dictionary] = []
+	for command_any in _accepted_command_log:
+		var command: Dictionary = command_any as Dictionary
+		if int(command.get("execute_tick", -1)) > restored_tick:
+			remaining_log.append(command)
+	_accepted_command_log = remaining_log
+	_local_hash_by_tick.clear()
+	_remote_hash_by_tick.clear()
+	_remote_hash_by_peer_tick.clear()
+	_local_hash_debug_by_tick.clear()
+	_remote_hash_debug_by_tick.clear()
+	_authority_snapshots_by_tick.clear()
+	_last_matching_checkpoint_tick = restored_tick
+
+func _send_match_presence(status: String, details: Dictionary = {}) -> Dictionary:
+	if not is_active():
+		return {"ok": false, "err": "runtime_inactive"}
+	var handshake: Node = _handshake()
+	if handshake == null or not handshake.has_method("match_presence"):
+		return {"ok": false, "err": "match_presence_unavailable"}
+	var result: Dictionary = handshake.call("match_presence", _session_id, _local_uid, status, details) as Dictionary
+	if bool(result.get("ok", false)):
+		_update_match_lifecycle(result.get("match_lifecycle", {}))
+	return result
+
+func _current_sim_tick() -> int:
+	if OpsState == null or not OpsState.has_method("get_state"):
+		return 0
+	var state_any: Variant = OpsState.call("get_state")
+	if state_any == null:
+		return 0
+	return maxi(0, int(state_any.get("tick")))
+
+func _update_match_lifecycle(snapshot_any: Variant) -> void:
+	if typeof(snapshot_any) != TYPE_DICTIONARY:
+		return
+	var snapshot: Dictionary = (snapshot_any as Dictionary).duplicate(true)
+	if snapshot.is_empty():
+		return
+	var signature: String = "%s|%d|%s|%d|%d|%s|%s|%d|%s" % [
+		str(snapshot.get("phase", "running")),
+		int(snapshot.get("epoch", 0)),
+		str(snapshot.get("disconnected_uid", "")),
+		int(snapshot.get("grace_deadline_unix_ms", 0)),
+		int(snapshot.get("resume_unix_ms", 0)),
+		str(snapshot.get("winner_uid", "")),
+		str(snapshot.get("terminal_reason", "")),
+		int(snapshot.get("local_disconnect_strikes", 0)),
+		str(snapshot.get("resume_snapshot_ready", false))
+	]
+	_match_lifecycle = snapshot
+	if signature == _match_lifecycle_signature:
+		return
+	_match_lifecycle_signature = signature
+	match_lifecycle_changed.emit(snapshot.duplicate(true))
 
 func tick(delta: float) -> void:
 	_finish_poll_thread(false)
@@ -1117,7 +1226,7 @@ func _poll_remote_intents() -> void:
 		return
 	var after_seq: int = _last_seq
 	var t0_us: int = Time.get_ticks_usec()
-	var result: Dictionary = handshake.call("poll_intents", _session_id, _local_uid, after_seq) as Dictionary
+	var result: Dictionary = handshake.call("poll_intents", _session_id, _local_uid, after_seq, _current_sim_tick()) as Dictionary
 	_handle_remote_intent_poll_result(result, t0_us, after_seq)
 
 func _handle_remote_intent_poll_result(result: Dictionary, t0_us: int, after_seq: int) -> void:
@@ -1134,6 +1243,7 @@ func _handle_remote_intent_poll_result(result: Dictionary, t0_us: int, after_seq
 	if typeof(events_any) != TYPE_ARRAY:
 		if latest_seq > _last_seq:
 			_last_seq = latest_seq
+		_update_match_lifecycle(result.get("match_lifecycle", {}))
 		_update_runtime_telemetry()
 		return
 	var events: Array = events_any as Array
@@ -1193,6 +1303,7 @@ func _handle_remote_intent_poll_result(result: Dictionary, t0_us: int, after_seq
 		_pending_remote_commands.append(command)
 		_remote_commands_rx += 1
 		_record_remote_command_received(command)
+	_update_match_lifecycle(result.get("match_lifecycle", {}))
 	_update_runtime_telemetry()
 
 func _record_remote_command_received(command: Dictionary) -> void:
@@ -1745,7 +1856,8 @@ func _start_async_remote_intent_poll() -> void:
 	var payload: Dictionary = {
 		"session_id": _session_id,
 		"uid": _local_uid,
-		"after_seq": _last_seq
+		"after_seq": _last_seq,
+		"sim_tick": _current_sim_tick()
 	}
 	_poll_inflight = true
 	_poll_thread = Thread.new()

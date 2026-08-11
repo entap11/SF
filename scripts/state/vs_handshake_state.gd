@@ -1864,14 +1864,15 @@ func _canonicalize_authoritative_command(session_id: String, sender_uid: String,
 	canonical["authority_action"] = "accepted" if execute_tick == requested_execute_tick else "rebased"
 	return canonical
 
-func poll_intents(session_id: String, uid: String, after_seq: int = 0) -> Dictionary:
+func poll_intents(session_id: String, uid: String, after_seq: int = 0, sim_tick: int = 0) -> Dictionary:
 	if _durable_public_match_ids.has(session_id.strip_edges()):
 		return poll_public_1v1_commands(session_id, after_seq)
 	var start_ms: int = Time.get_ticks_msec()
 	var transport := _call_transport("poll_intents", {
 		"session_id": session_id,
 		"uid": uid,
-		"after_seq": after_seq
+		"after_seq": after_seq,
+		"sim_tick": maxi(0, sim_tick)
 	})
 	if bool(transport.get("handled", false)):
 		return transport.get("result", {}) as Dictionary
@@ -1905,6 +1906,16 @@ func poll_intents(session_id: String, uid: String, after_seq: int = 0) -> Dictio
 			continue
 		out.append(e.duplicate(true))
 	return _with_server_perf_meta({"ok": true, "events": out, "latest_seq": latest_seq}, start_ms)
+
+func match_presence(session_id: String, uid: String, status: String, details: Dictionary = {}) -> Dictionary:
+	var payload: Dictionary = details.duplicate(true)
+	payload["session_id"] = session_id
+	payload["uid"] = uid
+	payload["status"] = status
+	var transport := _call_transport("match_presence", payload)
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	return {"ok": false, "handled": false, "err": "transport_not_configured"}
 
 func create_spectator_grant(session_id: String, role: String = "invited_spectator", spectator_uid: String = "", display_name: String = "Spectator", delay_sec: int = 20) -> Dictionary:
 	if not _ops_observer_mode_enabled():

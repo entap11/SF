@@ -583,10 +583,26 @@ var _app_lifecycle: Node = null
 var _lifecycle_local_pause_active: bool = false
 var _lifecycle_local_pause_sim_was_running: bool = false
 var _lifecycle_local_pause_reason: String = ""
+var _match_disconnect_layer: CanvasLayer = null
+var _match_disconnect_overlay: Control = null
+var _match_disconnect_title: Label = null
+var _match_disconnect_body: Label = null
+var _match_lifecycle_snapshot: Dictionary = {}
+var _match_lifecycle_received_local_ms: int = 0
+var _match_lifecycle_received_server_ms: int = 0
+var _match_lifecycle_previous_phase: String = "running"
+var _match_lifecycle_sim_was_running: bool = false
+var _match_lifecycle_snapshot_sent_epoch: int = -1
+var _match_lifecycle_restored_epoch: int = -1
+var _match_lifecycle_resume_ack_epoch: int = -1
+var _match_lifecycle_last_retry_ms: int = 0
+var _match_lifecycle_terminal_epoch: int = -1
+var _match_lifecycle_warned_strikes: int = 0
 
 func _ready() -> void:
 	if Engine.is_editor_hint():
 		return
+	_ensure_match_disconnect_overlay()
 	_buff_presentation_epoch = "%d:%d" % [get_instance_id(), Time.get_ticks_usec()]
 	_restore_buff_activation_runtime_state()
 	_allow_camfit_log_tags()
@@ -1957,6 +1973,9 @@ func _configure_vs_pvp_runtime() -> void:
 	var publish_result_cb: Callable = Callable(self, "_on_vs_command_publish_result")
 	if _vs_pvp_runtime.has_signal("command_publish_result") and not _vs_pvp_runtime.is_connected("command_publish_result", publish_result_cb):
 		_vs_pvp_runtime.connect("command_publish_result", publish_result_cb)
+	var lifecycle_cb: Callable = Callable(self, "_on_vs_match_lifecycle_changed")
+	if _vs_pvp_runtime.has_signal("match_lifecycle_changed") and not _vs_pvp_runtime.is_connected("match_lifecycle_changed", lifecycle_cb):
+		_vs_pvp_runtime.connect("match_lifecycle_changed", lifecycle_cb)
 	_sync_active_player_from_vs_runtime()
 
 func _sync_active_player_from_vs_runtime() -> void:
@@ -1982,6 +2001,13 @@ func _bind_app_lifecycle() -> void:
 		_app_lifecycle.connect("app_foregrounded", foreground_callable)
 
 func _on_app_backgrounded(reason: String, paused_at_msec: int, _paused_at_unix: int) -> void:
+	if _is_pvp_runtime_active():
+		if _vs_pvp_runtime.has_method("notify_match_backgrounded"):
+			_vs_pvp_runtime.call("notify_match_backgrounded", reason)
+		if sim_runner != null and sim_runner.running:
+			_match_lifecycle_sim_was_running = true
+			sim_runner.set_running(false, "pvp_app_backgrounded")
+		return
 	if not _should_local_lifecycle_pause_match():
 		SFLog.info("APP_LIFECYCLE_LOCAL_PAUSE_SKIPPED", {
 			"reason": reason,
@@ -2006,6 +2032,10 @@ func _on_app_backgrounded(reason: String, paused_at_msec: int, _paused_at_unix: 
 	})
 
 func _on_app_foregrounded(reason: String, _elapsed_msec: int, _resumed_at_unix: int) -> void:
+	if _is_pvp_runtime_active():
+		if _vs_pvp_runtime.has_method("notify_match_foregrounded"):
+			_vs_pvp_runtime.call("notify_match_foregrounded", reason)
+		return
 	if not _lifecycle_local_pause_active:
 		return
 	var resume_allowed := _can_resume_after_lifecycle_pause()
@@ -2032,6 +2062,178 @@ func _clear_lifecycle_local_pause_state() -> void:
 	_lifecycle_local_pause_active = false
 	_lifecycle_local_pause_sim_was_running = false
 	_lifecycle_local_pause_reason = ""
+
+func _ensure_match_disconnect_overlay() -> void:
+	if _match_disconnect_layer != null and is_instance_valid(_match_disconnect_layer):
+		return
+	_match_disconnect_layer = CanvasLayer.new()
+	_match_disconnect_layer.name = "MatchDisconnectLayer"
+	_match_disconnect_layer.layer = 220
+	add_child(_match_disconnect_layer)
+	_match_disconnect_overlay = ColorRect.new()
+	_match_disconnect_overlay.name = "MatchDisconnectOverlay"
+	_match_disconnect_overlay.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_match_disconnect_overlay.color = Color(0.015, 0.02, 0.025, 0.86)
+	_match_disconnect_overlay.mouse_filter = Control.MOUSE_FILTER_STOP
+	_match_disconnect_layer.add_child(_match_disconnect_overlay)
+	var panel := PanelContainer.new()
+	panel.name = "DisconnectPanel"
+	panel.set_anchors_preset(Control.PRESET_CENTER)
+	panel.position = Vector2(-270.0, -105.0)
+	panel.size = Vector2(540.0, 210.0)
+	var panel_style := StyleBoxFlat.new()
+	panel_style.bg_color = Color(0.04, 0.055, 0.065, 0.98)
+	panel_style.border_color = Color(0.95, 0.68, 0.16, 1.0)
+	panel_style.set_border_width_all(3)
+	panel_style.set_corner_radius_all(18)
+	panel_style.set_content_margin_all(28.0)
+	panel.add_theme_stylebox_override("panel", panel_style)
+	_match_disconnect_overlay.add_child(panel)
+	var column := VBoxContainer.new()
+	column.add_theme_constant_override("separation", 16)
+	panel.add_child(column)
+	_match_disconnect_title = Label.new()
+	_match_disconnect_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_match_disconnect_title.add_theme_font_size_override("font_size", 34)
+	_match_disconnect_title.add_theme_color_override("font_color", Color(1.0, 0.78, 0.25, 1.0))
+	column.add_child(_match_disconnect_title)
+	_match_disconnect_body = Label.new()
+	_match_disconnect_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_match_disconnect_body.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_match_disconnect_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_match_disconnect_body.add_theme_font_size_override("font_size", 22)
+	column.add_child(_match_disconnect_body)
+	_match_disconnect_overlay.visible = false
+
+func _on_vs_match_lifecycle_changed(snapshot: Dictionary) -> void:
+	_match_lifecycle_snapshot = snapshot.duplicate(true)
+	_match_lifecycle_received_local_ms = Time.get_ticks_msec()
+	_match_lifecycle_received_server_ms = int(snapshot.get("server_unix_ms", 0))
+	var phase: String = str(snapshot.get("phase", "running")).strip_edges().to_lower()
+	var epoch: int = int(snapshot.get("epoch", 0))
+	if phase == "grace":
+		_pause_for_match_lifecycle("opponent_disconnect")
+		_maybe_publish_match_reconnect_snapshot(epoch, snapshot)
+	elif phase == "resuming":
+		_pause_for_match_lifecycle("opponent_resuming")
+		_maybe_restore_match_reconnect_snapshot(epoch, snapshot)
+	elif phase == "running":
+		_resume_from_match_lifecycle()
+		var strikes: int = int(snapshot.get("local_disconnect_strikes", 0))
+		if strikes > _match_lifecycle_warned_strikes:
+			_match_lifecycle_warned_strikes = strikes
+			_show_capture_flag_toast("Disconnect %d/3 — third disconnect forfeits" % strikes, 3600.0)
+	elif (phase == "forfeit" or phase == "no_contest") and _match_lifecycle_terminal_epoch != epoch:
+		_match_lifecycle_terminal_epoch = epoch
+		_resolve_match_lifecycle_terminal(snapshot)
+	_match_lifecycle_previous_phase = phase
+	_update_match_disconnect_overlay()
+
+func _maybe_publish_match_reconnect_snapshot(epoch: int, snapshot: Dictionary) -> void:
+	if not bool(snapshot.get("snapshot_requested", false)) or _match_lifecycle_snapshot_sent_epoch == epoch:
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	if now_ms - _match_lifecycle_last_retry_ms < 1000:
+		return
+	_match_lifecycle_last_retry_ms = now_ms
+	var authority_snapshot: Dictionary = {}
+	if OpsState != null and OpsState.has_method("get_authority_snapshot"):
+		var snapshot_any: Variant = OpsState.call("get_authority_snapshot")
+		if typeof(snapshot_any) == TYPE_DICTIONARY:
+			authority_snapshot = snapshot_any as Dictionary
+	var result: Dictionary = _vs_pvp_runtime.call("publish_reconnect_snapshot", authority_snapshot) as Dictionary
+	if bool(result.get("ok", false)):
+		_match_lifecycle_snapshot_sent_epoch = epoch
+
+func _maybe_restore_match_reconnect_snapshot(epoch: int, snapshot: Dictionary) -> void:
+	if not bool(snapshot.get("local_is_disconnected_player", false)) or not snapshot.has("resume_snapshot"):
+		return
+	var resume_any: Variant = snapshot.get("resume_snapshot", {})
+	if _match_lifecycle_restored_epoch != epoch:
+		var restored: bool = typeof(resume_any) == TYPE_DICTIONARY \
+			and OpsState != null and OpsState.has_method("restore_authority_snapshot") \
+			and bool(OpsState.call("restore_authority_snapshot", resume_any as Dictionary))
+		if not restored:
+			return
+		_match_lifecycle_restored_epoch = epoch
+		mark_render_dirty("pvp_reconnect_snapshot_restored")
+		if _vs_pvp_runtime.has_method("complete_reconnect_snapshot_restore"):
+			_vs_pvp_runtime.call("complete_reconnect_snapshot_restore", int((resume_any as Dictionary).get("tick", 0)))
+	if _match_lifecycle_resume_ack_epoch == epoch:
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	if now_ms - _match_lifecycle_last_retry_ms < 1000:
+		return
+	_match_lifecycle_last_retry_ms = now_ms
+	var ack: Dictionary = _vs_pvp_runtime.call("acknowledge_reconnect_snapshot") as Dictionary
+	if bool(ack.get("ok", false)):
+		_match_lifecycle_resume_ack_epoch = epoch
+
+func _pause_for_match_lifecycle(reason: String) -> void:
+	if sim_runner != null and sim_runner.running:
+		_match_lifecycle_sim_was_running = true
+		sim_runner.set_running(false, reason)
+		sim_runner.log_pause_snapshot(reason)
+
+func _resume_from_match_lifecycle() -> void:
+	if _match_disconnect_overlay != null:
+		_match_disconnect_overlay.visible = false
+	if not _match_lifecycle_sim_was_running or sim_runner == null or sim_runner.running:
+		return
+	if OpsState == null or int(OpsState.match_phase) != int(OpsState.MatchPhase.RUNNING):
+		return
+	sim_runner.set_running(true, "pvp_reconnect_synchronized_resume")
+	sim_runner.log_pause_snapshot("pvp_reconnect_synchronized_resume")
+	_match_lifecycle_sim_was_running = false
+
+func _resolve_match_lifecycle_terminal(snapshot: Dictionary) -> void:
+	_pause_for_match_lifecycle("pvp_disconnect_forfeit")
+	var winner_uid: String = str(snapshot.get("winner_uid", "")).strip_edges()
+	var winner_seat: int = 0
+	if _vs_pvp_runtime != null and _vs_pvp_runtime.has_method("get_seat_for_uid"):
+		winner_seat = int(_vs_pvp_runtime.call("get_seat_for_uid", winner_uid))
+	var reason: String = str(snapshot.get("terminal_reason", "disconnect_forfeit"))
+	if sim_runner != null and sim_runner.has_method("resolve_authoritative_forfeit"):
+		sim_runner.call("resolve_authoritative_forfeit", winner_seat, reason)
+
+func _update_match_disconnect_overlay() -> void:
+	if _match_disconnect_overlay == null or _match_lifecycle_snapshot.is_empty():
+		return
+	var phase: String = str(_match_lifecycle_snapshot.get("phase", "running")).strip_edges().to_lower()
+	if phase == "running":
+		_match_disconnect_overlay.visible = false
+		return
+	_match_disconnect_overlay.visible = true
+	var local_disconnected: bool = bool(_match_lifecycle_snapshot.get("local_is_disconnected_player", false))
+	var strikes: int = int(_match_lifecycle_snapshot.get("disconnected_player_strikes", 0))
+	if phase == "grace":
+		_maybe_publish_match_reconnect_snapshot(int(_match_lifecycle_snapshot.get("epoch", 0)), _match_lifecycle_snapshot)
+		var deadline_ms: int = int(_match_lifecycle_snapshot.get("grace_deadline_unix_ms", 0))
+		var now_ms: int = _estimated_match_server_unix_ms()
+		var seconds_left: int = maxi(0, int(ceil(float(deadline_ms - now_ms) / 1000.0)))
+		_match_disconnect_title.text = "RECONNECTING — %d" % seconds_left
+		if local_disconnected:
+			_match_disconnect_body.text = "Connection interrupted. Return before time expires.\nDisconnect %d/3 — the third disconnect forfeits the match." % strikes
+		else:
+			_match_disconnect_body.text = "Opponent disconnected. The match is paused.\nYou win if they do not return before the timer expires."
+	elif phase == "resuming":
+		_maybe_restore_match_reconnect_snapshot(int(_match_lifecycle_snapshot.get("epoch", 0)), _match_lifecycle_snapshot)
+		_match_disconnect_title.text = "PLAYER RETURNED"
+		_match_disconnect_body.text = "Restoring the shared game state…\nDisconnect %d/3 — the third disconnect forfeits the match." % strikes
+		var resume_ms: int = int(_match_lifecycle_snapshot.get("resume_unix_ms", 0))
+		if resume_ms > 0 and _estimated_match_server_unix_ms() >= resume_ms:
+			_resume_from_match_lifecycle()
+	elif phase == "forfeit":
+		_match_disconnect_title.text = "MATCH FORFEITED"
+		_match_disconnect_body.text = "The disconnected player did not return or reached 3/3 disconnects."
+	else:
+		_match_disconnect_title.text = "MATCH ENDED"
+		_match_disconnect_body.text = "Both players disconnected. No winner was awarded."
+
+func _estimated_match_server_unix_ms() -> int:
+	if _match_lifecycle_received_server_ms <= 0 or _match_lifecycle_received_local_ms <= 0:
+		return int(Time.get_unix_time_from_system() * 1000.0)
+	return _match_lifecycle_received_server_ms + maxi(0, Time.get_ticks_msec() - _match_lifecycle_received_local_ms)
 
 func _should_local_lifecycle_pause_match() -> bool:
 	if OpsState == null or sim_runner == null:
@@ -8198,6 +8400,7 @@ func _tick_arena_runtime(delta: float) -> void:
 		input_system.tick(delta, api)
 		_sync_inputs_locked_from_state()
 	_pump_vs_pvp_runtime(delta)
+	_update_match_disconnect_overlay()
 	_maybe_publish_spectator_snapshot(delta)
 	_update_timer_ui()
 	_update_progressive_counter_ui()

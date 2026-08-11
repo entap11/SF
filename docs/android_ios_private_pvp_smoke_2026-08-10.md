@@ -114,6 +114,32 @@ change: both sides must derive the same result from authoritative state.
 Any failed row keeps the private phone certification open. Public or economic
 features remain disabled regardless of this matrix's result.
 
+## 2026-08-11 device findings and reconnect policy
+
+Android and iPhone now pass the controlled invite flow in both host directions.
+The synchronized loading barrier/countdown and ordinary gameplay replication are
+visually aligned on both devices. A real iPhone call exposed the remaining
+lifecycle gap: iOS suspended the iPhone process while Android continued the
+simulation and completed the match.
+
+The certification relay now owns match presence and reconnect adjudication:
+
+- focus loss by itself does not pause or count as a disconnect;
+- an actual app-background notification, or 2.5 seconds without relay polling,
+  freezes gameplay intents and starts a server-timed 60-second grace period;
+- the waiting player sees the opponent-disconnected countdown;
+- the waiting client uploads an OpsState authority checkpoint, the returning
+  client restores it, and both resume on a relay-scheduled timestamp;
+- successful returns warn at disconnect 1/3 and 2/3;
+- disconnect 3/3 is an immediate forfeit; and
+- expiry of the 60-second grace awards the match to the connected player.
+
+Physical-device certification is still required for: incoming-call return,
+manual app switching on each platform, a forced Wi-Fi interruption, the full
+60-second timeout, and the 3/3 forfeit. A suspended iOS process cannot continue
+executing the simulation; pausing the peer and restoring one shared checkpoint
+is the deterministic behavior for that platform state.
+
 ## Work-machine handoff
 
 The implementation prerequisite is pushed to
