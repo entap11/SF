@@ -140,7 +140,7 @@ const SYNCHRONIZED_START_LEAD_MS = SYNCHRONIZED_MATCH_LOADING_MIN_MS
   + SYNCHRONIZED_PREMATCH_MS;
 const MATCH_RECONNECT_GRACE_MS = 60_000;
 const MATCH_PRESENCE_STALE_MS = 2_500;
-const MATCH_RESUME_LEAD_MS = 1_000;
+const MATCH_RESUME_LEAD_MS = 3_000;
 const MATCH_DISCONNECT_STRIKE_LIMIT = 3;
 
 type QueueTicket = {
@@ -712,8 +712,25 @@ function evaluateMatchLifecycle(session: Session, nowMs: number): MatchLifecycle
       const stale = presenceValues.find((presence) => nowMs - presence.last_seen_unix_ms >= MATCH_PRESENCE_STALE_MS);
       if (stale) enterMatchDisconnectGrace(session, stale.uid, "presence_timeout", nowMs);
     }
+  } else if (lifecycle.phase === "resuming") {
+    scheduleMatchResumeIfReady(lifecycle, nowMs);
   }
   return lifecycle;
+}
+
+function matchResumeTicksAligned(lifecycle: MatchLifecycle): boolean {
+  const checkpointTick = lifecycle.resume_snapshot_tick;
+  if (checkpointTick < 0) return false;
+  const players = Object.values(lifecycle.players);
+  return players.length >= 2 && players.every((presence) => presence.connected && presence.seen
+    && presence.sim_tick === checkpointTick);
+}
+
+function scheduleMatchResumeIfReady(lifecycle: MatchLifecycle, nowMs: number): void {
+  if (lifecycle.phase !== "resuming" || !lifecycle.resume_acknowledged
+      || lifecycle.resume_unix_ms > 0 || !matchResumeTicksAligned(lifecycle)) return;
+  lifecycle.resume_unix_ms = nowMs + MATCH_RESUME_LEAD_MS;
+  lifecycle.epoch += 1;
 }
 
 function publicMatchLifecycle(session: Session, viewerUid: string): JsonRecord {
@@ -730,6 +747,8 @@ function publicMatchLifecycle(session: Session, viewerUid: string): JsonRecord {
     resume_unix_ms: lifecycle.resume_unix_ms,
     resume_snapshot_ready: lifecycle.resume_snapshot_ready,
     resume_snapshot_tick: lifecycle.resume_snapshot_tick,
+    resume_checkpoint_tick: lifecycle.resume_snapshot_tick,
+    resume_ticks_aligned: matchResumeTicksAligned(lifecycle),
     winner_uid: lifecycle.winner_uid,
     loser_uid: lifecycle.loser_uid,
     terminal_reason: lifecycle.terminal_reason,
@@ -738,6 +757,7 @@ function publicMatchLifecycle(session: Session, viewerUid: string): JsonRecord {
     strike_limit: MATCH_DISCONNECT_STRIKE_LIMIT,
     reconnect_grace_sec: Math.trunc(MATCH_RECONNECT_GRACE_MS / 1000),
     local_is_disconnected_player: lifecycle.disconnected_uid === viewerUid,
+    local_sim_tick: viewerPresence?.sim_tick ?? 0,
     snapshot_requested: lifecycle.phase === "grace" && lifecycle.disconnected_uid !== viewerUid
       && !lifecycle.resume_snapshot_ready
   };
@@ -2730,16 +2750,32 @@ function matchPresence(req: Request, res: Response): void {
     }
     const snapshot = req.body?.snapshot;
     if (!isRecord(snapshot)) return fail(res, "snapshot_missing");
+    const snapshotTick = Math.max(0, Math.trunc(numberValue(req.body?.sim_tick, 0)));
+    presence.seen = true;
+    presence.connected = true;
+    presence.last_seen_unix_ms = nowMs;
+    presence.sim_tick = snapshotTick;
     matchReconnectSnapshots.set(sessionId, cloneContext(snapshot));
     lifecycle.resume_snapshot_ready = true;
-    lifecycle.resume_snapshot_tick = Math.max(0, Math.trunc(numberValue(req.body?.sim_tick, 0)));
+    lifecycle.resume_snapshot_tick = snapshotTick;
     lifecycle.epoch += 1;
   } else if (status === "resume_ack") {
     if (lifecycle.phase !== "resuming" || lifecycle.disconnected_uid !== uid || !lifecycle.resume_snapshot_ready) {
       return fail(res, "resume_not_ready", 409, { match_lifecycle: publicMatchLifecycle(session, uid) });
     }
+    const restoredTick = Math.max(0, Math.trunc(numberValue(req.body?.sim_tick, presence.sim_tick)));
+    presence.seen = true;
+    presence.connected = true;
+    presence.last_seen_unix_ms = nowMs;
+    presence.sim_tick = restoredTick;
+    if (restoredTick !== lifecycle.resume_snapshot_tick) {
+      return fail(res, "resume_tick_mismatch", 409, {
+        expected_tick: lifecycle.resume_snapshot_tick,
+        reported_tick: restoredTick,
+        match_lifecycle: publicMatchLifecycle(session, uid)
+      });
+    }
     lifecycle.resume_acknowledged = true;
-    lifecycle.resume_unix_ms = nowMs + MATCH_RESUME_LEAD_MS;
     lifecycle.epoch += 1;
   } else {
     return fail(res, "invalid_presence_status");

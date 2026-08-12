@@ -129,7 +129,8 @@ The certification relay now owns match presence and reconnect adjudication:
   freezes gameplay intents and starts a server-timed 60-second grace period;
 - the waiting player sees the opponent-disconnected countdown;
 - the waiting client uploads an OpsState authority checkpoint, the returning
-  client restores it, and both resume on a relay-scheduled timestamp;
+  client restores it, and the relay requires both clients to report that exact
+  checkpoint tick before scheduling a shared three-second restart countdown;
 - successful returns warn at disconnect 1/3 and 2/3;
 - disconnect 3/3 is an immediate forfeit; and
 - expiry of the 60-second grace awards the match to the connected player.
@@ -139,6 +140,11 @@ manual app switching on each platform, a forced Wi-Fi interruption, the full
 60-second timeout, and the 3/3 forfeit. A suspended iOS process cannot continue
 executing the simulation; pausing the peer and restoring one shared checkpoint
 is the deterministic behavior for that platform state.
+
+The Android client also felt less reliable when instancing lanes, with more
+intended gestures failing to create a lane than on iPhone. Treat Android touch
+targeting/gesture telemetry and tuning as a separate follow-up; no gameplay or
+input thresholds were changed during the reconnect pass.
 
 ## Work-machine handoff
 

@@ -186,16 +186,32 @@ async function main(): Promise<void> {
     expect(firstReturnLifecycle.phase === "resuming"
       && typeof firstReturnLifecycle.resume_snapshot === "object" && firstReturnLifecycle.resume_snapshot !== null,
       "returning player did not receive reconnect snapshot", firstReturn);
+    const mismatchedAck = await postRaw(baseUrl, "match_presence", {
+      session_id: sessionId, uid: host.uid, status: "resume_ack", sim_tick: 22
+    }, matchHeaders);
+    expect(mismatchedAck.http_status === 409 && mismatchedAck.err === "resume_tick_mismatch",
+      "relay accepted a reconnect client on the wrong checkpoint tick", mismatchedAck);
     const firstAck = await post(baseUrl, "match_presence", {
       session_id: sessionId, uid: host.uid, status: "resume_ack", sim_tick: 23
     });
     expect((firstAck.match_lifecycle as JsonRecord).phase === "resuming"
-      && Number((firstAck.match_lifecycle as JsonRecord).resume_unix_ms) > Date.now(),
+      && (firstAck.match_lifecycle as JsonRecord).resume_ticks_aligned === true
+      && Number((firstAck.match_lifecycle as JsonRecord).resume_checkpoint_tick) === 23
+      && Number((firstAck.match_lifecycle as JsonRecord).resume_unix_ms) >= Date.now() + 2_900,
       "synchronized resume was not scheduled", firstAck);
-    await new Promise((resolve) => setTimeout(resolve, 1_050));
+    const firstResumeAt = Number((firstAck.match_lifecycle as JsonRecord).resume_unix_ms);
+    const firstResumeRealNow = Date.now;
+    Date.now = () => firstResumeAt - 100;
+    await post(baseUrl, "poll_intents", {
+      session_id: sessionId, uid: host.uid, after_seq: Number(hostPoll.latest_seq ?? 0), sim_tick: 23
+    });
+    await post(baseUrl, "poll_intents", {
+      session_id: sessionId, uid: guest.uid, after_seq: Number(hostPoll.latest_seq ?? 0), sim_tick: 23
+    });
+    Date.now = () => firstResumeAt + 1;
     const resumedPoll = await post(baseUrl, "poll_intents", {
       session_id: sessionId, uid: host.uid, after_seq: Number(hostPoll.latest_seq ?? 0), sim_tick: 24
-    });
+    }).finally(() => { Date.now = firstResumeRealNow; });
     expect((resumedPoll.match_lifecycle as JsonRecord).phase === "running",
       "match did not resume after reconnect acknowledgement", resumedPoll);
 
@@ -218,13 +234,22 @@ async function main(): Promise<void> {
       await post(baseUrl, "match_presence", {
         session_id: sessionId, uid: host.uid, status: "foregrounded", sim_tick: 26
       });
-      await post(baseUrl, "match_presence", {
+      const strikeAck = await post(baseUrl, "match_presence", {
         session_id: sessionId, uid: host.uid, status: "resume_ack", sim_tick: 30
       });
-      await new Promise((resolve) => setTimeout(resolve, 1_050));
+      const strikeResumeAt = Number((strikeAck.match_lifecycle as JsonRecord).resume_unix_ms);
+      const strikeResumeRealNow = Date.now;
+      Date.now = () => strikeResumeAt - 100;
+      await post(baseUrl, "poll_intents", {
+        session_id: sessionId, uid: host.uid, after_seq: Number(hostPoll.latest_seq ?? 0), sim_tick: 30
+      });
+      await post(baseUrl, "poll_intents", {
+        session_id: sessionId, uid: guest.uid, after_seq: Number(hostPoll.latest_seq ?? 0), sim_tick: 30
+      });
+      Date.now = () => strikeResumeAt + 1;
       await post(baseUrl, "poll_intents", {
         session_id: sessionId, uid: host.uid, after_seq: Number(hostPoll.latest_seq ?? 0), sim_tick: 31
-      });
+      }).finally(() => { Date.now = strikeResumeRealNow; });
     }
 
     const timeoutHost = { uid: "timeout_host", display_name: "Timeout Host" };

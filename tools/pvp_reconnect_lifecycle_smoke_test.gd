@@ -19,6 +19,8 @@ func _initialize() -> void:
 	_expect(arena_source.contains("grace_deadline_unix_ms"), "disconnect overlay should render the server grace deadline")
 	_expect(arena_source.contains("Disconnect %d/3"), "returning player should receive the strike warning")
 	_expect(arena_source.contains("restore_authority_snapshot"), "returning client should restore one authoritative snapshot")
+	_expect(arena_source.contains("MATCH RESUMES IN %d"), "both players should see the shared restart countdown")
+	_expect(arena_source.contains("resume_checkpoint_tick"), "restart overlay should report the agreed checkpoint tick")
 	_expect(runtime_source.contains("get_match_lifecycle_phase() == \"running\""), "gameplay intents should be blocked during reconnect")
 	_expect(runtime_source.contains("complete_reconnect_snapshot_restore"), "snapshot restore should discard already-applied commands")
 	_expect(runner_source.contains("func resolve_authoritative_forfeit"), "forfeit should resolve through the simulation system")

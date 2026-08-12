@@ -2218,9 +2218,15 @@ func _update_match_disconnect_overlay() -> void:
 			_match_disconnect_body.text = "Opponent disconnected. The match is paused.\nYou win if they do not return before the timer expires."
 	elif phase == "resuming":
 		_maybe_restore_match_reconnect_snapshot(int(_match_lifecycle_snapshot.get("epoch", 0)), _match_lifecycle_snapshot)
-		_match_disconnect_title.text = "PLAYER RETURNED"
-		_match_disconnect_body.text = "Restoring the shared game state…\nDisconnect %d/3 — the third disconnect forfeits the match." % strikes
 		var resume_ms: int = int(_match_lifecycle_snapshot.get("resume_unix_ms", 0))
+		var checkpoint_tick: int = int(_match_lifecycle_snapshot.get("resume_checkpoint_tick", -1))
+		if resume_ms <= 0:
+			_match_disconnect_title.text = "VERIFYING MATCH"
+			_match_disconnect_body.text = "Player returned. Confirming both devices are on checkpoint tick %d…\nDisconnect %d/3 — the third disconnect forfeits the match." % [checkpoint_tick, strikes]
+		else:
+			var restart_seconds: int = maxi(0, int(ceil(float(resume_ms - _estimated_match_server_unix_ms()) / 1000.0)))
+			_match_disconnect_title.text = "MATCH RESUMES IN %d" % restart_seconds
+			_match_disconnect_body.text = "Both players synchronized at tick %d.\nGet ready — controls unlock together." % checkpoint_tick
 		if resume_ms > 0 and _estimated_match_server_unix_ms() >= resume_ms:
 			_resume_from_match_lifecycle()
 	elif phase == "forfeit":
