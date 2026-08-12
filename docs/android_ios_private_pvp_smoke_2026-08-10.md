@@ -4,11 +4,102 @@ This runbook certifies the private invite/relay path only. It does not authorize
 public matchmaking, rank settlement, contests, rewards, purchases, or any other
 economic mutation.
 
+## Night handoff — exact stop point (2026-08-11)
+
+The active repository is the Swarmfront project (`entap11/SF`), not the
+cinematic repository. Continue on branch
+`codex/android-release-candidate-4.7.1`. The implementation under test is
+commit `36614cc` (`Synchronize PvP reconnect restart`), which is pushed to
+origin and deployed to the phone-facing Render service. After pulling, the
+handoff-document commit will be newer than `36614cc`; do not reset back to it.
+
+Live health was verified immediately after deployment:
+
+- endpoint: `https://sf-zr2m.onrender.com/v1/health`
+- live backend build: `36614cc5ac93587e12dd870935d1fef6e584ae71`
+- all public matchmaking, rank, contest, reward, settlement, and economy
+  mutation flags: `false`
+- private certification continues to use the deliberately isolated in-memory
+  relay; this deploy does not make PvP public
+
+The latest physical-device builds were exported from `36614cc` with Godot
+4.7.1, signed, and installed on both test phones:
+
+- Android `com.entap.swarmfront`, device APK SHA-256
+  `f41569faecafd7aec0d2df41fc9cc3f3ad6e89d1780945405b2775ee7e69bd4e`
+- iOS `com.matthew.swarmfront`, PCK SHA-256
+  `746be8a75867fe2123890b7c5e7ec77027978d2c9207500a98da8cfd32c4a67a`
+- Android installed and launched successfully on the connected Samsung
+  `SM_A156U` (`R5CY144JM9F`)
+- iOS installed successfully on the paired iPhone 16 Pro
+  (`B8F36805-35EE-5AC8-B9A7-4944062B98F7`); its final remote launch was denied
+  only because the phone auto-locked, so unlock it and open Swarmfront
+
+### What has already passed on the phones
+
+- Private invite creation and joining work with Android as host and iPhone as
+  joiner, and with iPhone as host and Android as joiner.
+- The loading barrier, minimum seven-second loading/ad window, arena entry, and
+  opening countdown now synchronize correctly.
+- The test ad is visible. Its placement still needs visual polish, but the
+  prior accidental external-browser behavior is fixed.
+- Ordinary lane, power-bar, swarm, and match state replication appeared closely
+  synchronized. One observed swarm arrived roughly 250 ms later on the peer,
+  which was noticeable only while watching both screens side by side.
+- Both host directions completed smoothly. Post-match return and menu hero
+  recap differences were addressed during the pass and should remain in the
+  regression matrix.
+
+### Exact unfinished test
+
+The authoritative reconnect implementation is built, deployed, and installed,
+but the new behavior has **not yet been exercised on the two phones**. This is
+the first task for the next session.
+
+1. Pull this branch, confirm a clean tree, warm `/v1/health`, and verify its
+   `build` is `36614cc5ac93587e12dd870935d1fef6e584ae71` or a deliberately newer
+   handoff-only build.
+2. Unlock and open the iPhone app; confirm Android is running the freshly
+   installed app. Create a private free 1v1 invite and enter the Arena.
+3. Interrupt one phone with an incoming call or actual app backgrounding. Mere
+   focus loss is intentionally not a disconnect. The other phone should freeze
+   promptly, show that the opponent disconnected, and display the server-owned
+   60-second grace countdown.
+4. Return inside 60 seconds. Both phones should first show **VERIFYING MATCH**.
+   The relay must not schedule the restart until both report the exact same
+   authoritative checkpoint tick.
+5. Once aligned, both phones should show the same **MATCH RESUMES IN 3**
+   countdown. Controls must remain blocked and then unlock together at the
+   relay-scheduled timestamp. Confirm lane, power, swarm, timer, and ownership
+   state agree immediately after restart.
+6. Repeat with the other platform interrupted, then test forced Wi-Fi loss,
+   expiry of the full 60-second grace period, and three disconnects. Returns
+   one and two must warn 1/3 and 2/3; the third must forfeit immediately.
+7. Retain Android logcat, iPhone device logs, invite/session IDs, and health
+   snapshots under a dated ignored `artifacts/device-cert/` directory.
+
+The reconnect path intentionally moves the returning phone forward to the
+waiting phone's frozen OpsState checkpoint. It does not rewind the waiting
+phone: doing so could erase valid commands accepted between the interruption
+and relay detection. Explicit background notification should make that window
+small; a silent network disappearance can take up to the 2.5-second stale
+threshold (about 25 simulation ticks) to detect. Historical authority snapshots
+make a future rollback design possible if physical testing proves it necessary,
+but rollback is not part of this certification build.
+
+Separately, Android lane creation felt more finicky than iPhone, with more
+intended gestures failing to instance a lane. Do not casually tune gameplay
+rules or simulation state to mask it. After reconnect certification, add input
+telemetry and compare Android touch acquisition/release, hit targets, drag
+thresholds, and cancellation paths against iOS before adjusting platform input
+constants.
+
 ## Candidate identity
 
+- Current phone/backend source: `36614cc` (`Synchronize PvP reconnect restart`)
 - Archived phone/backend source: `08c2066` (`Prepare cross-platform PvP release candidates`)
 - New phone certification source: `18e0d0c6` (`Expose private PvP certification invites`)
-- Live backend build: `08c2066` from the same release-candidate branch
+- Live backend build: `36614cc5ac93587e12dd870935d1fef6e584ae71`
 - Android application ID: `com.entap.swarmfront`
 - iOS application ID: `com.matthew.swarmfront`
 - iOS signing team: `SH6675DXQ5`
@@ -148,33 +239,8 @@ input thresholds were changed during the reconnect pass.
 
 ## Work-machine handoff
 
-The implementation prerequisite is pushed to
-`origin/codex/android-release-candidate-4.7.1` at `18e0d0c6`. That commit:
-
-- adds a `private_pvp_certification` policy that permits only free private 1v1;
-- exposes **Create Invite**, the invite-code field, and **Join** in
-  certification exports;
-- suppresses automatic Quick Match so host and joiner roles are controlled;
-- adds a separate **iOS Private PvP Certification** preset;
-- enables the feature on **Android Release Device** only, leaving the Android
-  store AAB and ordinary iOS preset unchanged; and
-- adds `tools/private_pvp_certification_ui_smoke_test.gd`.
-
-Validation completed before handoff:
-
-- private certification UI smoke: PASS;
-- live Render create/join/intent/leave relay smoke: PASS;
-- release guard against unsafe/fake multiplayer: PASS;
-- durable-public 1v1 isolation smoke: PASS; and
-- 1v1 map-contract smoke: PASS.
-
-The home Mac cannot produce the signed candidates. It has Godot 4.2.2 and only
-4.2.2 export templates, no Android SDK, and no Android release-keystore
-environment. Its available Apple Development identity is team `GP77ZSW359`,
-while this project is configured for team `SH6675DXQ5`. The paired iPhone still
-has the older `0.1.1` app, and the Android phone was not visible through ADB.
-
-Resume on the configured office signing machine:
+The full private-PvP implementation through synchronized reconnect is pushed to
+`origin/codex/android-release-candidate-4.7.1`. On any machine, resume with:
 
 ```sh
 git switch codex/android-release-candidate-4.7.1
@@ -182,28 +248,35 @@ git pull --ff-only
 git status --short --branch
 
 curl -fsS https://sf-zr2m.onrender.com/v1/health
-scripts/dev/export_android_release_candidate.sh
-
-mkdir -p artifacts/ios/certification
-"${GODOT_BIN}" --headless --path . \
-  --export-debug "iOS Private PvP Certification" \
-  artifacts/ios/certification/swarmfront-private-pvp.xcodeproj
 ```
 
-Before installation, verify that the source contains `18e0d0c6`, Godot and its
-export templates are 4.7.1, the Android signing variables resolve without
-printing their values, and the Apple signing identity covers `SH6675DXQ5`.
-Install the new APK with the command above, run the generated iOS Xcode project
-on the paired iPhone, and execute Cases A through G. Do not reuse either
-archived `08c2066` phone artifact because neither exposes the controlled invite
-UI.
+The home machine should use this document to understand state and can inspect or
+change code, but signed phone rebuilds still belong on the configured signing
+machine unless its Godot 4.7.1, Android SDK/keystore, and Apple team
+`SH6675DXQ5` environment have been reproduced. The current phones already have
+the `36614cc` candidates, so no rebuild is required for the first reconnect
+test. Execute the unfinished test above before making unrelated changes.
+
+Automated validation completed at `36614cc`:
+
+- VS service TypeScript build and relay lifecycle smoke: PASS, including a
+  rejected mismatched-tick resume acknowledgement and a minimum three-second
+  scheduled restart;
+- `pvp_reconnect_lifecycle_smoke_test.gd`: PASS;
+- `arena_lifecycle_pause_source_smoke_test.gd`: PASS;
+- `vs_swarm_replication_smoke_test.gd`: PASS; and
+- `human_pvp_boot_smoke_test.gd`: PASS.
+
+Known Godot NUL-import, custom-sampler, and shutdown leak/resource warnings were
+present before this change and did not fail these smokes.
 
 ## Current rollout boundary
 
-As of 2026-08-10, build `08c2066` is live on both the isolated certification VS
-service and the phone-facing `https://sf-zr2m.onrender.com` service. The private
-create/join relay smoke passes on both. Production reports all public, rank,
-contest, reward, Crucible-settlement, and economy-mutation flags disabled.
+As of 2026-08-11, build `36614cc5ac93587e12dd870935d1fef6e584ae71` is
+live on the phone-facing `https://sf-zr2m.onrender.com` service. The private
+create/join relay and reconnect lifecycle smokes pass. Production reports all
+public, rank, contest, reward, Crucible-settlement, and economy-mutation flags
+disabled.
 
 The phone-facing service still reports the Render `free` instance type. Render
 accepted `/health` as its health-check path but returned HTTP 500 for the
@@ -220,7 +293,9 @@ Private relay testing is intentionally narrower than a public launch:
 - The iOS secure-credential plugin has source in the repository but has not yet
   been rebuilt and export-integrated against Godot 4.7.1. Android's corresponding
   native plugin is integrated.
-- The two-physical-device matrix above remains outstanding.
+- Invite/gameplay Cases A through D have passed informally on the physical
+  devices; reconnect/timeout/forfeit Cases E through G remain outstanding and
+  must be captured with logs before certification closes.
 - Staging certification phases P6 and P7 remain BLOCKED/HOLD in
   `docs/architecture/public_modes/staging-certification-evidence.md`.
 
