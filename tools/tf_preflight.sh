@@ -3,6 +3,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 GODOT_BIN="${GODOT_BIN:-/Applications/Godot.app/Contents/MacOS/Godot}"
+RUN_CONFIGURED_BACKEND="${TF_PREFLIGHT_RUN_CONFIGURED_BACKEND:-0}"
 EXPORT_PRESET_FILE="$ROOT_DIR/export_presets.cfg"
 GODOT_VERSION="4.2.stable"
 if [[ -x "$GODOT_BIN" ]]; then
@@ -89,8 +90,11 @@ fi
 if [[ -x "$GODOT_BIN" ]]; then
   run_smoke "res://scripts/dev/vs_pvp_smoke.gd" "VS debug local PvP smoke"
   run_smoke "res://scripts/dev/vs_pvp_smoke.gd" "VS release guard refuses fake multiplayer" "--vs-smoke-release-guard"
-  if [[ -n "$VS_BACKEND_URL" && "$VS_BACKEND_URL" == https://* ]]; then
+  if [[ ("$RUN_CONFIGURED_BACKEND" == "1" || "$RUN_CONFIGURED_BACKEND" == "true") \
+      && -n "$VS_BACKEND_URL" && "$VS_BACKEND_URL" == https://* ]]; then
     run_smoke "res://scripts/dev/vs_pvp_smoke.gd" "VS configured backend PvP smoke" "--vs-smoke-backend-url=$VS_BACKEND_URL"
+  else
+    info "Configured backend PvP smoke skipped (set TF_PREFLIGHT_RUN_CONFIGURED_BACKEND=1 only under separate live-service authorization)"
   fi
   run_smoke "res://tools/economy_layer_smoke_test.gd" "Economy authority smoke"
   run_smoke "res://tools/honey_progression_smoke_test.gd" "Honey progression smoke"
