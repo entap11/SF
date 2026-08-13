@@ -4433,8 +4433,12 @@ func _run_soak_perf(config: Dictionary) -> void:
 	_soak_apply_mode(soak_mode)
 	_stop_game()
 	await get_tree().process_frame
-	_apply_map_then_start(map_path)
-	var boot_running_ok: bool = await _mvp_wait_for_phase(int(OpsState.MatchPhase.RUNNING), start_timeout_ms)
+	# The shell can still be RUNNING on its startup map while launch prewarming
+	# yields. Wait for the requested authoritative map identity before accepting
+	# RUNNING, otherwise the soak can disable bots on the old state and measure a
+	# different workload after the requested map replaces it.
+	await _apply_map_then_start(map_path)
+	var boot_running_ok: bool = await _soak_wait_for_requested_map_running(map_path, start_timeout_ms)
 	if not boot_running_ok:
 		SFLog.warn("SOAK_ERROR", {"round": 0, "reason": "initial_match_not_running"})
 		SFLog.LOG_LEVEL = prev_log_level
@@ -4525,8 +4529,8 @@ func _run_soak_perf_round(
 		"budget_ms": round_budget_ms
 	})
 	if int(OpsState.match_phase) != int(OpsState.MatchPhase.RUNNING):
-		_apply_map_then_start(map_path)
-		var running_ok: bool = await _mvp_wait_for_phase(int(OpsState.MatchPhase.RUNNING), start_timeout_ms)
+		await _apply_map_then_start(map_path)
+		var running_ok: bool = await _soak_wait_for_requested_map_running(map_path, start_timeout_ms)
 		if not running_ok:
 			SFLog.warn("SOAK_ERROR", {"round": round_index, "reason": "match_not_running"})
 			return false
@@ -4650,6 +4654,17 @@ func _soak_disable_bots() -> void:
 		return
 	for seat in [1, 2, 3, 4]:
 		OpsState.call("set_bot_profile", int(seat), {"enabled": false})
+
+func _soak_wait_for_requested_map_running(map_path: String, timeout_ms: int) -> bool:
+	var expected_map_id: String = MAP_REGISTRY.map_id_from_path(map_path).strip_edges()
+	var deadline_ms: int = Time.get_ticks_msec() + maxi(1000, timeout_ms)
+	while Time.get_ticks_msec() < deadline_ms:
+		var current_map_id: String = str(OpsState.get("current_map_id")).strip_edges() if OpsState != null else ""
+		if not expected_map_id.is_empty() and current_map_id == expected_map_id \
+				and int(OpsState.match_phase) == int(OpsState.MatchPhase.RUNNING):
+			return true
+		await get_tree().process_frame
+	return false
 
 func _soak_enable_sim_profiling() -> void:
 	var arena_node: Node = _resolve_runtime_arena_node()

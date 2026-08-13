@@ -8,6 +8,7 @@ var _failures: Array[String] = []
 func _initialize() -> void:
 	_test_execution_metric_connectivity_cache()
 	_test_bee_clip_endpoint_guard()
+	_test_soak_waits_for_requested_map()
 	if _failures.is_empty():
 		print("HITCH_OPTIMIZATION_SMOKE_PASS")
 		quit(0)
@@ -61,6 +62,16 @@ func _test_bee_clip_endpoint_guard() -> void:
 	_assert_equal(bool(renderer.call("_unit_needs_live_bee_clip_update", 7, node)), true, "collision clip work remains active")
 	node.free()
 	renderer.free()
+
+func _test_soak_waits_for_requested_map() -> void:
+	var shell_source: String = FileAccess.get_file_as_string("res://scripts/shell.gd")
+	var awaited_launch: String = "await _apply_map_then_start(map_path)"
+	var launch_count: int = shell_source.count(awaited_launch)
+	_assert_equal(launch_count >= 2, true, "soak waits for initial and restart map application")
+	var awaited_identity: String = "await _soak_wait_for_requested_map_running(map_path, start_timeout_ms)"
+	_assert_equal(shell_source.count(awaited_identity) >= 2, true, "soak verifies requested map identity before measuring")
+	_assert_equal(shell_source.contains("current_map_id == expected_map_id"), true, "soak verifies authoritative OpsState map identity")
+	_assert_equal(shell_source.contains("arena_map_path == map_path"), false, "soak does not infer authoritative map identity from render state")
 
 func _assert_equal(actual: Variant, expected: Variant, label: String) -> void:
 	if actual != expected:

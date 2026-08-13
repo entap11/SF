@@ -8,12 +8,13 @@ SOAK_SECONDS="${SOAK_SECONDS:-1800}"
 ROUND_SECONDS="${SOAK_ROUND_SECONDS:-300}"
 PAIR_COUNT="${SOAK_PAIR_COUNT:-2}"
 SOAK_MAP="${SOAK_MAP:-res://maps/_future/quadfight/MAP_quadfight__SBASE__1p.json}"
+START_TIMEOUT_MS="${SOAK_START_TIMEOUT_MS:-60000}"
 MAX_FRAME_MS="${MAX_FRAME_MS:-45.0}"
 MAX_PROCESS_MS="${MAX_PROCESS_MS:-45.0}"
 MAX_TICK_MS="${MAX_TICK_MS:-8.0}"
 WARMUP_SAMPLES="${SOAK_WARMUP_SAMPLES:-1}"
 SIM_PROFILE="${SOAK_SIM_PROFILE:-0}"
-REQUIRE_SIM_HEARTBEAT="${SOAK_REQUIRE_SIM_HEARTBEAT:-0}"
+REQUIRE_SIM_HEARTBEAT="${SOAK_REQUIRE_SIM_HEARTBEAT:-1}"
 
 if [[ -z "${SOAK_MAP}" ]]; then
   echo "SOAK_GATE_FAIL no soak map provided (set SOAK_MAP or rely on default 1P quadfight map)"
@@ -36,6 +37,7 @@ set +e
   --soak-seconds="${SOAK_SECONDS}" \
   --soak-round-seconds="${ROUND_SECONDS}" \
   --soak-pairs="${PAIR_COUNT}" \
+  --soak-start-timeout-ms="${START_TIMEOUT_MS}" \
   --soak-map="${SOAK_MAP}" \
   ${SOAK_PROFILE_ARG:+${SOAK_PROFILE_ARG}} >"${LOG_FILE}" 2>&1
 GODOT_RC=$?
