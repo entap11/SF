@@ -687,6 +687,7 @@ function enterMatchDisconnectGrace(session: Session, uid: string, reason: string
 
 function evaluateMatchLifecycle(session: Session, nowMs: number): MatchLifecycle {
   const lifecycle = initializeMatchLifecycle(session);
+  let resumedThisEvaluation = false;
   if (lifecycle.phase === "grace" && lifecycle.grace_deadline_unix_ms > 0 && nowMs >= lifecycle.grace_deadline_unix_ms) {
     lifecycle.phase = "forfeit";
     lifecycle.winner_uid = lifecycleOpponentUid(session, lifecycle.disconnected_uid);
@@ -705,8 +706,14 @@ function evaluateMatchLifecycle(session: Session, nowMs: number): MatchLifecycle
     lifecycle.resume_acknowledged = false;
     lifecycle.epoch += 1;
     matchReconnectSnapshots.delete(session.id);
+    for (const presence of Object.values(lifecycle.players)) {
+      if (presence.connected && presence.seen) {
+        presence.last_seen_unix_ms = Math.max(presence.last_seen_unix_ms, nowMs);
+      }
+    }
+    resumedThisEvaluation = true;
   }
-  if (lifecycle.phase === "running") {
+  if (lifecycle.phase === "running" && !resumedThisEvaluation) {
     const presenceValues = Object.values(lifecycle.players);
     if (presenceValues.length >= 2 && presenceValues.every((presence) => presence.seen)) {
       const stale = presenceValues.find((presence) => nowMs - presence.last_seen_unix_ms >= MATCH_PRESENCE_STALE_MS);
@@ -756,6 +763,7 @@ function publicMatchLifecycle(session: Session, viewerUid: string): JsonRecord {
     disconnected_player_strikes: disconnectedPresence?.disconnect_strikes ?? 0,
     strike_limit: MATCH_DISCONNECT_STRIKE_LIMIT,
     reconnect_grace_sec: Math.trunc(MATCH_RECONNECT_GRACE_MS / 1000),
+    presence_stale_ms: MATCH_PRESENCE_STALE_MS,
     local_is_disconnected_player: lifecycle.disconnected_uid === viewerUid,
     local_sim_tick: viewerPresence?.sim_tick ?? 0,
     snapshot_requested: lifecycle.phase === "grace" && lifecycle.disconnected_uid !== viewerUid
@@ -2693,7 +2701,7 @@ function pollIntents(req: Request, res: Response): void {
     return fail(res, "player_not_in_session");
   }
   const nowMs = Date.now();
-  let lifecycle = evaluateMatchLifecycle(session, nowMs);
+  let lifecycle = initializeMatchLifecycle(session);
   const presence = lifecycle.players[uid];
   if (presence) {
     presence.seen = true;
@@ -2701,6 +2709,7 @@ function pollIntents(req: Request, res: Response): void {
     presence.last_seen_unix_ms = nowMs;
     presence.sim_tick = Math.max(0, Math.trunc(numberValue(req.body?.sim_tick, presence.sim_tick)));
   }
+  lifecycle = evaluateMatchLifecycle(session, nowMs);
   if (lifecycle.phase === "grace" && lifecycle.disconnected_uid === uid && lifecycle.resume_snapshot_ready) {
     lifecycle.phase = "resuming";
     lifecycle.resume_acknowledged = false;

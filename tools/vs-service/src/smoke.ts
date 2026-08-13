@@ -203,17 +203,15 @@ async function main(): Promise<void> {
     const firstResumeRealNow = Date.now;
     Date.now = () => firstResumeAt - 100;
     await post(baseUrl, "poll_intents", {
-      session_id: sessionId, uid: host.uid, after_seq: Number(hostPoll.latest_seq ?? 0), sim_tick: 23
-    });
-    await post(baseUrl, "poll_intents", {
       session_id: sessionId, uid: guest.uid, after_seq: Number(hostPoll.latest_seq ?? 0), sim_tick: 23
     });
     Date.now = () => firstResumeAt + 1;
     const resumedPoll = await post(baseUrl, "poll_intents", {
       session_id: sessionId, uid: host.uid, after_seq: Number(hostPoll.latest_seq ?? 0), sim_tick: 24
     }).finally(() => { Date.now = firstResumeRealNow; });
-    expect((resumedPoll.match_lifecycle as JsonRecord).phase === "running",
-      "match did not resume after reconnect acknowledgement", resumedPoll);
+    expect((resumedPoll.match_lifecycle as JsonRecord).phase === "running"
+      && Number((resumedPoll.match_lifecycle as JsonRecord).local_disconnect_strikes) === 1,
+      "resume-boundary poll was miscounted as another disconnect", resumedPoll);
 
     for (let strike = 2; strike <= 3; strike += 1) {
       const disconnected = await post(baseUrl, "match_presence", {
