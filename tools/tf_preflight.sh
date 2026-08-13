@@ -70,6 +70,16 @@ run_smoke() {
   fi
 }
 
+if [[ -x "$GODOT_BIN" ]]; then
+  if "$GODOT_BIN" --headless --editor --quit --path "$ROOT_DIR" >/tmp/sf_tf_preflight_import.log 2>&1; then
+    pass "Godot project import"
+  else
+    fail "Godot project import"
+    tail -n 40 /tmp/sf_tf_preflight_import.log || true
+    FAILURES=$((FAILURES + 1))
+  fi
+fi
+
 VS_BACKEND_URL=""
 if [[ -f "$ROOT_DIR/project.godot" ]]; then
   VS_BACKEND_URL="$(rg -n '^vs/backend_url=' "$ROOT_DIR/project.godot" | sed -E 's/.*=\"(.*)\"/\1/' | head -n 1 || true)"
@@ -88,7 +98,7 @@ if [[ -f "$ROOT_DIR/project.godot" ]]; then
 fi
 
 if [[ -x "$GODOT_BIN" ]]; then
-  run_smoke "res://scripts/dev/vs_pvp_smoke.gd" "VS debug local PvP smoke"
+  run_smoke "res://scripts/dev/vs_pvp_smoke.gd" "VS debug local PvP smoke" "--vs-smoke-local"
   run_smoke "res://scripts/dev/vs_pvp_smoke.gd" "VS release guard refuses fake multiplayer" "--vs-smoke-release-guard"
   if [[ ("$RUN_CONFIGURED_BACKEND" == "1" || "$RUN_CONFIGURED_BACKEND" == "true") \
       && -n "$VS_BACKEND_URL" && "$VS_BACKEND_URL" == https://* ]]; then
