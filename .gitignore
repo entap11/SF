@@ -45,6 +45,8 @@ native/android/secure-credentials/.gradle/
 native/android/secure-credentials/build/
 native/android/secure-credentials/plugin/build/
 native/ios/secure-credentials/bin/
+native/ios/secure-credentials/.sconsign.dblite
+native/ios/secure-credentials/*.o
 addons/swarmfront_secure_credentials/bin/
 /android/
 

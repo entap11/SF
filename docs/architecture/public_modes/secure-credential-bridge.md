@@ -1,7 +1,7 @@
 # Secure Credential Bridge — Build and Device Gate
 
-Date: 2026-07-18
-Godot target: 4.2.2 stable
+Date: 2026-07-18; updated 2026-08-12
+Godot target: 4.7.1 stable
 Native singleton: `SwarmfrontSecureCredentials`
 
 ## Contract
@@ -46,15 +46,16 @@ private-key encoding. A repeated create is idempotent for the same alias.
 
 ## iOS build and install
 
-Prerequisites: Xcode, SCons, and a Godot `4.2.2-stable` source tree whose
+Prerequisites: Xcode, SCons, and a Godot `4.7.1-stable` source tree whose
 generated headers match the export templates. From the repository root run:
 
 ```bash
-sh native/ios/secure-credentials/build_xcframework.sh /absolute/path/to/godot-4.2.2-stable
+sh native/ios/secure-credentials/build_xcframework.sh /absolute/path/to/godot-4.7.1-stable
 ```
 
-The script builds device and Apple-silicon simulator slices, creates the
-XCFramework, and installs it with its `.gdip` in
+The script rejects other Godot source versions or missing generated headers.
+It builds an arm64 device slice and a universal arm64/x86_64 simulator slice,
+creates the XCFramework, and installs it with its `.gdip` in
 `ios/plugins/swarmfront_secure_credentials`. Enable
 `SwarmfrontSecureCredentials` in the iOS export preset before exporting.
 

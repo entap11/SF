@@ -2,7 +2,7 @@ import os
 import subprocess
 
 opts = Variables([], ARGUMENTS)
-opts.Add(PathVariable("godot_source", "Godot 4.2.2 source tree with generated headers", ""))
+opts.Add(PathVariable("godot_source", "Godot 4.7.1 source tree with generated headers", ""))
 opts.Add(EnumVariable("target", "Compilation target", "release_debug", ["release_debug", "release"]))
 opts.Add(EnumVariable("arch", "Compilation architecture", "arm64", ["arm64", "x86_64"]))
 opts.Add(BoolVariable("simulator", "Build for the iOS simulator", False))
@@ -12,7 +12,7 @@ env = DefaultEnvironment()
 opts.Update(env)
 
 if not env["godot_source"]:
-    print("godot_source must point to a Godot 4.2.2 source tree with generated headers")
+    print("godot_source must point to a Godot 4.7.1 source tree with generated headers")
     Exit(1)
 
 sdk_name = "iphonesimulator" if env["simulator"] else "iphoneos"
