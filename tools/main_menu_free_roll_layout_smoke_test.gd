@@ -40,6 +40,21 @@ func _run() -> void:
 		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: free roll panel did not open")
 		quit(1)
 		return
+	var entry_scroll: ScrollContainer = panel.get_node_or_null("EntryScroll") as ScrollContainer
+	if entry_scroll == null:
+		push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: entry scroll missing")
+		quit(1)
+		return
+	for background_name in ["Background_Base", "Background_Noise", "Frame_Inlay", "Midfield_Hex_Dark"]:
+		var background_layer: Control = panel.get_node_or_null(background_name) as Control
+		if background_layer != null and background_layer.get_index() >= entry_scroll.get_index():
+			push_error("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: %s covers authored foreground content" % background_name)
+			quit(1)
+			return
+	if OS.get_environment("SF_FREE_ROLL_LAYER_ORDER_ONLY") == "1":
+		print("MAIN_MENU_FREE_ROLL_LAYOUT_SMOKE: LAYER ORDER PASS")
+		quit(0)
+		return
 	var viewport_size: Vector2 = get_root().get_visible_rect().size
 	var panel_rect: Rect2 = panel.get_global_rect()
 	var center_delta: float = absf(panel_rect.get_center().x - (viewport_size.x * 0.5))

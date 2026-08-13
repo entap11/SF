@@ -586,6 +586,8 @@ var _lifecycle_local_pause_reason: String = ""
 var _match_disconnect_layer: CanvasLayer = null
 var _match_disconnect_overlay: Control = null
 var _match_disconnect_title: Label = null
+var _match_disconnect_lead: Label = null
+var _match_disconnect_countdown: Label = null
 var _match_disconnect_body: Label = null
 var _match_lifecycle_snapshot: Dictionary = {}
 var _match_lifecycle_received_local_ms: int = 0
@@ -2079,8 +2081,8 @@ func _ensure_match_disconnect_overlay() -> void:
 	var panel := PanelContainer.new()
 	panel.name = "DisconnectPanel"
 	panel.set_anchors_preset(Control.PRESET_CENTER)
-	panel.position = Vector2(-270.0, -105.0)
-	panel.size = Vector2(540.0, 210.0)
+	panel.position = Vector2(-410.0, -240.0)
+	panel.size = Vector2(820.0, 480.0)
 	var panel_style := StyleBoxFlat.new()
 	panel_style.bg_color = Color(0.04, 0.055, 0.065, 0.98)
 	panel_style.border_color = Color(0.95, 0.68, 0.16, 1.0)
@@ -2090,18 +2092,30 @@ func _ensure_match_disconnect_overlay() -> void:
 	panel.add_theme_stylebox_override("panel", panel_style)
 	_match_disconnect_overlay.add_child(panel)
 	var column := VBoxContainer.new()
-	column.add_theme_constant_override("separation", 16)
+	column.add_theme_constant_override("separation", 14)
 	panel.add_child(column)
 	_match_disconnect_title = Label.new()
 	_match_disconnect_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	_match_disconnect_title.add_theme_font_size_override("font_size", 34)
+	_match_disconnect_title.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_match_disconnect_title.add_theme_font_size_override("font_size", 40)
 	_match_disconnect_title.add_theme_color_override("font_color", Color(1.0, 0.78, 0.25, 1.0))
 	column.add_child(_match_disconnect_title)
+	_match_disconnect_lead = Label.new()
+	_match_disconnect_lead.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_match_disconnect_lead.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_match_disconnect_lead.add_theme_font_size_override("font_size", 28)
+	column.add_child(_match_disconnect_lead)
+	_match_disconnect_countdown = Label.new()
+	_match_disconnect_countdown.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_match_disconnect_countdown.add_theme_font_size_override("font_size", 72)
+	_match_disconnect_countdown.add_theme_color_override("font_color", Color(1.0, 0.78, 0.25, 1.0))
+	column.add_child(_match_disconnect_countdown)
 	_match_disconnect_body = Label.new()
 	_match_disconnect_body.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	_match_disconnect_body.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	_match_disconnect_body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
-	_match_disconnect_body.add_theme_font_size_override("font_size", 22)
+	_match_disconnect_body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	_match_disconnect_body.add_theme_font_size_override("font_size", 28)
 	column.add_child(_match_disconnect_body)
 	_match_disconnect_overlay.visible = false
 
@@ -2205,28 +2219,48 @@ func _update_match_disconnect_overlay() -> void:
 		return
 	_match_disconnect_overlay.visible = true
 	var local_disconnected: bool = bool(_match_lifecycle_snapshot.get("local_is_disconnected_player", false))
-	var strikes: int = int(_match_lifecycle_snapshot.get("disconnected_player_strikes", 0))
+	var strike_limit: int = maxi(1, int(_match_lifecycle_snapshot.get("strike_limit", 3)))
+	var strikes: int = clampi(int(_match_lifecycle_snapshot.get("disconnected_player_strikes", 0)), 0, strike_limit)
+	var remaining_disconnects: int = maxi(0, strike_limit - strikes)
+	var remaining_phrase: String = "%d more %s" % [
+		remaining_disconnects,
+		"time" if remaining_disconnects == 1 else "times"
+	]
+	_match_disconnect_lead.visible = false
+	_match_disconnect_countdown.visible = false
 	if phase == "grace":
 		_maybe_publish_match_reconnect_snapshot(int(_match_lifecycle_snapshot.get("epoch", 0)), _match_lifecycle_snapshot)
 		var deadline_ms: int = int(_match_lifecycle_snapshot.get("grace_deadline_unix_ms", 0))
 		var now_ms: int = _estimated_match_server_unix_ms()
 		var seconds_left: int = maxi(0, int(ceil(float(deadline_ms - now_ms) / 1000.0)))
-		_match_disconnect_title.text = "RECONNECTING — %d" % seconds_left
+		_match_disconnect_lead.visible = true
+		_match_disconnect_countdown.visible = true
+		_match_disconnect_countdown.text = str(seconds_left)
 		if local_disconnected:
-			_match_disconnect_body.text = "Connection interrupted. Return before time expires.\nDisconnect %d/3 — the third disconnect forfeits the match." % strikes
+			_match_disconnect_title.text = "CONNECTION INTERRUPTED"
+			_match_disconnect_lead.text = "Reconnect before this timer expires"
+			_match_disconnect_body.text = "seconds remaining.\n\nYou have disconnected %d/%d times.\nIf you disconnect %s, you will forfeit the game." % [strikes, strike_limit, remaining_phrase]
 		else:
-			_match_disconnect_body.text = "Opponent disconnected. The match is paused.\nYou win if they do not return before the timer expires."
+			_match_disconnect_title.text = "OPPONENT DISCONNECTED"
+			_match_disconnect_lead.text = "If your opponent doesn't reconnect in"
+			_match_disconnect_body.text = "seconds, you win.\n\nThey have disconnected %d/%d times.\nIf they disconnect %s, you will be declared the winner." % [strikes, strike_limit, remaining_phrase]
 	elif phase == "resuming":
 		_maybe_restore_match_reconnect_snapshot(int(_match_lifecycle_snapshot.get("epoch", 0)), _match_lifecycle_snapshot)
 		var resume_ms: int = int(_match_lifecycle_snapshot.get("resume_unix_ms", 0))
 		var checkpoint_tick: int = int(_match_lifecycle_snapshot.get("resume_checkpoint_tick", -1))
 		if resume_ms <= 0:
 			_match_disconnect_title.text = "VERIFYING MATCH"
-			_match_disconnect_body.text = "Player returned. Confirming both devices are on checkpoint tick %d…\nDisconnect %d/3 — the third disconnect forfeits the match." % [checkpoint_tick, strikes]
+			if local_disconnected:
+				_match_disconnect_body.text = "You have disconnected %d/%d times.\nIf you disconnect %s, you will forfeit the game.\n\nConfirming both devices are synchronized…" % [strikes, strike_limit, remaining_phrase]
+			else:
+				_match_disconnect_body.text = "Your opponent has returned.\nConfirming both devices are synchronized…"
 		else:
 			var restart_seconds: int = maxi(0, int(ceil(float(resume_ms - _estimated_match_server_unix_ms()) / 1000.0)))
 			_match_disconnect_title.text = "MATCH RESUMES IN %d" % restart_seconds
-			_match_disconnect_body.text = "Both players synchronized at tick %d.\nGet ready — controls unlock together." % checkpoint_tick
+			if local_disconnected:
+				_match_disconnect_body.text = "You have disconnected %d/%d times.\nIf you disconnect %s, you will forfeit the game." % [strikes, strike_limit, remaining_phrase]
+			else:
+				_match_disconnect_body.text = "Your opponent has returned.\nGet ready — controls unlock together."
 		if resume_ms > 0 and _estimated_match_server_unix_ms() >= resume_ms:
 			_resume_from_match_lifecycle()
 	elif phase == "forfeit":

@@ -4,6 +4,37 @@ This runbook certifies the private invite/relay path only. It does not authorize
 public matchmaking, rank settlement, contests, rewards, purchases, or any other
 economic mutation.
 
+## Physical-device reconnect result — 2026-08-12
+
+The core reconnect acceptance path passed on Android and iPhone. Both players
+received the shared three-second restart countdown and rejoined the same match
+successfully. A small host/guest timing difference remains visible and should be
+tightened in a later synchronization pass, but it is not blocking this private
+reconnect milestone.
+
+The device pass also found that disconnect-strike guidance was absent from the
+shared restart countdown or too small to read. The client overlay now uses the
+relay-owned strike count and presents:
+
+- a larger waiting-player countdown inside the reconnect win condition;
+- the opponent's current `1/3` or `2/3` disconnect count and remaining chances;
+  and
+- the returning player's own count and remaining chances throughout match
+  verification and the shared three-second restart countdown.
+
+Fresh certification clients containing this copy/layout change were built,
+installed in place, and launched on both phones on 2026-08-12:
+
+- Android device APK SHA-256
+  `f41b44ffcf54ee1b015bcad16f795b2b1220ca50292ae32013caa7dad15fccb9`;
+  and
+- iOS PCK SHA-256
+  `7906083c33ebaf59cdab7f5561a3668600541969033a8e6c91842b9426de801e`.
+
+The new presentation still needs an in-match visual check on both platforms.
+Full grace expiry and the third-disconnect immediate forfeit remain
+automated-smoke certified but are not recorded here as physical-device passes.
+
 ## Night handoff — exact stop point (2026-08-11)
 
 The active repository is the Swarmfront project (`entap11/SF`), not the
@@ -50,11 +81,12 @@ The latest physical-device builds were exported from `36614cc` with Godot
   recap differences were addressed during the pass and should remain in the
   regression matrix.
 
-### Exact unfinished test
+### Original unfinished test
 
 The authoritative reconnect implementation is built, deployed, and installed,
-but the new behavior has **not yet been exercised on the two phones**. This is
-the first task for the next session.
+and the core return-inside-grace behavior was exercised successfully on both
+phones on 2026-08-12. Retain the matrix below for regression coverage and for
+the timeout/third-strike rows that still need physical-device evidence.
 
 1. Pull this branch, confirm a clean tree, warm `/v1/health`, and verify its
    `build` is `36614cc5ac93587e12dd870935d1fef6e584ae71` or a deliberately newer
