@@ -2,11 +2,11 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-GODOT_BIN="/Applications/Godot.app/Contents/MacOS/Godot"
+GODOT_BIN="${GODOT_BIN:-/Applications/Godot.app/Contents/MacOS/Godot}"
 EXPORT_PRESET_FILE="$ROOT_DIR/export_presets.cfg"
 GODOT_VERSION="4.2.stable"
 if [[ -x "$GODOT_BIN" ]]; then
-  GODOT_VERSION="$("$GODOT_BIN" --version | head -n 1 | sed -E 's/^([0-9]+\.[0-9]+\.stable).*/\1/')"
+  GODOT_VERSION="$("$GODOT_BIN" --version | head -n 1 | sed -E 's/^([0-9]+\.[0-9]+(\.[0-9]+)?\.stable).*/\1/')"
 fi
 IOS_TEMPLATE="$HOME/Library/Application Support/Godot/export_templates/$GODOT_VERSION/ios.zip"
 
@@ -17,7 +17,7 @@ info() { echo "INFO: $1"; }
 FAILURES=0
 
 if [[ -x "$GODOT_BIN" ]]; then
-  pass "Godot binary found at $GODOT_BIN"
+  pass "Godot binary found at $GODOT_BIN ($GODOT_VERSION)"
 else
   fail "Godot binary missing at $GODOT_BIN"
   FAILURES=$((FAILURES + 1))
