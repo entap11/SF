@@ -1,6 +1,50 @@
 # Current Project Status
 
-Date: August 13, 2026
+Date: August 14, 2026
+
+## August 14 reciprocal reconnect correction
+
+The reciprocal iPhone test remains **FAILED / NOT CERTIFIED**. Two deliberate
+iPhone app exits while operating airplane mode caused the Android player to
+receive a disconnect victory instead of leaving the iPhone at 2/3 strikes.
+Because iOS retained Wi-Fi, that operation did not independently prove the
+local transport-loss presentation, but two app-background/resume cycles
+producing a third-strike forfeit is valid lifecycle-accounting failure evidence.
+
+The remaining server defect was reproduced locally. The `match_presence`
+endpoint evaluated stale players before refreshing the caller represented by a
+current `foregrounded` request. The service smoke failed before correction with
+that caller moved to `grace`, `presence_timeout`, and strike 1. Commit
+`be694ddfda64694023a3320b92755d54c73ed59b` now records current foreground,
+active, and background presence before stale-player evaluation. Grace expiry,
+checkpoint selection, strike ownership, and terminal results remain
+server-authoritative.
+
+Verification after the correction:
+
+- VS TypeScript build: PASS;
+- full VS service smoke: PASS, including the failing-before foreground-order
+  regression and an assertion that resume after disconnect two remains 2/3;
+- Godot `4.7.1.stable.official.a13da4feb` reconnect lifecycle: PASS;
+- app lifecycle and Arena lifecycle pause smokes: PASS;
+- VS swarm replication: PASS;
+- private PvP certification UI: PASS;
+- human PvP boot: PASS; and
+- `git diff --check`: PASS.
+
+The isolated service correction is live on production service
+`srv-d7uho16gvqtc73feh9s0` as Render deploy
+`dep-d9vjg16gekts73fr8umg`. Live `/v1/health` reports exact build `be694dd` and
+keeps every public/economic mutation capability disabled. No database, secret,
+configuration, plan, or capability changed. Previous deploy
+`dep-d9v5jq7lk1mc73902mug` at `4a3f4b6` is the rollback anchor.
+
+Physical acceptance is still required from a fresh session: confirm the first
+and second iPhone background/resume cycles report exactly 1/3 and 2/3 without a
+forfeit, then confirm a deliberate third cycle forfeits. Separately, repeat the
+true transport-loss case with iPhone Wi-Fi disabled and cellular as the active
+path before airplane mode, so the app can remain foregrounded while the network
+actually disappears. No phone rebuild is required for this server-only fix.
 
 ## August 13 physical reconnect addendum
 
