@@ -2,6 +2,47 @@
 
 Date: August 14, 2026
 
+## August 14 third-strike client presentation correction
+
+The server-side reconnect sequence now passes the physical three-disconnect
+check: Android did not receive victory until the third deliberate iPhone app
+exit. The reciprocal path is still **FAILED / NOT CERTIFIED**, however, because
+the disconnected iPhone continued showing a fresh 60-second countdown after
+the server had already reached the authoritative 3/3 forfeit result.
+
+Commit `844d9dbdd31d061afc8af0dde75852aef745ea8b` corrects that client-only
+presentation defect. When the latest authoritative snapshot already records
+2/3 local disconnect strikes, another local interruption now locks controls and
+shows `FINAL DISCONNECT PENDING` without inventing a new 60-second grace timer.
+The client still does not decide the outcome. When a reachable server response
+reports `forfeit` or `no_contest`, that terminal authoritative presentation now
+takes priority over the local transport-interruption overlay.
+
+Automated verification passed under exact Godot
+`4.7.1.stable.official.a13da4feb`: reconnect lifecycle (including executable
+2/3-pending and terminal-priority assertions), app lifecycle, Arena pause
+source, private PvP certification UI, VS swarm replication, human PvP boot, and
+outcome overlay. The VS TypeScript build and full service smoke also pass, as
+does `git diff --check`.
+
+Updated debug-signed clients from exact commit `844d9db` are installed on both
+physical phones with existing application data preserved:
+
+- Android APK SHA-256:
+  `a1c365f37abfc7c4f00132ed211c028e6c0fc50865f4f0e4f6d320d5db094360`
+- iPhone executable SHA-256:
+  `7db8333f9b2564bdca9aad0dd0ca676990613a28f779f8915718ce79792f0a15`
+- iPhone PCK SHA-256:
+  `d3871b719ffd3bb7863dd27c8ad7df339f646bcbca1e96686255502ed7ca77e0`
+
+No additional Render change was required. Production VS remains live at exact
+server commit `be694ddfda64694023a3320b92755d54c73ed59b` in deploy
+`dep-d9vjg16gekts73fr8umg`, with all public/economic mutation capabilities
+disabled. Physical acceptance now requires one fresh three-disconnect match:
+confirm 1/3, then 2/3, then Android victory on 3/3 while the offline iPhone
+shows the pending state without a timer; after restoring connectivity, confirm
+the iPhone replaces that pending state with the authoritative terminal result.
+
 ## August 14 reciprocal reconnect correction
 
 The reciprocal iPhone test remains **FAILED / NOT CERTIFIED**. Two deliberate
