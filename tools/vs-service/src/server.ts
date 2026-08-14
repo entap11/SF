@@ -2733,20 +2733,27 @@ function matchPresence(req: Request, res: Response): void {
   const session = sessions.get(sessionId);
   if (!session || !uid || !status) return fail(res, "invalid_args");
   if (!sessionHasPlayer(session, uid)) return fail(res, "player_not_in_session");
+  if (!["backgrounded", "active", "foregrounded", "snapshot", "resume_ack"].includes(status)) {
+    return fail(res, "invalid_presence_status");
+  }
   const nowMs = Date.now();
-  let lifecycle = evaluateMatchLifecycle(session, nowMs);
+  let lifecycle = initializeMatchLifecycle(session);
   const presence = lifecycle.players[uid];
   if (!presence) return fail(res, "player_presence_missing");
-  if (status === "backgrounded") {
+  // A current presence request proves the caller was reachable at nowMs. Record
+  // that fact before stale-player evaluation so returning/backgrounding clients
+  // cannot be charged once by presence_timeout and again by their explicit
+  // background lifecycle transition.
+  if (status === "backgrounded" || status === "active" || status === "foregrounded") {
     presence.seen = true;
     presence.last_seen_unix_ms = nowMs;
     presence.sim_tick = Math.max(0, Math.trunc(numberValue(req.body?.sim_tick, presence.sim_tick)));
+    if (status === "active" || status === "foregrounded") presence.connected = true;
+  }
+  lifecycle = evaluateMatchLifecycle(session, nowMs);
+  if (status === "backgrounded") {
     enterMatchDisconnectGrace(session, uid, stringValue(req.body?.reason) || "app_backgrounded", nowMs);
   } else if (status === "active" || status === "foregrounded") {
-    presence.seen = true;
-    presence.connected = true;
-    presence.last_seen_unix_ms = nowMs;
-    presence.sim_tick = Math.max(0, Math.trunc(numberValue(req.body?.sim_tick, presence.sim_tick)));
     lifecycle = evaluateMatchLifecycle(session, nowMs);
     if (lifecycle.phase === "grace" && lifecycle.disconnected_uid === uid && lifecycle.resume_snapshot_ready) {
       lifecycle.phase = "resuming";
@@ -2786,8 +2793,6 @@ function matchPresence(req: Request, res: Response): void {
     }
     lifecycle.resume_acknowledged = true;
     lifecycle.epoch += 1;
-  } else {
-    return fail(res, "invalid_presence_status");
   }
   lifecycle = evaluateMatchLifecycle(session, nowMs);
   return ok(res, { match_lifecycle: publicMatchLifecycle(session, uid) });

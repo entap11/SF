@@ -213,6 +213,37 @@ async function main(): Promise<void> {
       && Number((resumedPoll.match_lifecycle as JsonRecord).local_disconnect_strikes) === 1,
       "resume-boundary poll was miscounted as another disconnect", resumedPoll);
 
+    const presenceOrderHost = { uid: "presence_order_host", display_name: "Presence Order Host" };
+    const presenceOrderGuest = { uid: "presence_order_guest", display_name: "Presence Order Guest" };
+    const presenceOrderInvite = await post(baseUrl, "create_invite", { profile: presenceOrderHost, context });
+    const presenceOrderSessionId = String(presenceOrderInvite.session_id ?? "");
+    await post(baseUrl, "join_invite", {
+      invite_code: String(presenceOrderInvite.invite_code ?? ""), profile: presenceOrderGuest
+    });
+    const presenceOrderRealNow = Date.now;
+    const presenceOrderBaseMs = presenceOrderRealNow();
+    Date.now = () => presenceOrderBaseMs;
+    await post(baseUrl, "poll_intents", {
+      session_id: presenceOrderSessionId, uid: presenceOrderHost.uid, after_seq: 0, sim_tick: 10
+    });
+    await post(baseUrl, "poll_intents", {
+      session_id: presenceOrderSessionId, uid: presenceOrderGuest.uid, after_seq: 0, sim_tick: 10
+    });
+    Date.now = () => presenceOrderBaseMs + 2_000;
+    await post(baseUrl, "poll_intents", {
+      session_id: presenceOrderSessionId, uid: presenceOrderGuest.uid, after_seq: 0, sim_tick: 11
+    });
+    Date.now = () => presenceOrderBaseMs + 2_600;
+    const staleForeground = await post(baseUrl, "match_presence", {
+      session_id: presenceOrderSessionId,
+      uid: presenceOrderHost.uid,
+      status: "foregrounded",
+      sim_tick: 11
+    }).finally(() => { Date.now = presenceOrderRealNow; });
+    expect((staleForeground.match_lifecycle as JsonRecord).phase === "running"
+      && Number((staleForeground.match_lifecycle as JsonRecord).local_disconnect_strikes) === 0,
+      "foreground presence was evaluated as stale before the caller was refreshed", staleForeground);
+
     for (let strike = 2; strike <= 3; strike += 1) {
       const disconnected = await post(baseUrl, "match_presence", {
         session_id: sessionId, uid: host.uid, status: "backgrounded", reason: "smoke_call", sim_tick: 24 + strike
@@ -245,9 +276,12 @@ async function main(): Promise<void> {
         session_id: sessionId, uid: guest.uid, after_seq: Number(hostPoll.latest_seq ?? 0), sim_tick: 30
       });
       Date.now = () => strikeResumeAt + 1;
-      await post(baseUrl, "poll_intents", {
+      const resumedAfterStrike = await post(baseUrl, "poll_intents", {
         session_id: sessionId, uid: host.uid, after_seq: Number(hostPoll.latest_seq ?? 0), sim_tick: 31
       }).finally(() => { Date.now = strikeResumeRealNow; });
+      expect((resumedAfterStrike.match_lifecycle as JsonRecord).phase === "running"
+        && Number((resumedAfterStrike.match_lifecycle as JsonRecord).local_disconnect_strikes) === strike,
+        `resume after disconnect ${strike} changed the authoritative strike count`, resumedAfterStrike);
     }
 
     const timeoutHost = { uid: "timeout_host", display_name: "Timeout Host" };
