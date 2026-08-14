@@ -38,6 +38,7 @@ func _initialize() -> void:
 	_expect(runtime_source.contains("complete_reconnect_snapshot_restore"), "snapshot restore should discard already-applied commands")
 	_expect(runner_source.contains("func resolve_authoritative_forfeit"), "forfeit should resolve through the simulation system")
 	_exercise_local_transport_fail_safe(runtime_script as Script)
+	_exercise_disconnect_overlay_priority(arena_script as Script)
 	if not _failed:
 		print("PVP_RECONNECT_LIFECYCLE_SMOKE: PASS")
 	quit(1 if _failed else 0)
@@ -104,6 +105,56 @@ func _exercise_local_transport_fail_safe(runtime_script: Script) -> void:
 	_expect(not bool(runtime.call("is_local_transport_interrupted")), "reachable server response should hand control back to authoritative lifecycle")
 	_expect(not bool(_transport_events.back().get("active", true)), "transport recovery should clear the local-only popup state")
 	runtime.free()
+
+func _exercise_disconnect_overlay_priority(arena_script: Script) -> void:
+	var arena: Node = arena_script.new() as Node
+	var overlay := ColorRect.new()
+	var title := Label.new()
+	var lead := Label.new()
+	var countdown := Label.new()
+	var body := Label.new()
+	overlay.add_child(title)
+	overlay.add_child(lead)
+	overlay.add_child(countdown)
+	overlay.add_child(body)
+	arena.add_child(overlay)
+	arena.set("_match_disconnect_overlay", overlay)
+	arena.set("_match_disconnect_title", title)
+	arena.set("_match_disconnect_lead", lead)
+	arena.set("_match_disconnect_countdown", countdown)
+	arena.set("_match_disconnect_body", body)
+	arena.set("_match_lifecycle_snapshot", {
+		"phase": "running",
+		"epoch": 7,
+		"local_disconnect_strikes": 2,
+		"strike_limit": 3
+	})
+	arena.set("_local_transport_interruption_snapshot", {
+		"active": true,
+		"reconnect_grace_sec": 60,
+		"estimated_grace_start_server_unix_ms": 1_000_000,
+		"estimated_grace_deadline_server_unix_ms": 1_060_000
+	})
+	arena.call("_update_match_disconnect_overlay")
+	_expect(title.text == "FINAL DISCONNECT PENDING",
+		"a local interruption after authoritative 2/3 must present pending final-disconnect state")
+	_expect(not lead.visible and not countdown.visible,
+		"pending final disconnect must not display a misleading 60-second countdown")
+	_expect(body.text.contains("already at 2/3"),
+		"pending final disconnect must explain the last authoritative strike count")
+	arena.set("_match_lifecycle_snapshot", {
+		"phase": "forfeit",
+		"epoch": 8,
+		"local_disconnect_strikes": 3,
+		"strike_limit": 3,
+		"terminal_reason": "disconnect_strike_limit"
+	})
+	arena.call("_update_match_disconnect_overlay")
+	_expect(title.text == "MATCH FORFEITED",
+		"authoritative forfeit must override an active local transport interruption")
+	_expect(not lead.visible and not countdown.visible,
+		"authoritative forfeit must remove all reconnect countdown presentation")
+	arena.free()
 
 func _on_transport_interruption_changed(snapshot: Dictionary) -> void:
 	_transport_events.append(snapshot.duplicate(true))

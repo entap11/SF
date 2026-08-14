@@ -2242,13 +2242,28 @@ func _resolve_match_lifecycle_terminal(snapshot: Dictionary) -> void:
 func _update_match_disconnect_overlay() -> void:
 	if _match_disconnect_overlay == null:
 		return
+	var phase: String = ""
+	if not _match_lifecycle_snapshot.is_empty():
+		phase = str(_match_lifecycle_snapshot.get("phase", "running")).strip_edges().to_lower()
+	# A reachable authoritative terminal result always outranks the local outage
+	# estimate. The estimate exists only until the relay can adjudicate the match.
+	if phase == "forfeit" or phase == "no_contest":
+		_match_disconnect_overlay.visible = true
+		_match_disconnect_lead.visible = false
+		_match_disconnect_countdown.visible = false
+		if phase == "forfeit":
+			_match_disconnect_title.text = "MATCH FORFEITED"
+			_match_disconnect_body.text = "The disconnected player did not return or reached 3/3 disconnects."
+		else:
+			_match_disconnect_title.text = "MATCH ENDED"
+			_match_disconnect_body.text = "Both players disconnected. No winner was awarded."
+		return
 	if not _local_transport_interruption_snapshot.is_empty() \
 	and bool(_local_transport_interruption_snapshot.get("active", false)):
 		_update_local_transport_interruption_overlay()
 		return
 	if _match_lifecycle_snapshot.is_empty():
 		return
-	var phase: String = str(_match_lifecycle_snapshot.get("phase", "running")).strip_edges().to_lower()
 	if phase == "running":
 		_match_disconnect_overlay.visible = false
 		return
@@ -2298,9 +2313,6 @@ func _update_match_disconnect_overlay() -> void:
 				_match_disconnect_body.text = "Your opponent has returned.\nGet ready — controls unlock together."
 		if resume_ms > 0 and _estimated_match_server_unix_ms() >= resume_ms:
 			_resume_from_match_lifecycle()
-	elif phase == "forfeit":
-		_match_disconnect_title.text = "MATCH FORFEITED"
-		_match_disconnect_body.text = "The disconnected player did not return or reached 3/3 disconnects."
 	else:
 		_match_disconnect_title.text = "MATCH ENDED"
 		_match_disconnect_body.text = "Both players disconnected. No winner was awarded."
@@ -2310,6 +2322,16 @@ func _update_local_transport_interruption_overlay() -> void:
 	_match_disconnect_title.text = "CONNECTION INTERRUPTED"
 	_match_disconnect_lead.visible = true
 	_match_disconnect_countdown.visible = true
+	var strike_limit: int = maxi(1, int(_match_lifecycle_snapshot.get("strike_limit", 3)))
+	var authoritative_strikes: int = clampi(int(_match_lifecycle_snapshot.get(
+		"local_disconnect_strikes", 0
+	)), 0, strike_limit)
+	if authoritative_strikes >= strike_limit - 1:
+		_match_disconnect_title.text = "FINAL DISCONNECT PENDING"
+		_match_disconnect_lead.visible = false
+		_match_disconnect_countdown.visible = false
+		_match_disconnect_body.text = "You were already at %d/%d disconnects. Controls are locked while the match server confirms whether this interruption forfeits the match." % [authoritative_strikes, strike_limit]
+		return
 	var grace_sec: int = maxi(1, int(_local_transport_interruption_snapshot.get(
 		"reconnect_grace_sec", 60
 	)))
