@@ -38,6 +38,8 @@ func _run() -> void:
 	_expect(create_button.visible and create_button.text == "Create Invite", "certification build should expose create invite")
 	_expect(create_button.get_theme_font_size("font_size") == 135, "create invite text should be three times its ordinary size")
 	_expect(join_row.visible and join_button.visible, "certification build should expose invite-code join")
+	var invite_label: Label = lobby.get_node("Panel/VBox/Invite") as Label
+	_expect(invite_label.get_theme_font_size("font_size") == 90, "displayed invite code should be twice its previous size")
 	_expect(not bool(lobby.get("_auto_start_quick_search")), "certification lobby must not auto-start public quick match")
 	var lobby_source: String = FileAccess.get_file_as_string("res://scripts/ui/vs_lobby.gd")
 	_expect(lobby_source.contains("invite_label.visible = _private_pvp_certification_enabled"), "host invite code should remain visible while waiting")
@@ -65,6 +67,13 @@ func _test_export_feature_boundaries() -> void:
 	_expect(android_store.contains("custom_features=\"\""), "Android store AAB must omit certification feature")
 	var menu_source: String = FileAccess.get_file_as_string("res://scripts/ui/main_menu.gd")
 	_expect(menu_source.contains("PrivatePvpCertificationPolicy.allows_rollout_bypass(mode_id, paid)"), "main menu should permit only the explicit certification bypass")
+	_expect(menu_source.contains("const HONEY_WIDGET_TOP_OFFSET: float = 35.0"), "main-menu Honey placement handoff should remain restored")
+	_expect(menu_source.contains("const TIER_WIDGET_TOP_OFFSET: float = 35.0"), "main-menu rank/tier placement handoff should remain restored")
+	_expect(menu_source.contains("const MM_BACKGROUND_EXTRA_SIDE_PX: float = 40.0"), "main-menu banner placement handoff should remain restored")
+	_expect(menu_source.contains("const MM_WELCOME_HANDLE_TOP_PX: float = 420.0"), "main-menu Welcome placement handoff should remain restored")
+	_expect(menu_source.contains("const HIVE_BUTTON_CENTER_Y: float = 70.0"), "main-menu Hive button placement handoff should remain restored")
+	_expect(menu_source.contains("const BOTTOM_NAV_ROW_SEPARATION: float = 32.0"), "main-menu bottom navigation row placement handoff should remain restored")
+	_expect(menu_source.contains("const BOTTOM_NAV_BOTTOM_LIFT: float = 45.0"), "main-menu bottom navigation lift should remain restored")
 
 
 func _preset_block(source: String, preset_name: String) -> String:

@@ -1,6 +1,99 @@
 # Current Project Status
 
-Date: August 12, 2026
+Date: August 13, 2026
+
+## August 13 physical reconnect addendum
+
+Overall release status remains **HOLD**, but the Android airplane-mode reconnect
+path passed a two-phone physical test against the existing live VS service. No
+Render service, database, configuration, secret, deployment, or capability was
+changed during this test.
+
+What changed in the uncommitted candidate:
+
+- A client-side transport interruption now immediately blocks gameplay input
+  and presents `CONNECTION INTERRUPTED` on the disconnected phone.
+- The local display estimates the server's presence-stale boundary from the
+  last authoritative server clock, holds at the configured 60-second grace
+  value until that boundary, and then follows the estimated authoritative
+  deadline until reachable lifecycle data replaces it.
+- Simulation pauses at the predicted server grace boundary instead of running
+  indefinitely while offline. The server remains authoritative for grace,
+  strikes, checkpoint selection, restore, and resume.
+- The server source now publishes `presence_stale_ms`; this source change was
+  not deployed. The tested clients use the matching 2,500 ms compatibility
+  fallback with the currently deployed server.
+- The six-tick PvP command lead and 2x invite-code font remain included.
+
+Automated verification passed:
+
+- reconnect lifecycle smoke;
+- VS swarm replication smoke;
+- private PvP certification UI smoke;
+- VS service TypeScript build and service smoke;
+- `git diff --check`.
+
+Physical evidence, session `S46120393`:
+
+- Android airplane mode produced the immediate local warning; iPhone produced
+  the server-authoritative peer-disconnect warning.
+- Android's last connected server report was tick 480. Only five subsequent
+  failed state-hash publishes occurred, at ticks 485 through 505, after which
+  local simulation stopped. This replaces the prior failure mode where the
+  offline client advanced by hundreds of ticks.
+- iPhone reached tick 514 before the server entered grace, and the server chose
+  tick 514 as the authoritative recovery checkpoint.
+- Android reconnected before expiry. Both clients returned to `running` at
+  ticks 549/548 and remained aligned at ticks 1079/1076.
+- The product owner visually confirmed that reconnection restored the same
+  state on both phones. No state-hash mismatch was recorded for this session.
+- Android correctly recorded disconnect strike 1/3.
+
+Later reciprocal iPhone testing exposed two additional defects; that test is
+therefore **not certified**:
+
+- While iPhone remained in airplane mode, a pre-interruption HTTP completion
+  could be mistaken for restored connectivity. The local popup disappeared and
+  simulation continued after a touch coincided with that stale response.
+- Two deliberate iPhone outages were recorded as three strikes. Live session
+  `S61434264` terminated with `disconnect_strike_limit`, epoch 18, and iPhone at
+  3/3 even though the product owner performed only two outages.
+
+The next uncommitted candidate rejects responses whose request began before
+local outage detection, prevents authoritative `running` updates from hiding
+an active local interruption, and consumes all input while the disconnect
+overlay is visible. The server now refreshes the caller before stale-presence
+evaluation and starts a fresh presence window when synchronized resume becomes
+`running`, preventing the resume-boundary poll from becoming a phantom strike.
+Focused lifecycle, replication, UI, TypeScript build, service smoke, and diff
+checks pass with explicit stale-response and phantom-strike regressions. The
+client correction is installed on both phones. The product owner explicitly
+approved deploying the isolated server correction. Render deploy
+`dep-d9v5jq7lk1mc73902mug` completed successfully and is live on service
+`srv-d7uho16gvqtc73feh9s0` at exact commit
+`4a3f4b6f44589fbcac8de43826cdac5beb25d340`. Live `/v1/health` reports that
+build and keeps every economy/public mutation capability disabled. No database,
+secret, configuration, or capability was changed. The previous production
+deploy at `36614cc5ac93587e12dd870935d1fef6e584ae71` remains the rollback target.
+
+Installed candidate artifacts:
+
+- Android APK SHA-256:
+  `d5c1e3f69211d4f3c8ddc7a70f5083c32b403d3d80421367be5dd89064b61227`
+- iPhone executable SHA-256:
+  `3846b740826fca8ce1e6f7f76f4db6c0ea269ad538dcc5dc5e281bf2a3763f5f`
+- iPhone PCK SHA-256:
+  `3fc63e65ed079b039e35b7ce91b847563afc4330f93a1a8bccd3423c572f1b49`
+
+Remaining reconnect coverage:
+
+1. Repeat the airplane-mode test with iPhone as the disconnected client and
+   confirm touches cannot dismiss the local warning while still offline.
+2. In that fresh session, confirm the first deliberate outage reports 1/3 and a
+   second deliberate outage reports 2/3 without forfeiting.
+3. Rerun the 3/3 disconnect-forfeit path on a deliberate test session.
+4. Preserve the existing protected-key and unchanged-threshold performance
+   gates from the August 12 sequence.
 
 # Required report — HOLD
 

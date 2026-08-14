@@ -35,6 +35,7 @@ const POPUP_BASE_SIZE: Vector2 = Vector2(980.0, 760.0)
 const POPUP_MARGIN: float = 32.0
 const READABLE_FONT_SCALE: int = 3
 const SMS_INVITE_FONT_BASE_SIZE: int = 15
+const INVITE_CODE_FONT_BASE_SIZE: int = 30
 const CREATE_INVITE_FONT_MULTIPLIER: int = 3
 const BOT_FILL_DIALOG_SIZE: Vector2i = Vector2i(720, 420)
 const DEFAULT_STAGE_MAP_IDS: Array[String] = []
@@ -2496,7 +2497,7 @@ func _apply_static_fonts() -> void:
 	_apply_font(dev_bot_tier_option, _font_regular, _readable_size(15))
 	_apply_font(status_label, _font_regular, _readable_size(15))
 	_apply_font(slots_label, _font_regular, _readable_size(15))
-	_apply_font(invite_label, _font_regular, _readable_size(15))
+	_apply_font(invite_label, _font_regular, _readable_size(INVITE_CODE_FONT_BASE_SIZE))
 	_apply_font(join_code, _font_regular, _readable_size(15))
 	_apply_font(join_button, _font_regular, _readable_size(15))
 	_apply_font(countdown_label, _font_semibold, _readable_size(15))

@@ -600,6 +600,7 @@ var _match_lifecycle_resume_ack_epoch: int = -1
 var _match_lifecycle_last_retry_ms: int = 0
 var _match_lifecycle_terminal_epoch: int = -1
 var _match_lifecycle_warned_strikes: int = 0
+var _local_transport_interruption_snapshot: Dictionary = {}
 
 func _ready() -> void:
 	if Engine.is_editor_hint():
@@ -1978,6 +1979,10 @@ func _configure_vs_pvp_runtime() -> void:
 	var lifecycle_cb: Callable = Callable(self, "_on_vs_match_lifecycle_changed")
 	if _vs_pvp_runtime.has_signal("match_lifecycle_changed") and not _vs_pvp_runtime.is_connected("match_lifecycle_changed", lifecycle_cb):
 		_vs_pvp_runtime.connect("match_lifecycle_changed", lifecycle_cb)
+	var transport_cb: Callable = Callable(self, "_on_vs_local_transport_interruption_changed")
+	if _vs_pvp_runtime.has_signal("local_transport_interruption_changed") \
+	and not _vs_pvp_runtime.is_connected("local_transport_interruption_changed", transport_cb):
+		_vs_pvp_runtime.connect("local_transport_interruption_changed", transport_cb)
 	_sync_active_player_from_vs_runtime()
 
 func _sync_active_player_from_vs_runtime() -> void:
@@ -2132,7 +2137,9 @@ func _on_vs_match_lifecycle_changed(snapshot: Dictionary) -> void:
 		_pause_for_match_lifecycle("opponent_resuming")
 		_maybe_restore_match_reconnect_snapshot(epoch, snapshot)
 	elif phase == "running":
-		_resume_from_match_lifecycle()
+		if _local_transport_interruption_snapshot.is_empty() \
+		or not bool(_local_transport_interruption_snapshot.get("active", false)):
+			_resume_from_match_lifecycle()
 		var strikes: int = int(snapshot.get("local_disconnect_strikes", 0))
 		if strikes > _match_lifecycle_warned_strikes:
 			_match_lifecycle_warned_strikes = strikes
@@ -2141,6 +2148,25 @@ func _on_vs_match_lifecycle_changed(snapshot: Dictionary) -> void:
 		_match_lifecycle_terminal_epoch = epoch
 		_resolve_match_lifecycle_terminal(snapshot)
 	_match_lifecycle_previous_phase = phase
+	_update_match_disconnect_overlay()
+
+func _on_vs_local_transport_interruption_changed(snapshot: Dictionary) -> void:
+	var active: bool = bool(snapshot.get("active", false))
+	if active:
+		_local_transport_interruption_snapshot = snapshot.duplicate(true)
+		if bool(snapshot.get("should_pause", false)):
+			_pause_for_match_lifecycle("local_transport_interrupted")
+	else:
+		var was_paused: bool = bool(_local_transport_interruption_snapshot.get("should_pause", false))
+		_local_transport_interruption_snapshot = {}
+		var lifecycle_any: Variant = snapshot.get("match_lifecycle", {})
+		var authoritative_phase: String = _match_lifecycle_previous_phase
+		if typeof(lifecycle_any) == TYPE_DICTIONARY:
+			authoritative_phase = str((lifecycle_any as Dictionary).get(
+				"phase", authoritative_phase
+			)).strip_edges().to_lower()
+		if was_paused and authoritative_phase == "running":
+			_resume_from_match_lifecycle()
 	_update_match_disconnect_overlay()
 
 func _maybe_publish_match_reconnect_snapshot(epoch: int, snapshot: Dictionary) -> void:
@@ -2190,6 +2216,9 @@ func _pause_for_match_lifecycle(reason: String) -> void:
 		sim_runner.log_pause_snapshot(reason)
 
 func _resume_from_match_lifecycle() -> void:
+	if not _local_transport_interruption_snapshot.is_empty() \
+	and bool(_local_transport_interruption_snapshot.get("active", false)):
+		return
 	if _match_disconnect_overlay != null:
 		_match_disconnect_overlay.visible = false
 	if not _match_lifecycle_sim_was_running or sim_runner == null or sim_runner.running:
@@ -2211,7 +2240,13 @@ func _resolve_match_lifecycle_terminal(snapshot: Dictionary) -> void:
 		sim_runner.call("resolve_authoritative_forfeit", winner_seat, reason)
 
 func _update_match_disconnect_overlay() -> void:
-	if _match_disconnect_overlay == null or _match_lifecycle_snapshot.is_empty():
+	if _match_disconnect_overlay == null:
+		return
+	if not _local_transport_interruption_snapshot.is_empty() \
+	and bool(_local_transport_interruption_snapshot.get("active", false)):
+		_update_local_transport_interruption_overlay()
+		return
+	if _match_lifecycle_snapshot.is_empty():
 		return
 	var phase: String = str(_match_lifecycle_snapshot.get("phase", "running")).strip_edges().to_lower()
 	if phase == "running":
@@ -2269,6 +2304,42 @@ func _update_match_disconnect_overlay() -> void:
 	else:
 		_match_disconnect_title.text = "MATCH ENDED"
 		_match_disconnect_body.text = "Both players disconnected. No winner was awarded."
+
+func _update_local_transport_interruption_overlay() -> void:
+	_match_disconnect_overlay.visible = true
+	_match_disconnect_title.text = "CONNECTION INTERRUPTED"
+	_match_disconnect_lead.visible = true
+	_match_disconnect_countdown.visible = true
+	var grace_sec: int = maxi(1, int(_local_transport_interruption_snapshot.get(
+		"reconnect_grace_sec", 60
+	)))
+	var grace_start_ms: int = int(_local_transport_interruption_snapshot.get(
+		"estimated_grace_start_server_unix_ms", 0
+	))
+	var deadline_ms: int = int(_local_transport_interruption_snapshot.get(
+		"estimated_grace_deadline_server_unix_ms", grace_start_ms + grace_sec * 1000
+	))
+	var estimated_server_now_ms: int = _estimated_local_transport_server_unix_ms()
+	if grace_start_ms > 0 and estimated_server_now_ms < grace_start_ms:
+		_match_disconnect_lead.text = "Waiting for the match server to confirm the disconnect"
+		_match_disconnect_countdown.text = str(grace_sec)
+		_match_disconnect_body.text = "Controls are locked. The authoritative %d-second reconnect timer begins when the server detects the outage." % grace_sec
+		return
+	var seconds_left: int = maxi(0, int(ceil(float(deadline_ms - estimated_server_now_ms) / 1000.0)))
+	_match_disconnect_lead.text = "Reconnect before the server timer expires"
+	_match_disconnect_countdown.text = str(seconds_left)
+	_match_disconnect_body.text = "Estimated from the last server clock. The exact authoritative deadline will replace this estimate as soon as contact returns."
+
+func _estimated_local_transport_server_unix_ms() -> int:
+	var anchor_server_ms: int = int(_local_transport_interruption_snapshot.get(
+		"estimated_server_unix_ms_at_detection", 0
+	))
+	var anchor_local_ms: int = int(_local_transport_interruption_snapshot.get(
+		"detected_local_ms", 0
+	))
+	if anchor_server_ms <= 0 or anchor_local_ms <= 0:
+		return int(Time.get_unix_time_from_system() * 1000.0)
+	return anchor_server_ms + maxi(0, Time.get_ticks_msec() - anchor_local_ms)
 
 func _estimated_match_server_unix_ms() -> int:
 	if _match_lifecycle_received_server_ms <= 0 or _match_lifecycle_received_local_ms <= 0:
@@ -12280,6 +12351,11 @@ func _screen_to_world(screen_pos: Vector2) -> Vector2:
 	return _input_bridge_utils.screen_to_world(vp, get_global_mouse_position(), screen_pos)
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _match_disconnect_overlay != null and _match_disconnect_overlay.visible:
+		var disconnect_viewport: Viewport = get_viewport()
+		if disconnect_viewport != null:
+			disconnect_viewport.set_input_as_handled()
+		return
 	# Godot can synthesize mouse events from touch (and touch from mouse). Since
 	# Arena handles both native paths, accepting the synthesized copy would apply
 	# the same gameplay press twice. DEVICE_ID_EMULATION identifies that copy

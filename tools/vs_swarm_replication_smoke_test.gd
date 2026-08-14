@@ -57,6 +57,8 @@ func _test_canonical_host_guest_sequence_and_duplicate_dedupe() -> bool:
 		return _fail("authority accepted a client-invented canonical id: %s" % str(canonical_host))
 	if int(canonical_host.get("issued_tick", -1)) != 10 or int(canonical_guest.get("issued_tick", -1)) != 10:
 		return _fail("same-tick issue metadata was not preserved")
+	if int(canonical_host.get("execute_tick", -1)) != 16 or int(canonical_guest.get("execute_tick", -1)) != 17:
+		return _fail("authority did not preserve the six-tick cross-platform lead budget: %s / %s" % [str(canonical_host), str(canonical_guest)])
 	if int(canonical_host.get("execute_tick", -1)) >= int(canonical_guest.get("execute_tick", -1)):
 		return _fail("same-tick commands did not receive deterministic authority order: %s / %s" % [str(canonical_host), str(canonical_guest)])
 	if runtime.has_method("clear"):
@@ -82,8 +84,8 @@ func _sequence_fixture_command(sender_uid: String, sender_seat: int, issued_tick
 		"issued_tick": issued_tick,
 		"local_issued_tick": issued_tick,
 		"issued_sim_us": issued_tick * 100_000,
-		"requested_execute_tick": issued_tick + 3,
-		"execute_tick": issued_tick + 3,
+		"requested_execute_tick": issued_tick + 6,
+		"execute_tick": issued_tick + 6,
 		"sender_seat": sender_seat,
 		"sender_uid": sender_uid,
 		"src": src,

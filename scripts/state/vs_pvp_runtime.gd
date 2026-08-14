@@ -2,6 +2,7 @@ extends Node
 
 signal command_publish_result(payload: Dictionary)
 signal match_lifecycle_changed(snapshot: Dictionary)
+signal local_transport_interruption_changed(snapshot: Dictionary)
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const VsHandshakeTransportHttp := preload("res://scripts/state/vs_handshake_transport_http.gd")
@@ -25,13 +26,16 @@ const CONTRACT_DIAGNOSTIC_LOG_PATH: String = "user://vs_contract_violations.json
 const RUNTIME_TELEMETRY_LOG_DIR: String = "user://pvp_runtime"
 const RUNTIME_TELEMETRY_SAMPLE_INTERVAL_MS: int = 1000
 const RUNTIME_TELEMETRY_SLOW_RTT_MS: float = 750.0
-const COMMAND_LEAD_TICKS: int = 3
+const COMMAND_LEAD_TICKS: int = 6
 const FALLBACK_AUTH_COMMAND_LEAD_TICKS: int = 6
 const COMMAND_LATE_TOLERANCE_TICKS: int = 8
 const HASH_INTERVAL_TICKS: int = 5
 const HASH_RETENTION_TICKS: int = 180
 const HASH_MISMATCH_RECOVERY_THRESHOLD: int = 3
 const HASH_STARTUP_GRACE_TICKS: int = 30
+const LOCAL_TRANSPORT_GRACE_FALLBACK_SEC: int = 60
+const LOCAL_TRANSPORT_STALE_FALLBACK_MS: int = 2500
+const LOCAL_TRANSPORT_PAUSE_SAFETY_MS: int = 250
 const DEBUG_EVENT_LIMIT: int = 10
 const RECOVERY_STATE_RUNNING: String = "running"
 const RECOVERY_STATE_WAITING_FOR_PEER: String = "waiting_for_peer"
@@ -59,6 +63,10 @@ var _remote_seat_by_uid: Dictionary = {}
 var _last_seq: int = 0
 var _match_lifecycle: Dictionary = {"phase": "running", "epoch": 0}
 var _match_lifecycle_signature: String = ""
+var _last_authoritative_server_unix_ms: int = 0
+var _last_authoritative_server_local_ms: int = 0
+var _local_transport_interruption: Dictionary = {}
+var _local_transport_pause_emitted: bool = false
 var _poll_accum: float = 0.0
 var _pending_remote_commands: Array[Dictionary] = []
 var _local_hash_by_tick: Dictionary = {}
@@ -163,6 +171,10 @@ func clear() -> void:
 	_last_seq = 0
 	_match_lifecycle = {"phase": "running", "epoch": 0}
 	_match_lifecycle_signature = ""
+	_last_authoritative_server_unix_ms = 0
+	_last_authoritative_server_local_ms = 0
+	_local_transport_interruption = {}
+	_local_transport_pause_emitted = false
 	_poll_accum = 0.0
 	_pending_remote_commands.clear()
 	_local_hash_by_tick.clear()
@@ -300,6 +312,12 @@ func get_match_lifecycle() -> Dictionary:
 func get_match_lifecycle_phase() -> String:
 	return str(_match_lifecycle.get("phase", "running")).strip_edges().to_lower()
 
+func is_local_transport_interrupted() -> bool:
+	return not _local_transport_interruption.is_empty()
+
+func get_local_transport_interruption() -> Dictionary:
+	return _local_transport_interruption.duplicate(true)
+
 func get_debug_event_log() -> Array:
 	return _debug_event_log.duplicate(true)
 
@@ -355,6 +373,8 @@ func get_debug_snapshot() -> Dictionary:
 		"last_rtt_ms": snappedf(_last_rtt_ms, 0.1),
 		"rtt_ema_ms": snappedf(_rtt_ema_ms, 0.1),
 		"last_publish_result": _last_publish_result.duplicate(true),
+		"local_transport_interrupted": is_local_transport_interrupted(),
+		"local_transport_interruption": get_local_transport_interruption(),
 		"last_contract_violation": _last_contract_violation.duplicate(true),
 		"diagnostics": _contract_diagnostics_snapshot()
 	}
@@ -375,7 +395,8 @@ func is_recovering_or_ended() -> bool:
 	return _recovery_state == RECOVERY_STATE_DESYNC_RECOVERY or _recovery_state == RECOVERY_STATE_DESYNC_ENDED
 
 func can_accept_gameplay_intents() -> bool:
-	return is_active() and _recovery_state == RECOVERY_STATE_RUNNING and get_match_lifecycle_phase() == "running"
+	return is_active() and not is_local_transport_interrupted() \
+		and _recovery_state == RECOVERY_STATE_RUNNING and get_match_lifecycle_phase() == "running"
 
 func notify_match_backgrounded(reason: String) -> Dictionary:
 	return _send_match_presence("backgrounded", {
@@ -428,8 +449,12 @@ func _send_match_presence(status: String, details: Dictionary = {}) -> Dictionar
 	var handshake: Node = _handshake()
 	if handshake == null or not handshake.has_method("match_presence"):
 		return {"ok": false, "err": "match_presence_unavailable"}
+	var request_started_local_us: int = Time.get_ticks_usec()
 	var result: Dictionary = handshake.call("match_presence", _session_id, _local_uid, status, details) as Dictionary
-	if bool(result.get("ok", false)):
+	var connectivity_current: bool = _observe_transport_connectivity(
+		"presence", result, request_started_local_us
+	)
+	if connectivity_current and bool(result.get("ok", false)):
 		_update_match_lifecycle(result.get("match_lifecycle", {}))
 	return result
 
@@ -447,6 +472,7 @@ func _update_match_lifecycle(snapshot_any: Variant) -> void:
 	var snapshot: Dictionary = (snapshot_any as Dictionary).duplicate(true)
 	if snapshot.is_empty():
 		return
+	_record_authoritative_server_clock(snapshot)
 	var signature: String = "%s|%d|%s|%d|%d|%s|%s|%d|%s" % [
 		str(snapshot.get("phase", "running")),
 		int(snapshot.get("epoch", 0)),
@@ -468,6 +494,7 @@ func tick(delta: float) -> void:
 	_finish_poll_thread(false)
 	_finish_publish_thread(false)
 	_finish_spectator_snapshot_thread(false)
+	_refresh_local_transport_interruption()
 	if not is_active():
 		_update_runtime_telemetry()
 		return
@@ -1230,7 +1257,9 @@ func _poll_remote_intents() -> void:
 	_handle_remote_intent_poll_result(result, t0_us, after_seq)
 
 func _handle_remote_intent_poll_result(result: Dictionary, t0_us: int, after_seq: int) -> void:
-	_record_transport_result("poll", result, t0_us)
+	var connectivity_current: bool = _record_transport_result("poll", result, t0_us)
+	if not connectivity_current:
+		return
 	if not bool(result.get("ok", false)):
 		_write_runtime_telemetry_event("poll_failed", {
 			"after_seq": int(after_seq),
@@ -1941,7 +1970,7 @@ func _reset_telemetry() -> void:
 	_runtime_telemetry_write_count = 0
 	_update_runtime_telemetry()
 
-func _record_transport_result(kind: String, result: Dictionary, t0_us: int) -> void:
+func _record_transport_result(kind: String, result: Dictionary, t0_us: int) -> bool:
 	var rtt_ms: float = float(Time.get_ticks_usec() - t0_us) / 1000.0
 	_packet_tx += 1
 	if kind == "publish":
@@ -1949,6 +1978,7 @@ func _record_transport_result(kind: String, result: Dictionary, t0_us: int) -> v
 	elif kind == "poll":
 		_poll_count += 1
 	var ok: bool = bool(result.get("ok", false))
+	var connectivity_current: bool = _observe_transport_connectivity(kind, result, t0_us)
 	if ok:
 		_packet_rx += 1
 	else:
@@ -1976,6 +2006,112 @@ func _record_transport_result(kind: String, result: Dictionary, t0_us: int) -> v
 			"rtt_ms": snappedf(rtt_ms, 0.1),
 			"threshold_ms": RUNTIME_TELEMETRY_SLOW_RTT_MS
 		}, false)
+	return connectivity_current
+
+func _observe_transport_connectivity(
+	kind: String,
+	result: Dictionary,
+	request_started_local_us: int = -1
+) -> bool:
+	if not bool(result.get("transport_error", false)):
+		if not _local_transport_interruption.is_empty():
+			var detected_local_us: int = int(_local_transport_interruption.get(
+				"detected_local_us", 0
+			))
+			if request_started_local_us >= 0 and detected_local_us > 0 \
+			and request_started_local_us <= detected_local_us:
+				_write_runtime_telemetry_event("transport_recovery_stale_response_ignored", {
+					"kind": kind,
+					"request_started_local_us": request_started_local_us,
+					"detected_local_us": detected_local_us
+				}, false)
+				return false
+		var lifecycle_any: Variant = result.get("match_lifecycle", {})
+		if typeof(lifecycle_any) == TYPE_DICTIONARY:
+			_record_authoritative_server_clock(lifecycle_any as Dictionary)
+		_clear_local_transport_interruption(kind, result)
+		return true
+	var now_local_ms: int = Time.get_ticks_msec()
+	if _local_transport_interruption.is_empty():
+		var estimated_server_now_ms: int = _estimated_authoritative_server_unix_ms(now_local_ms)
+		var stale_ms: int = maxi(0, int(_match_lifecycle.get(
+			"presence_stale_ms", LOCAL_TRANSPORT_STALE_FALLBACK_MS
+		)))
+		var grace_sec: int = maxi(1, int(_match_lifecycle.get(
+			"reconnect_grace_sec", LOCAL_TRANSPORT_GRACE_FALLBACK_SEC
+		)))
+		var estimated_grace_start_ms: int = estimated_server_now_ms + stale_ms
+		var estimate_source: String = "local_clock_fallback"
+		if _last_authoritative_server_unix_ms > 0:
+			estimated_grace_start_ms = _last_authoritative_server_unix_ms + stale_ms
+			estimate_source = "last_server_clock_plus_stale_window"
+		_local_transport_interruption = {
+			"active": true,
+			"kind": kind,
+			"err": str(result.get("err", "transport_error")),
+			"detected_local_ms": now_local_ms,
+			"detected_local_us": Time.get_ticks_usec(),
+			"estimated_server_unix_ms_at_detection": estimated_server_now_ms,
+			"estimated_grace_start_server_unix_ms": estimated_grace_start_ms,
+			"estimated_grace_deadline_server_unix_ms": estimated_grace_start_ms + grace_sec * 1000,
+			"presence_stale_ms": stale_ms,
+			"reconnect_grace_sec": grace_sec,
+			"estimate_source": estimate_source,
+			"should_pause": false
+		}
+		_local_transport_pause_emitted = false
+		_refresh_local_transport_interruption(now_local_ms, true)
+		return true
+	_local_transport_interruption["kind"] = kind
+	_local_transport_interruption["err"] = str(result.get("err", "transport_error"))
+	_refresh_local_transport_interruption(now_local_ms)
+	return true
+
+func _refresh_local_transport_interruption(now_local_ms: int = -1, force_emit: bool = false) -> void:
+	if _local_transport_interruption.is_empty():
+		return
+	var safe_now_local_ms: int = Time.get_ticks_msec() if now_local_ms < 0 else now_local_ms
+	var estimated_server_now_ms: int = _estimated_authoritative_server_unix_ms(safe_now_local_ms)
+	var grace_start_ms: int = int(_local_transport_interruption.get(
+		"estimated_grace_start_server_unix_ms", estimated_server_now_ms
+	))
+	var should_pause: bool = estimated_server_now_ms >= grace_start_ms + LOCAL_TRANSPORT_PAUSE_SAFETY_MS
+	_local_transport_interruption["estimated_server_unix_ms"] = estimated_server_now_ms
+	_local_transport_interruption["should_pause"] = should_pause
+	if not force_emit and (not should_pause or _local_transport_pause_emitted):
+		return
+	_local_transport_pause_emitted = should_pause
+	local_transport_interruption_changed.emit(_local_transport_interruption.duplicate(true))
+
+func _clear_local_transport_interruption(kind: String, result: Dictionary) -> void:
+	if _local_transport_interruption.is_empty():
+		return
+	var recovered: Dictionary = _local_transport_interruption.duplicate(true)
+	recovered["active"] = false
+	recovered["recovered_local_ms"] = Time.get_ticks_msec()
+	recovered["recovered_by"] = kind
+	recovered["server_err"] = str(result.get("err", ""))
+	var lifecycle_any: Variant = result.get("match_lifecycle", {})
+	if typeof(lifecycle_any) == TYPE_DICTIONARY:
+		recovered["match_lifecycle"] = (lifecycle_any as Dictionary).duplicate(true)
+	_local_transport_interruption = {}
+	_local_transport_pause_emitted = false
+	local_transport_interruption_changed.emit(recovered)
+
+func _record_authoritative_server_clock(snapshot: Dictionary) -> void:
+	var server_unix_ms: int = int(snapshot.get("server_unix_ms", 0))
+	if server_unix_ms <= 0 or server_unix_ms <= _last_authoritative_server_unix_ms:
+		return
+	_last_authoritative_server_unix_ms = server_unix_ms
+	_last_authoritative_server_local_ms = Time.get_ticks_msec()
+
+func _estimated_authoritative_server_unix_ms(now_local_ms: int = -1) -> int:
+	var safe_now_local_ms: int = Time.get_ticks_msec() if now_local_ms < 0 else now_local_ms
+	if _last_authoritative_server_unix_ms <= 0 or _last_authoritative_server_local_ms <= 0:
+		return int(round(Time.get_unix_time_from_system() * 1000.0))
+	return _last_authoritative_server_unix_ms + maxi(
+		0, safe_now_local_ms - _last_authoritative_server_local_ms
+	)
 
 func _record_received_events(count: int) -> void:
 	var safe_count: int = maxi(0, count)
