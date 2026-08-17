@@ -2,7 +2,7 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-MANIFEST_PATH="${1:-${ROOT_DIR}/docs/architecture/render_reactivation/candidate-sf-4.7.1-b409fc9-20260817.1.json}"
+MANIFEST_PATH="${1:-${ROOT_DIR}/docs/architecture/render_reactivation/candidate-sf-4.7.1-b409fc9-20260817.2.json}"
 
 if [[ ! -f "${MANIFEST_PATH}" ]]; then
   echo "CANDIDATE_MANIFEST_FAIL reason=missing_manifest path=${MANIFEST_PATH}"

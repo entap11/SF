@@ -1,9 +1,14 @@
 # Candidate Release Manifest v1
 
-Status: contract frozen. The first approved certification-only candidate is
+Status: contract frozen. Current approved certification-only candidate
+[`sf-4.7.1-b409fc9-20260817.2`](candidate-sf-4.7.1-b409fc9-20260817.2.json)
+has manifest self-digest
+`9f783a830b0590da42ea0693c5f7f7d4f6d45c38218fb9f4502b5c0d0a183c74`.
+It supersedes immutable candidate
 [`sf-4.7.1-b409fc9-20260817.1`](candidate-sf-4.7.1-b409fc9-20260817.1.json),
-with manifest self-digest
-`4909ebd17046fafe935eadb624fc513d1fcf870b8a787265e60cbb992c296a43`.
+whose first authority build correctly failed because its manifest-bound class
+count included three ignored local Android build copies that are absent from
+the clean Git source.
 
 The manifest identifies an approved deployable candidate before any external
 deployment. It is canonical JSON, schema-versioned, hashed, and immutable once

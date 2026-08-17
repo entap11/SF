@@ -19,17 +19,25 @@ It includes authoritative forfeit observations for sessions `S64189333` and
 `S87915322`, plus the non-blocking roughly six-second cross-device countdown
 display difference observed before the second reconnect.
 
-Candidate `sf-4.7.1-b409fc9-20260817.1` is frozen at exact source
+Candidate `sf-4.7.1-b409fc9-20260817.2` is frozen at exact source
 `b409fc9797274c4a8a3cf895de7ba3d2d968197a` for all-off certification
 deployment only. Its canonical
-[Candidate Release Manifest](architecture/render_reactivation/candidate-sf-4.7.1-b409fc9-20260817.1.json)
+[Candidate Release Manifest](architecture/render_reactivation/candidate-sf-4.7.1-b409fc9-20260817.2.json)
 has self-digest
-`4909ebd17046fafe935eadb624fc513d1fcf870b8a787265e60cbb992c296a43`.
+`9f783a830b0590da42ea0693c5f7f7d4f6d45c38218fb9f4502b5c0d0a183c74`.
 The manifest binds the physically tested Android/iOS bytes, exact Godot 4.7.1
 engine and templates, VS/Rank/authority artifacts, ordered database migrations,
 content, schema, public key IDs, automated evidence, and declared all-off
 posture. It explicitly does not authorize production deployment or player
 activation.
+
+Immutable candidate `.1` remains retained as failed deployment evidence. Its
+first authority build stopped before activation because the manifest counted
+227 registered classes from the local worktree, including three ignored
+Android build copies; the clean Git candidate correctly contains 224. Candidate
+`.2` changes only that clean-source count and the resulting authority build
+command digest. Source, mobile and service artifacts, gameplay, database,
+content, public keys, capabilities, and test evidence are unchanged.
 
 The exact-engine release-critical suite passed again: reconnect and app
 lifecycle, Arena pause source, private-PvP UI, VS replication, human PvP boot,
