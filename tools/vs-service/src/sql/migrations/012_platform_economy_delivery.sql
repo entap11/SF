@@ -52,3 +52,37 @@ CREATE TABLE IF NOT EXISTS vs_platform_economy_delivery_attempts (
   finished_at TIMESTAMPTZ NOT NULL,
   UNIQUE (delivery_id, attempt)
 );
+
+INSERT INTO vs_match_lifecycle_events
+  (event_id, match_id, match_epoch, event_type, event_payload, occurred_at)
+SELECT gen_random_uuid(), c.match_id, c.match_epoch, 'MATCH_VERIFICATION_FAILED',
+  jsonb_build_object(
+    'error_code', COALESCE(j.last_error_code, 'PERMANENT_VERIFICATION_FAILURE'),
+    'disposition', 'CANCELLED_NO_ECONOMY_EFFECT',
+    'authority', 'migration_012_expired_failed_cleanup'
+  ), now()
+FROM vs_match_contracts c
+JOIN vs_match_verification_jobs j
+  ON j.match_id = c.match_id AND j.match_epoch = c.match_epoch
+WHERE c.status = 'VERIFYING' AND c.expires_at < now() AND j.status = 'FAILED'
+  AND NOT EXISTS (
+    SELECT 1 FROM vs_terminal_results r
+    WHERE r.match_id = c.match_id AND r.match_epoch = c.match_epoch
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM vs_match_lifecycle_events e
+    WHERE e.match_id = c.match_id AND e.match_epoch = c.match_epoch
+      AND e.event_type = 'MATCH_VERIFICATION_FAILED'
+  );
+
+UPDATE vs_match_contracts c
+SET status = 'CANCELLED', updated_at = now()
+WHERE c.status = 'VERIFYING' AND c.expires_at < now()
+  AND EXISTS (
+    SELECT 1 FROM vs_match_verification_jobs j
+    WHERE j.match_id = c.match_id AND j.match_epoch = c.match_epoch AND j.status = 'FAILED'
+  )
+  AND NOT EXISTS (
+    SELECT 1 FROM vs_terminal_results r
+    WHERE r.match_id = c.match_id AND r.match_epoch = c.match_epoch
+  );

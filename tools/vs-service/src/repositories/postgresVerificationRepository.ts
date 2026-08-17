@@ -269,6 +269,21 @@ export class PostgresVerificationRepository implements VerificationRepository {
         [job.job_id, retry ? "RETRY" : "FAILED", availableAt, input.errorCode,
           JSON.stringify(input.diagnostics), input.finishedAt]
       );
+      if (!retry) {
+        await client.query(
+          `UPDATE vs_match_contracts SET status = 'CANCELLED', updated_at = $2
+           WHERE contract_id = $1 AND status = 'VERIFYING'`,
+          [job.contract_id, input.finishedAt]
+        );
+        await client.query(
+          `INSERT INTO vs_match_lifecycle_events
+            (event_id, match_id, match_epoch, event_type, event_payload, occurred_at)
+           VALUES ($1, $2, $3, 'MATCH_VERIFICATION_FAILED', $4::jsonb, $5)`,
+          [uuidV7(), job.match_id, job.match_epoch,
+            JSON.stringify({ error_code: input.errorCode, disposition: "CANCELLED_NO_ECONOMY_EFFECT" }),
+            input.finishedAt]
+        );
+      }
       await client.query("COMMIT");
     } catch (error) {
       await rollbackQuietly(client);
