@@ -11,6 +11,8 @@ function enabled(name: string): boolean {
 }
 
 async function main(): Promise<void> {
+  if (!config.economyResetEnabled) throw new Error("RANK_ECONOMY_RESET_ENABLED must be true for this operator process");
+  if (config.economyMutationsEnabled) throw new Error("RANK_ECONOMY_MUTATIONS_ENABLED must remain false during reset");
   if (process.env.PLATFORM_BETA_RESET_CONFIRM?.trim() !== EPOCH) {
     throw new Error(`PLATFORM_BETA_RESET_CONFIRM must equal ${EPOCH}`);
   }
