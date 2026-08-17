@@ -1,12 +1,25 @@
 # Wax Economy Frame
 
-Status: active code now treats Wax as one canonical ranking value. The source of truth is `RankState.wax_score`; Crucible uses that same concept only as an optional 1-Wax wager. There is no separate Crucible Wax, Hive tournament Wax, or async contest Wax pool.
+Status: **superseded as an authority, reset, and Crucible settlement contract**
+by [Economy ADR 001](../architecture/economy/adr-001-platform-economy-authority.md).
+This file remains an inventory of the first-pass reward table still present in
+code; it must not be used to authorize beta economy mutations.
 
-## Canonical Ownership
+The current code attempts to treat Wax as one ranking value, but it still has
+overlapping Rank, client fallback, and VS Crucible writers. The actual overlap
+and target disposition are recorded in the
+[writer matrix](../architecture/economy/current-target-writer-matrix.md).
 
-- `RankState.wax_score` owns player Wax for rank, tier movement, and leaderboard placement.
+## Historical First-Pass Ownership
+
+- `RankState.wax_score` is a client cache/fallback in the current code; it is not
+  the target production authority.
+- Rank PostgreSQL is the current standard-Wax backend. Platform Economy is the
+  target canonical writer for Wax balance/custody, while Rank position and tier
+  are derived projections.
 - `RankConfig` owns the currently codified award/loss table.
-- `CrucibleState` owns Crucible escrow, settlement audit, and UI balance mirrors only.
+- `CrucibleState` is intended as an escrow/UI mirror, but its current local
+  fallback is itself a balance/escrow/settlement writer and must be suppressed.
 - `record_competitive_wax_result` and `CrucibleState.intent_apply_competitive_wax_result` are deprecated/suppressed. They must not mint or subtract Wax.
 - Async payout approval and Hive tournament closeout must not publish Wax into the Crucible ledger.
 
@@ -42,7 +55,7 @@ These values are currently implemented in `scripts/state/rank_config.gd` and `da
 | Monthly contest 1st | +20 |
 | Monthly contest 2nd | +10 |
 | Monthly contest 3rd | +5 |
-| Crucible wager win | +1 net |
+| Crucible wager win | +0.8 net (`+800 wax_millis`) |
 | Crucible wager loss | -1 net |
 | Crucible no-contest/refund | 0 |
 | Hive tournament victory | TBD, currently 0 Wax |
@@ -52,19 +65,24 @@ These values are currently implemented in `scripts/state/rank_config.gd` and `da
 
 ## Crucible Rule
 
-Crucible is a pure 1v1 wager:
+The authoritative target contract is `CRUCIBLE_WAX_V1`:
 
-- Both players stake exactly 1 Wax.
-- There is no burn.
-- Winner receives the 2-Wax pot, for a net +1 Wax.
+- Both players reserve exactly `1000 wax_millis` (1 Wax).
+- Winner receives exactly `1800 wax_millis`.
+- Exactly `200 wax_millis` credits the literal `reserve:award` Platform ledger
+  account. This is custody, not a burn, and has no authorized debit path.
 - Loser remains debited, for a net -1 Wax.
 - Invalid source, draw, desync, or no winner refunds both players.
 - Crucible has no participation rewards, Honey rewards, Nectar rewards, Hive rewards, or extra Wax rewards.
 
 ## Open Decisions
 
-- Decide whether major events can award bonus Wax, and whether those awards are direct RankState adjustments or a separate reviewed operation in the future rank service.
-- Move canonical Wax persistence to the ENTaP/rank backend once that platform service is ready.
+- Decide whether major events can award bonus Wax. Any approved award must be a
+  trusted, audited Platform event rather than a direct `RankState` adjustment.
+- Resolve the zero-start product rule: current client and Rank configurations
+  enforce a floor/base of 100, while the beta target opens at zero.
+- Move the existing VS-owned Crucible accounts, escrow, and award reserve to the
+  Platform Economy authority without losing their double-entry audit history.
 
 ## Close-Loss Rule
 

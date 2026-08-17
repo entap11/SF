@@ -86,6 +86,7 @@ var _hive_creation_history_by_player_id: Dictionary = {}
 var _hive_tournament_queue_by_tournament_id: Dictionary = {}
 var _hive_tournament_brackets_by_id: Dictionary = {}
 var _hive_tournament_rounds_by_id: Dictionary = {}
+var _allow_test_local_hive_economy: bool = false
 var _company_trophy_case: Array[Dictionary] = []
 var _rng: RandomNumberGenerator = RandomNumberGenerator.new()
 var save_path: String = SAVE_PATH
@@ -456,6 +457,19 @@ func get_hive_tournament_dashboard(hive_id: String, tournament_id: String = "", 
 	return dashboard
 
 func intent_enter_hive_tournament(hive_id: String, tournament_id: String, actor_player_id: String = "") -> Dictionary:
+	# Hive membership and tournament lifecycle are still client-local. Charging
+	# Platform Honey against that untrusted roster would recreate split authority.
+	# Keep the surface read-only until a trusted Hive service owns membership and
+	# can submit a versioned purchase intent to Platform.
+	if not _allow_test_local_hive_economy:
+		return {
+			"ok": false,
+			"reason": "platform_hive_tournament_authority_required",
+			"hive_id": hive_id.strip_edges(),
+			"tournament_id": tournament_id.strip_edges()
+		}
+	# The implementation below is retained as presentation/lifecycle migration
+	# material and is enabled only by isolated deterministic tests.
 	_refresh_runtime_state()
 	var actor_id: String = _resolve_player_id(actor_player_id)
 	var resolved_tournament_id: String = str(tournament_id).strip_edges()
@@ -1658,6 +1672,16 @@ func preview_hive_honey_purchase(hive_id: String, honey_cost: int, balances_by_p
 	}
 
 func intent_debit_hive_honey_proportional(hive_id: String, honey_cost: int, reason: String = "", balances_by_player: Dictionary = {}, actor_player_id: String = "") -> Dictionary:
+	var _discarded_preview_inputs: Dictionary = balances_by_player
+	var _discarded_actor: String = actor_player_id
+	if not _allow_test_local_hive_economy:
+		return {
+			"ok": false,
+			"reason": "platform_hive_purchase_authority_required",
+			"hive_id": hive_id.strip_edges(),
+			"honey_cost": maxi(0, honey_cost),
+			"purchase_reason": reason.strip_edges()
+		}
 	var preview: Dictionary = preview_hive_honey_purchase(hive_id, honey_cost, balances_by_player)
 	if not bool(preview.get("ok", false)):
 		return preview

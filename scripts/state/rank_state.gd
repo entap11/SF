@@ -470,6 +470,19 @@ func intent_debug_set_player_wax(player_id: String, wax_score: float) -> Diction
 	_emit_changed()
 	return {"ok": true, "player": get_player_snapshot(clean_id)}
 
+func apply_platform_wax_projection(player_id: String, wax_millis: int) -> Dictionary:
+	var clean_id: String = player_id.strip_edges()
+	if clean_id.is_empty():
+		return {"ok": false, "reason": "missing_player_id"}
+	_ensure_player_exists(clean_id)
+	var record: Dictionary = _players_by_id.get(clean_id, {}) as Dictionary
+	record["wax_score"] = float(maxi(0, wax_millis)) / 1000.0
+	_players_by_id[clean_id] = _normalize_player_record(clean_id, record)
+	_local_player_id = clean_id
+	_save_state()
+	_emit_changed()
+	return {"ok": true, "player": get_player_snapshot(clean_id), "source": "platform_projection"}
+
 func intent_debug_set_last_active(player_id: String, last_active_unix: int) -> Dictionary:
 	var clean_id: String = _normalize_local_write_player_id(player_id)
 	if clean_id == "":

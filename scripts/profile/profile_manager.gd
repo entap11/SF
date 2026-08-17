@@ -1550,6 +1550,32 @@ func grant_store_entitlements(flags: Array, reason: String = "") -> Dictionary:
 	})
 	return {"ok": true, "granted": granted, "store_entitlements": _store_entitlements.duplicate(true)}
 
+func apply_platform_entitlements(raw: Variant) -> Dictionary:
+	ensure_loaded()
+	var projected: Dictionary = {}
+	if typeof(raw) == TYPE_ARRAY:
+		for flag_any in raw as Array:
+			var clean_flag: String = str(flag_any).strip_edges()
+			if clean_flag != "":
+				projected[clean_flag] = true
+	elif typeof(raw) == TYPE_DICTIONARY:
+		projected = _sanitize_store_entitlements(raw)
+	else:
+		return {"ok": false, "reason": "invalid_platform_entitlements"}
+	var changed: bool = projected != _store_entitlements
+	if changed:
+		_store_entitlements = projected
+		_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
+		SFLog.info("PROFILE_ENTITLEMENTS_PROJECTED", {
+			"user_id": _user_id,
+			"entitlements": _store_entitlements.keys()
+		})
+	return {
+		"ok": true,
+		"changed": changed,
+		"store_entitlements": _store_entitlements.duplicate(true)
+	}
+
 func set_buff_loadout_ids(ids: Array) -> bool:
 	return set_buff_loadout_ids_for_mode(BUFF_MODE_VS, ids)
 

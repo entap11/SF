@@ -60,11 +60,15 @@ Bot diversion is offered only after a server-configured human CTF/HCTF search th
 - Reserve `1000 wax_millis` from each participant before start.
 - Total escrow is `2000 wax_millis`.
 - Verified winner receives `1800 wax_millis`.
-- `200 wax_millis` moves to a separately audited award-pot account.
+- `200 wax_millis` credits the canonical Platform ledger account
+  `reserve:award`.
 - No-contest refunds `1000 wax_millis` to each participant.
 - Open, settle, pot transfer, and refund are atomic/idempotent ledger operations. Floating point is forbidden.
 
-The named pot is custody, not an automatic player reward. Awarding it requires a separate administrative/reward policy and audit path; Package 0 does not authorize an award action.
+The named pot is custody, not an automatic player reward or burn. Credits are
+immutable and there is no authorized debit, spend, transfer, admin, or database
+tooling path until a later product contract explicitly defines one. Package 0
+does not authorize an award action.
 
 ### Disconnect policy
 

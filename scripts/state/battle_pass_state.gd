@@ -164,6 +164,24 @@ func get_snapshot() -> Dictionary:
 		"weekly_completion_bonus_claimed": _weekly_completion_bonus_claimed
 	}
 
+func apply_platform_progression_snapshot(snapshot: Dictionary) -> Dictionary:
+	var nectar_milli: int = maxi(0, int(snapshot.get("nectar_milli", 0)))
+	var next_xp: int = int(nectar_milli / NECTAR_FIXED_POINT_SCALE)
+	var next_fraction: int = nectar_milli % NECTAR_FIXED_POINT_SCALE
+	var next_level: int = clampi(int(snapshot.get("pass_level", 1)), 1, 120)
+	var entitlement: String = str(snapshot.get("entitlement_tier", "FREE")).strip_edges().to_upper()
+	_battle_pass_xp = next_xp
+	_nectar_fractional_milli = next_fraction
+	_battle_pass_level = next_level
+	_premium_owned = entitlement in ["PREMIUM", "ELITE"]
+	_elite_owned = entitlement == "ELITE"
+	_save_state()
+	_emit_state_changed()
+	return {
+		"ok": true, "nectar_milli": nectar_milli, "battle_pass_xp": _battle_pass_xp,
+		"battle_pass_level": _battle_pass_level, "entitlement_tier": entitlement
+	}
+
 func sync_entitlements_from_profile() -> Dictionary:
 	var changed: bool = _refresh_entitlements_from_profile()
 	if changed:
@@ -172,6 +190,8 @@ func sync_entitlements_from_profile() -> Dictionary:
 	return {"ok": true, "premium_owned": _premium_owned, "elite_owned": _elite_owned, "changed": changed}
 
 func intent_set_pass_entitlements(premium_owned: bool, elite_owned: bool) -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_required()
 	var next_elite: bool = elite_owned
 	var next_premium: bool = premium_owned or next_elite
 	var changed: bool = next_premium != _premium_owned or next_elite != _elite_owned
@@ -193,6 +213,8 @@ func intent_set_scarcity_feature_enabled(enabled: bool) -> Dictionary:
 	return {"ok": true, "enabled": _scarcity_feature_enabled}
 
 func intent_apply_veteran_start(flags: Dictionary, opt_out: bool = false) -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_required()
 	if _veteran_start_applied:
 		return {"ok": false, "reason": "veteran_start_already_applied"}
 	_veteran_start_applied = true
@@ -224,6 +246,8 @@ func intent_apply_veteran_start(flags: Dictionary, opt_out: bool = false) -> Dic
 	}
 
 func intent_award_nectar_xp(source_name: String, nectar_xp: int, metadata: Dictionary = {}) -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_suppressed()
 	if not _season_is_active():
 		return {"ok": true, "suppressed": true, "reason": "season_inactive", "xp_awarded": 0}
 	var safe_xp: int = maxi(0, nectar_xp)
@@ -236,6 +260,8 @@ func intent_award_nectar_xp(source_name: String, nectar_xp: int, metadata: Dicti
 	return _apply_nectar_xp_award(source_name, safe_xp, metadata, true)
 
 func intent_record_async_completion(mode_id: String, map_count: int, paid_entry: bool, metadata: Dictionary = {}) -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_suppressed()
 	if _metadata_is_crucible(metadata):
 		_emit_nectar_blocked("crucible_no_nectar", metadata)
 		return {"ok": true, "suppressed": true, "reason": "crucible_no_nectar", "xp_awarded": 0}
@@ -287,6 +313,8 @@ func intent_record_async_completion(mode_id: String, map_count: int, paid_entry:
 	}
 
 func intent_record_pvp_completion(pvp_mode_id: String, paid_entry: bool, money_tier: int = 0, did_win: bool = false, metadata: Dictionary = {}) -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_suppressed()
 	if _metadata_is_crucible(metadata):
 		_emit_nectar_blocked("crucible_no_nectar", metadata)
 		return {"ok": true, "suppressed": true, "reason": "crucible_no_nectar", "xp_awarded": 0}
@@ -353,6 +381,8 @@ func intent_record_tournament_participation(metadata: Dictionary = {}) -> Dictio
 	return intent_record_tournament_match_result(false, metadata)
 
 func intent_record_tournament_match_result(did_win: bool, metadata: Dictionary = {}) -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_suppressed()
 	if _metadata_is_crucible(metadata):
 		_emit_nectar_blocked("crucible_no_nectar", metadata)
 		return {"ok": true, "suppressed": true, "reason": "crucible_no_nectar", "xp_awarded": 0}
@@ -399,6 +429,8 @@ func intent_record_tournament_match_result(did_win: bool, metadata: Dictionary =
 	}
 
 func intent_record_tournament_placement(placement: int, metadata: Dictionary = {}) -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_suppressed()
 	var event_id: String = str(metadata.get("event_id", "")).strip_edges()
 	if event_id.is_empty():
 		return {"ok": false, "reason": "event_id_missing"}
@@ -429,6 +461,8 @@ func intent_record_tournament_placement(placement: int, metadata: Dictionary = {
 	}
 
 func intent_record_contest_result(scope: String, placement: int, metadata: Dictionary = {}) -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_suppressed()
 	var event_id: String = str(metadata.get("event_id", "")).strip_edges()
 	if event_id.is_empty():
 		return {"ok": false, "reason": "event_id_missing"}
@@ -464,6 +498,8 @@ func get_access_ticket_balance() -> int:
 	return maxi(0, int(_inventory.get("access_tickets", 0)))
 
 func intent_grant_analytics_credit(package_id: String, quantity: int = 1, source_key: String = "") -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_required()
 	var clean_package_id: String = package_id.strip_edges()
 	if clean_package_id.is_empty():
 		return {"ok": false, "reason": "missing_package_id"}
@@ -509,6 +545,8 @@ func intent_grant_analytics_credit(package_id: String, quantity: int = 1, source
 	}
 
 func intent_consume_analytics_credit(package_id: String, usage_id: String) -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_required()
 	var clean_package: String = package_id.strip_edges()
 	var clean_usage: String = usage_id.strip_edges()
 	if clean_package.is_empty() or clean_usage.is_empty():
@@ -525,6 +563,8 @@ func intent_consume_analytics_credit(package_id: String, usage_id: String) -> Di
 	return _record_redemption(receipt_key, "analytics_credit", clean_package, clean_usage)
 
 func intent_redeem_bundle_token(bundle_id: String, redemption_id: String) -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_required()
 	var clean_bundle: String = bundle_id.strip_edges()
 	var clean_redemption: String = redemption_id.strip_edges()
 	if clean_bundle.is_empty() or clean_redemption.is_empty():
@@ -587,6 +627,8 @@ func preview_exclusive_event_entry(entry_kind: String, entry_id: String, quantit
 	return preview
 
 func intent_authorize_access_ticket_entry(entry_kind: String, entry_id: String, quantity: int = 1, metadata: Dictionary = {}) -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_required()
 	var preview: Dictionary = preview_access_ticket_entry(entry_kind, entry_id, quantity)
 	if not bool(preview.get("ok", false)):
 		return preview
@@ -637,6 +679,8 @@ func intent_authorize_exclusive_event_entry(entry_kind: String, entry_id: String
 	return intent_authorize_access_ticket_entry(entry_kind, entry_id, quantity, metadata)
 
 func intent_refund_access_ticket_entry(entry_kind: String, entry_id: String, reason: String = "entry_refund") -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_required()
 	var clean_kind: String = entry_kind.strip_edges().to_lower()
 	var clean_id: String = entry_id.strip_edges()
 	if clean_kind.is_empty() or clean_id.is_empty():
@@ -668,6 +712,8 @@ func intent_refund_exclusive_event_entry(entry_kind: String, entry_id: String, r
 	return intent_refund_access_ticket_entry(entry_kind, entry_id, reason)
 
 func intent_claim_exclusive_event_prizes(entry_kind: String, entry_id: String, prize_rewards: Array, metadata: Dictionary = {}) -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_required()
 	var clean_kind: String = entry_kind.strip_edges().to_lower()
 	var clean_id: String = entry_id.strip_edges()
 	if clean_kind.is_empty() or clean_id.is_empty():
@@ -724,6 +770,8 @@ func intent_award_match_completion(match_id: String, won: bool, is_money_match: 
 	return intent_record_pvp_completion(mode_id, is_money_match, money_tier, won, xp_meta)
 
 func intent_record_quest_progress(event_key: String, amount: int = 1, metadata: Dictionary = {}) -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_suppressed()
 	var clean_event: String = event_key.strip_edges().to_lower()
 	var safe_amount: int = maxi(0, amount)
 	if clean_event.is_empty() or safe_amount <= 0:
@@ -741,6 +789,8 @@ func intent_record_quest_progress(event_key: String, amount: int = 1, metadata: 
 	return {"ok": true, "changed": changed}
 
 func intent_claim_quest_reward(quest_id: String) -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_required()
 	var clean_id: String = quest_id.strip_edges()
 	if clean_id.is_empty():
 		return {"ok": false, "reason": "quest_id_missing"}
@@ -777,6 +827,8 @@ func intent_claim_quest_reward(quest_id: String) -> Dictionary:
 	}
 
 func intent_claim_daily_challenge(challenge_id: String) -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_required()
 	_roll_daily_weekly_cycles_if_needed()
 	var clean_id: String = challenge_id.strip_edges()
 	if clean_id.is_empty():
@@ -811,6 +863,8 @@ func intent_claim_daily_challenge(challenge_id: String) -> Dictionary:
 	}
 
 func intent_claim_reward(level: int, track_slot: String) -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_required()
 	var validation: Dictionary = _validate_claim(level, track_slot, false)
 	if not bool(validation.get("ok", false)):
 		return validation
@@ -839,6 +893,8 @@ func intent_claim_reward(level: int, track_slot: String) -> Dictionary:
 	}
 
 func intent_claim_all_available() -> Dictionary:
+	if not _client_progression_mutations_enabled():
+		return _platform_progression_required()
 	var visible_cap: int = _config.get_visible_cap_for_entitlements(_premium_owned, _elite_owned)
 	var claimed: Array = []
 	var skipped: Array = []
@@ -1918,10 +1974,28 @@ func debug_reset_state() -> void:
 	_save_state()
 	_emit_state_changed()
 
+func _client_progression_mutations_enabled() -> bool:
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	return ops_config != null and ops_config.has_method("local_nectar_rewards_enabled") \
+		and bool(ops_config.call("local_nectar_rewards_enabled"))
+
+func _platform_progression_required() -> Dictionary:
+	return {"ok": false, "reason": "platform_progression_authority_required"}
+
+func _platform_progression_suppressed() -> Dictionary:
+	return {
+		"ok": true,
+		"suppressed": true,
+		"reason": "platform_progression_fact_owned_by_service",
+		"xp_awarded": 0
+	}
+
 func _apply_nectar_xp_award(source_name: String, nectar_xp: int, metadata: Dictionary, apply_entitlement_bonus: bool) -> Dictionary:
 	var safe_xp: int = maxi(0, nectar_xp)
 	if safe_xp <= 0:
 		return {"ok": false, "reason": "xp_zero"}
+	if not _client_progression_mutations_enabled():
+		return {"ok": false, "reason": "platform_nectar_authority_required", "xp_awarded": 0}
 	var previous_level: int = _battle_pass_level
 	var multiplier: float = 1.0
 	if apply_entitlement_bonus:
