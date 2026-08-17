@@ -1,6 +1,13 @@
 # Deployment Manifest v1
 
-Status: contract frozen; no deployment authorized or recorded by this document.
+Status: contract frozen; one all-off certification deployment is recorded.
+
+Recorded deployment:
+
+- [`sf-cert-b409fc9-20260817.1`](deployment-sf-cert-b409fc9-20260817.1.json),
+  linked to candidate `sf-4.7.1-b409fc9-20260817.2`. It upgrades only the
+  protected, network-isolated certification estate and does not authorize or
+  record production activation.
 
 Each append-only Deployment Manifest links to exactly one approved Candidate
 Release Manifest by candidate ID and digest. It records observed external state,

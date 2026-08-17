@@ -2,6 +2,42 @@
 
 Date: August 17, 2026
 
+## August 17 all-off certification-estate upgrade
+
+The frozen `sf-4.7.1-b409fc9-20260817.2` candidate is now live on all three
+services in the protected, network-isolated Render certification environment.
+Rank, VS, and the authority worker each report exact source
+`b409fc9797274c4a8a3cf895de7ba3d2d968197a`; auto-deploy remains off and all
+27 public, Rank-mutation, economy, contest, reward, leaderboard, spectator, and
+settlement capabilities remain false. The production `SF` service was not
+changed and remains on deploy `dep-d9vjg16gekts73fr8umg` at `be694dd`.
+
+The authority worker is bound to official Godot
+`4.7.1.stable.official.a13da4feb`, `sf-sim-b409fc9`, and
+`authority-worker-b409fc9`. Managed replay passed before rollback and again
+after restoration, each in one attempt with final state hash
+`acef412b5d19007eb490f662b9ef15d740f2c3baa496ab9d358a1f6ed424078b`.
+The remote Rank identity/device-session smoke also passed.
+
+Observed provider rollback and candidate restoration passed for Rank, VS, and
+authority. Final live deploys are `dep-da1j9jou01pc73ad3pf0`,
+`dep-da1j9k6417fc73ajr7g0`, and `dep-da1j9ke417fc73ajr960`, respectively. Both
+certification PostgreSQL instances retain 47 tables, 17 migrations, and schema
+SHA-256 `e8cdc990973c29dee564ef4b6756ada0b6c4034cc7d3f6a5a2a4f502b56478c3`.
+The source database gained only the expected verification evidence; Rank jobs,
+Rank attempts, outbox, and economy settlement tables remain empty.
+
+The append-only
+[Deployment Manifest](architecture/render_reactivation/deployment-sf-cert-b409fc9-20260817.1.json)
+retains the successful artifacts, health, replay, database, rollback, and
+restoration evidence as well as all failed attempts and operator deviations.
+Its SHA-256 is
+`29fc24512a4ab8ca9869e30d55564d56b079b2492e6c68024c7c48987ff1c2c1`,
+and its `candidate_match` result is true. Overall release status remains **HOLD**:
+this certification deployment does not authorize production activation, and
+the existing performance threshold plus the remaining production program are
+still outstanding.
+
 ## August 17 reconnect acceptance and candidate freeze
 
 The corrected reconnect candidate passed the required two-phone physical

@@ -1,0 +1,247 @@
+{
+  "deployment_manifest_schema_version": 1,
+  "deployment_record_id": "sf-cert-b409fc9-20260817.1",
+  "recorded_at": "2026-08-17T16:26:00Z",
+  "owner_role": "product_owner",
+  "operator_role": "authorized_codex_operator",
+  "environment_classification": "protected_network_isolated_certification",
+  "candidate": {
+    "id": "sf-4.7.1-b409fc9-20260817.2",
+    "manifest_path": "docs/architecture/render_reactivation/candidate-sf-4.7.1-b409fc9-20260817.2.json",
+    "manifest_sha256": "9f783a830b0590da42ea0693c5f7f7d4f6d45c38218fb9f4502b5c0d0a183c74",
+    "git_revision": "b409fc9797274c4a8a3cf895de7ba3d2d968197a"
+  },
+  "scope": {
+    "authorization": "all_off_certification_deployment_only",
+    "production_activation_authorized": false,
+    "public_player_activation_authorized": false,
+    "database_migration_required": false,
+    "database_write_scope": "verification_evidence_only"
+  },
+  "configuration": {
+    "secrets_redacted": true,
+    "declared_false_capability_names_and_digest_source": "docs/architecture/render_reactivation/candidate-sf-4.7.1-b409fc9-20260817.2.json",
+    "observed_non_secret_bindings": {
+      "RANK_VERIFIER_WORKER_BUILD_ID": "authority-worker-b409fc9",
+      "VS_PUBLIC_1V1_SIM_BUILD_ID": "sf-sim-b409fc9",
+      "VS_VERIFIER_WORKER_BUILD_ID": "authority-worker-b409fc9",
+      "MATCH_AUTHORITY_WORKER_BUILD_ID": "authority-worker-b409fc9"
+    },
+    "credential_presence": {
+      "rank_service_auth": true,
+      "verifier_receipt_auth": true,
+      "player_identity_signing": true,
+      "vs_admin_auth": true,
+      "match_authority_auth": true,
+      "database_credentials": true
+    }
+  },
+  "remote_operations": {
+    "contract_material_sha256": "32bf765a106e58b62dcbb15caa18057301cc5926e691f9f25283925c0e572e0f",
+    "live_revision_bound_by_candidate": false,
+    "revision_hash_and_expiry_exclusion": "The candidate and this all-off deployment do not activate or bind a live player-facing remote-config revision."
+  },
+  "render": {
+    "workspace": "tea-d7uhka9kh4rs73a7k080",
+    "project": "prj-d7uho167r5hc73b4euh0",
+    "environment": "evm-d9f68mos116c738bmf60",
+    "region": "oregon",
+    "protected": true,
+    "network_isolated": true,
+    "services": {
+      "rank": {
+        "service_id": "srv-d9f6j1l7vvec73foama0",
+        "service_type": "web_service",
+        "plan": "starter",
+        "instance_count": 1,
+        "branch": "deploy/staging-cert-20260720",
+        "domain_class": "render_default_certification",
+        "url": "https://swarmfront-cert-rank.onrender.com",
+        "health_path": "/health",
+        "auto_deploy": false,
+        "initial_candidate_deploy": "dep-da1j057lk1mc73a5e4ug",
+        "prior_artifact_deploy": "dep-d9f9qhbrjlhs739srt10",
+        "observed_rollback_deploy": "dep-da1j8ie7bikc739820k0",
+        "rollback_started_at": "2026-08-17T16:18:18.272408Z",
+        "rollback_finished_at": "2026-08-17T16:19:40.691640Z",
+        "rollback_git_revision": "60bef51e6a2e10fe60be05017053f8550df143c0",
+        "restored_candidate_deploy": "dep-da1j9jou01pc73ad3pf0",
+        "restore_started_at": "2026-08-17T16:20:32.112247Z",
+        "restore_finished_at": "2026-08-17T16:21:44.896848Z",
+        "final_status": "live",
+        "final_git_revision": "b409fc9797274c4a8a3cf895de7ba3d2d968197a",
+        "build_command_sha256": "c7b8259c20e74a80031d3c539fa252a8e9060ba38388769c36de505b50c584ad",
+        "start_command_sha256": "06bf4af99102538af9f1c2cfd5a5b45875901167dc38dd2d4b425a3ce76adecc",
+        "health_result": "pass",
+        "effective_worker_build_id": "authority-worker-b409fc9"
+      },
+      "vs": {
+        "service_id": "srv-d9f6j25aeets73ci1fjg",
+        "service_type": "web_service",
+        "plan": "starter",
+        "instance_count": 1,
+        "branch": "deploy/staging-cert-20260720",
+        "domain_class": "render_default_certification",
+        "url": "https://swarmfront-cert-vs.onrender.com",
+        "health_path": "/health",
+        "auto_deploy": false,
+        "initial_candidate_deploy": "dep-da1j0567bikc7397iohg",
+        "prior_artifact_deploy": "dep-d9t2nfad0e5s738kkg6g",
+        "observed_rollback_deploy": "dep-da1j8im417fc73ajoro0",
+        "rollback_started_at": "2026-08-17T16:18:19.138361Z",
+        "rollback_finished_at": "2026-08-17T16:19:31.784841Z",
+        "rollback_git_revision": "08c2066c2f200904cac66a8b693ef7ea719b2f22",
+        "restored_candidate_deploy": "dep-da1j9k6417fc73ajr7g0",
+        "restore_started_at": "2026-08-17T16:20:33.141403Z",
+        "restore_finished_at": "2026-08-17T16:21:26.047888Z",
+        "final_status": "live",
+        "final_git_revision": "b409fc9797274c4a8a3cf895de7ba3d2d968197a",
+        "build_command_sha256": "c7b8259c20e74a80031d3c539fa252a8e9060ba38388769c36de505b50c584ad",
+        "start_command_sha256": "06bf4af99102538af9f1c2cfd5a5b45875901167dc38dd2d4b425a3ce76adecc",
+        "health_result": "pass",
+        "effective_sim_build_id": "sf-sim-b409fc9",
+        "effective_worker_build_id": "authority-worker-b409fc9"
+      },
+      "authority": {
+        "service_id": "srv-d9f6j2gs116c738c7er0",
+        "service_type": "background_worker",
+        "plan": "starter",
+        "instance_count": 1,
+        "branch": "deploy/staging-cert-20260720",
+        "ingress": false,
+        "auto_deploy": false,
+        "initial_candidate_deploy": "dep-da1j37u417fc73ajfr5g",
+        "failed_candidate_1_deploy": "dep-da1j1t0u01pc73ackmog",
+        "prior_artifact_deploy": "dep-d9fahjreo5us73e50fj0",
+        "observed_rollback_deploy": "dep-da1j8ivqj5pc73d5tj90",
+        "rollback_started_at": "2026-08-17T16:18:20.013002Z",
+        "rollback_finished_at": "2026-08-17T16:19:31.860129Z",
+        "rollback_git_revision": "60bef51e6a2e10fe60be05017053f8550df143c0",
+        "restored_candidate_deploy": "dep-da1j9ke417fc73ajr960",
+        "restore_started_at": "2026-08-17T16:20:34.145965Z",
+        "restore_finished_at": "2026-08-17T16:22:05.550043Z",
+        "final_status": "live",
+        "final_git_revision": "b409fc9797274c4a8a3cf895de7ba3d2d968197a",
+        "build_command_sha256": "15956eaded7bab72085227c03c31bb7064166f7b9d385a1621b66e8158796292",
+        "start_command_sha256": "8ac3e9f3d6a6ee392b362468f660531aae821a547c7021e35dbc3c40c029806a",
+        "provider_live_result": "pass",
+        "effective_worker_build_id": "authority-worker-b409fc9",
+        "effective_sim_build_id": "sf-sim-b409fc9",
+        "godot_version": "4.7.1.stable.official.a13da4feb",
+        "godot_linux_binary_sha256": "32f8d7596c4b41185512b1c49d69f2da3be018fd784a53e349fa92a98a97bcde"
+      }
+    }
+  },
+  "database": {
+    "source_id": "dpg-d9f68vn7f7vs73c0tal0-a",
+    "restore_id": "dpg-d9f6chgs116c738bsdv0-a",
+    "engine": "postgresql_18.4",
+    "public_table_count": 47,
+    "migration_count": 17,
+    "schema_sha256_before": "e8cdc990973c29dee564ef4b6756ada0b6c4034cc7d3f6a5a2a4f502b56478c3",
+    "schema_sha256_after": "e8cdc990973c29dee564ef4b6756ada0b6c4034cc7d3f6a5a2a4f502b56478c3",
+    "source_and_restore_match": true,
+    "post_validation_counts": {
+      "vs_match_contracts": 12,
+      "vs_command_events": 197,
+      "vs_match_client_terminal_reports": 20,
+      "vs_match_verification_jobs": 12,
+      "vs_match_verification_runs": 16,
+      "vs_terminal_results": 7,
+      "vs_verifier_signed_receipts": 7,
+      "vs_public_match_history": 12,
+      "vs_rank_settlement_jobs": 0,
+      "vs_rank_settlement_attempts": 0,
+      "vs_outbox_events": 0,
+      "vs_crucible_escrows": 0,
+      "vs_crucible_journal_entries": 0,
+      "vs_crucible_settlements": 0
+    },
+    "post_rollback_preservation_result": "pass"
+  },
+  "effective_capabilities": {
+    "declared_false_count": 27,
+    "public_modes_enabled": false,
+    "rank_mutations_enabled": false,
+    "economy_mutations_enabled": false,
+    "public_leaderboards_enabled": false,
+    "contest_rewards_enabled": false,
+    "crucible_settlement_enabled": false,
+    "durable_core_enabled": true,
+    "durable_public_1v1_enabled": true,
+    "match_verification_enabled": true,
+    "remote_ops_config_enabled": true
+  },
+  "validation": {
+    "physical_reconnect_result": "pass",
+    "physical_evidence_path": "docs/architecture/render_reactivation/reconnect_verification_2026-08-17.md",
+    "local_exact_engine_suite": "pass",
+    "rank_http_identity_and_device_session_smoke": "pass",
+    "authentication_negative_checks": "pass",
+    "managed_replay_before_rollback": {
+      "render_job_id": "job-da1j6n1t0dsc73bvmom0",
+      "verification_job_id": "01a01081-9f7c-7bd1-9c16-63512add58ca",
+      "status": "COMPLETED",
+      "attempt_count": 1,
+      "sim_build_id": "sf-sim-b409fc9",
+      "worker_build_id": "authority-worker-b409fc9",
+      "final_state_hash": "acef412b5d19007eb490f662b9ef15d740f2c3baa496ab9d358a1f6ed424078b",
+      "terminal_reason": "OBJECTIVE_COMPLETE"
+    },
+    "managed_replay_after_restore": {
+      "render_job_id": "job-da1jb1ojo6nc738p9geg",
+      "verification_job_id": "01a01089-3091-7f17-b713-56f4476a8563",
+      "status": "COMPLETED",
+      "attempt_count": 1,
+      "sim_build_id": "sf-sim-b409fc9",
+      "worker_build_id": "authority-worker-b409fc9",
+      "final_state_hash": "acef412b5d19007eb490f662b9ef15d740f2c3baa496ab9d358a1f6ed424078b",
+      "terminal_reason": "OBJECTIVE_COMPLETE"
+    },
+    "observed_rollback_all_services": "pass",
+    "provider_restart_via_rollback_and_restore": "pass",
+    "restored_candidate_health": "pass",
+    "database_preservation": "pass",
+    "evidence_retention": "append_only_git_documentation_and_provider_deploy_history"
+  },
+  "retained_failures_and_deviations": [
+    {
+      "kind": "candidate_manifest_failure",
+      "identity": "sf-4.7.1-b409fc9-20260817.1",
+      "deploy_id": "dep-da1j1t0u01pc73ackmog",
+      "result": "build_failed_before_activation",
+      "reason": "The immutable .1 manifest expected 227 registered classes; the clean Git source contains 224."
+    },
+    {
+      "kind": "transient_control_plane_edit",
+      "result": "no_deploy_or_runtime_change",
+      "reason": "An operator CLI probe temporarily set the authority build command to the literal value test. Auto-deploy was off; the command was restored and then bound to the .2 digest before the successful candidate deployment."
+    },
+    {
+      "kind": "one_off_job_invocation",
+      "identity": "job-da1j60m7bikc7397t5og",
+      "result": "failed_before_data_access",
+      "reason": "The first managed fixture command used a repository-root path while the VS service starts jobs in tools/vs-service. The corrected path succeeded."
+    },
+    {
+      "kind": "rank_smoke_invocation",
+      "result": "configuration_rejected_before_test",
+      "reason": "An initial remote Rank smoke omitted the explicit live-backend safety opt-in. The guarded invocation failed closed; the authorized rerun passed."
+    },
+    {
+      "kind": "physical_observation",
+      "result": "non_blocking",
+      "reason": "The two devices displayed reconnect countdowns approximately six seconds apart before the second reconnect."
+    }
+  ],
+  "production_control": {
+    "service_id": "srv-d7uho16gvqtc73feh9s0",
+    "service_name": "SF",
+    "observed_live_deploy": "dep-d9vjg16gekts73fr8umg",
+    "observed_git_revision": "be694ddfda64694023a3320b92755d54c73ed59b",
+    "changed_by_this_deployment": false
+  },
+  "candidate_match": true,
+  "final_disposition": "certification_estate_upgraded_all_off_pass",
+  "release_status": "hold_pending_performance_and_remaining_production_program"
+}
