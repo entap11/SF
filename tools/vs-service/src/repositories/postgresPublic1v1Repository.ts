@@ -294,6 +294,19 @@ export class PostgresPublic1v1Repository implements Public1v1Repository {
         [contractId]
       );
       if ((notReady.rowCount ?? 0) > 0) throw new DurableCoreError("roster_not_ready");
+      const mode = await client.query<{ mode_id: string }>(
+        "SELECT mode_id FROM vs_match_contracts WHERE contract_id = $1", [contractId]
+      );
+      if (mode.rows[0]?.mode_id === "CRUCIBLE_1V1") {
+        const reservations = await client.query<{ count: number }>(
+          `SELECT count(DISTINCT player_id)::int AS count FROM vs_platform_economy_deliveries
+           WHERE match_id = $1 AND operation = 'CRUCIBLE_RESERVE' AND status = 'DELIVERED'`,
+          [input.matchId]
+        );
+        if (Number(reservations.rows[0]?.count ?? 0) !== 2) {
+          throw new DurableCoreError("crucible_reservations_pending");
+        }
+      }
       await client.query("UPDATE vs_match_roster SET ready_state = 'LOCKED' WHERE contract_id = $1", [contractId]);
       await client.query(
         "UPDATE vs_match_contracts SET status = 'RUNNING', updated_at = $2 WHERE contract_id = $1",

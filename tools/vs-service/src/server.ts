@@ -31,6 +31,11 @@ import { handleCrucibleSettlementAction } from "./crucibleSettlementHttp.js";
 import {
   handlePublicModesOpsAction, handlePublicOpsConfigGet, runPublicModesReconciliation
 } from "./publicModesOpsHttp.js";
+import { handlePlatformEconomyPlayerAction } from "./platformEconomyPlayerHttp.js";
+import { expireReconnectGrace, processOneRankSettlement, reconcileRankSettlements } from "./rankSettlementProcessor.js";
+import {
+  processOnePlatformEconomyDelivery, reconcilePlatformEconomyDeliveries
+} from "./platformEconomyProcessor.js";
 
 type JsonRecord = Record<string, unknown>;
 
@@ -43,6 +48,13 @@ const QUARANTINED_ECONOMY_ACTIONS = new Set([
   "record_honey_activity", "grant_honey", "debit_honey", "debit_hive_honey_purchase",
   "debug_set_honey_balance", "preview_crucible_entry", "update_crucible_config",
   "open_crucible_escrow", "settle_crucible_match", "refund_crucible_match",
+  "resolve_crucible_review", "record_crucible_lifecycle", "record_competitive_wax_result",
+  "award_crucible_wax", "debug_set_crucible_balance"
+]);
+
+const PLATFORM_SUPERSEDED_ECONOMY_ACTIONS = new Set([
+  "record_honey_activity", "grant_honey", "debit_hive_honey_purchase", "debug_set_honey_balance",
+  "update_crucible_config", "open_crucible_escrow", "settle_crucible_match", "refund_crucible_match",
   "resolve_crucible_review", "record_crucible_lifecycle", "record_competitive_wax_result",
   "award_crucible_wax", "debug_set_crucible_balance"
 ]);
@@ -90,7 +102,7 @@ type Player = {
 type Session = {
   id: string;
   invite_code: string;
-  source: "invite" | "quick";
+  source: "invite" | "quick" | "rematch";
   context: JsonRecord;
   created_unix: number;
   expires_unix: number;
@@ -151,6 +163,13 @@ type IntentStream = {
   lastExecuteTick: number;
 };
 
+type RematchRequest = {
+  parentSessionId: string;
+  deadlineUnixMs: number;
+  votes: Set<string>;
+  childSessionId: string;
+};
+
 type SpectatorSnapshotEvent = {
   seq: number;
   uid: string;
@@ -187,8 +206,10 @@ const queue: QueueTicket[] = [];
 const intentStreams = new Map<string, IntentStream>();
 const presenceByUid = new Map<string, Presence>();
 const friendInvites = new Map<string, FriendInvite>();
+const rematchRequests = new Map<string, RematchRequest>();
 const spectatorGrants = new Map<string, SpectatorGrant>();
 const spectatorSnapshotStreams = new Map<string, SpectatorSnapshotStream>();
+const REMATCH_VOTE_WINDOW_MS = 5_000;
 const serviceBuild = process.env.RENDER_GIT_COMMIT
   ?? process.env.SOURCE_VERSION
   ?? process.env.npm_package_version
@@ -482,7 +503,7 @@ function nextBotUid(): string {
   return randomId("bot_", 6);
 }
 
-function newSession(host: Player, context: JsonRecord, source: "invite" | "quick"): Session {
+function newSession(host: Player, context: JsonRecord, source: "invite" | "quick" | "rematch"): Session {
   const createdUnix = nowUnix();
   const preparedContext = prepareSessionContext(context);
   const hostPlayer = rosterPlayer(host, 1);
@@ -771,6 +792,12 @@ function prune(): void {
       spectatorGrants.delete(token);
     }
   }
+  const nowMs = Date.now();
+  for (const [parentSessionId, request] of rematchRequests.entries()) {
+    if (!request.childSessionId && nowMs > request.deadlineUnixMs + 60_000) {
+      rematchRequests.delete(parentSessionId);
+    }
+  }
 }
 
 function contextValueMatches(a: JsonRecord, b: JsonRecord, key: string): boolean {
@@ -921,7 +948,12 @@ async function handleAction(req: Request, res: Response): Promise<void> {
   if (await handlePublicRankAction(action, req, res)) return;
   if (await handleVerificationAction(action, req, res)) return;
   if (await handleDurablePublic1v1Action(action, req, res)) return;
+  if (await handlePlatformEconomyPlayerAction(action, req, res)) return;
   if (await handleCrucibleSettlementAction(action, req, res)) return;
+  if (PLATFORM_SUPERSEDED_ECONOMY_ACTIONS.has(action)) {
+    fail(res, "platform_economy_authority_required", 410);
+    return;
+  }
   if (QUARANTINED_ECONOMY_ACTIONS.has(action) && !requireEconomyMutations(res)) {
     return;
   }
@@ -961,6 +993,8 @@ async function handleAction(req: Request, res: Response): Promise<void> {
       return canStart(req, res);
     case "start_session":
       return startSession(req, res);
+    case "request_fresh_rematch":
+      return requestFreshRematch(req, res);
     case "open_money_escrow":
       return openMoneyEscrow(req, res);
     case "settle_money_match":
@@ -1754,6 +1788,97 @@ function startSession(req: Request, res: Response): void {
   return ok(res, { session: cloneSession(session) });
 }
 
+function requestFreshRematch(req: Request, res: Response): void {
+  const parentSessionId = stringValue(req.body?.session_id);
+  const uid = stringValue(req.body?.uid);
+  const parent = sessions.get(parentSessionId);
+  if (!parent || !uid) {
+    return fail(res, "invalid_args");
+  }
+  if (parent.status !== "started") {
+    return fail(res, "session_not_started");
+  }
+  if (!sessionHasPlayer(parent, uid)) {
+    return fail(res, "player_not_in_session");
+  }
+  const existing = rematchRequests.get(parentSessionId);
+  if (existing?.childSessionId) {
+    const child = sessions.get(existing.childSessionId);
+    if (child) {
+      return ok(res, freshRematchReadyPayload(parentSessionId, child, true));
+    }
+  }
+  const nowMs = Date.now();
+  let request = existing;
+  if (!request) {
+    request = {
+      parentSessionId,
+      deadlineUnixMs: nowMs + REMATCH_VOTE_WINDOW_MS,
+      votes: new Set<string>(),
+      childSessionId: ""
+    };
+  } else if (nowMs > request.deadlineUnixMs) {
+    return fail(res, "rematch_expired", 409, { status: "expired", parent_session_id: parentSessionId });
+  }
+  request.votes.add(uid);
+  rematchRequests.set(parentSessionId, request);
+  const voters = parent.roster.filter((player) => !player.uid.startsWith("bot_"));
+  const requiredVoters = voters.length > 0 ? voters : parent.roster;
+  if (!requiredVoters.every((player) => request?.votes.has(player.uid))) {
+    return ok(res, {
+      status: "pending",
+      parent_session_id: parentSessionId,
+      votes: [...request.votes],
+      votes_received: request.votes.size,
+      votes_required: requiredVoters.length,
+      deadline_unix_ms: request.deadlineUnixMs
+    });
+  }
+  const rematchIndex = Math.max(1, Math.trunc(numberValue(parent.context.rematch_index, 0)) + 1);
+  const context = freshRematchContext(parent, rematchIndex);
+  const child = newSession({ ...parent.roster[0], ready: true }, context, "rematch");
+  syncSessionRoster(child, parent.roster.map((player) => ({ ...player, ready: true })));
+  const startResult = startSessionAuthoritatively(child);
+  if (startResult.ok !== true) {
+    return failLedger(res, startResult, 402);
+  }
+  sessions.set(child.id, child);
+  inviteToSession.set(child.invite_code, child.id);
+  request.childSessionId = child.id;
+  rematchRequests.set(parentSessionId, request);
+  parent.context = { ...parent.context, next_rematch_session_id: child.id };
+  return ok(res, freshRematchReadyPayload(parentSessionId, child, false));
+}
+
+function freshRematchContext(parent: Session, rematchIndex: number): JsonRecord {
+  const context = cloneContext(parent.context);
+  for (const key of [
+    "map_ids", "stage_map_paths", "match_randomizer", "match_setup", "match_setup_randomizer",
+    "ledger_status", "pot_cents", "escrow_cents", "winner_owner_id", "winner_uid",
+    "winner_payout_cents", "house_rake_cents", "settle_transaction_ids", "settle_reason",
+    "refund_reason", "refund_transaction_ids", "next_rematch_session_id",
+    "crucible_match_id", "crucible_ledger_status", "crucible_escrow_id",
+    "crucible_stake_each", "crucible_pot", "crucible_burn", "crucible_winner_payout"
+  ]) {
+    delete context[key];
+  }
+  context.rematch_parent_session_id = parent.id;
+  context.rematch_root_session_id = stringValue(parent.context.rematch_root_session_id) || parent.id;
+  context.rematch_index = rematchIndex;
+  return context;
+}
+
+function freshRematchReadyPayload(parentSessionId: string, child: Session, cached: boolean): JsonRecord {
+  return {
+    status: "ready",
+    type: "fresh_rematch_ready",
+    parent_session_id: parentSessionId,
+    session_id: child.id,
+    session: cloneSession(child),
+    cached
+  };
+}
+
 function playerBalanceHints(body: JsonRecord): Record<string, number> {
   const source = isRecord(body.player_balances_cents) ? body.player_balances_cents : {};
   const out: Record<string, number> = {};
@@ -2525,6 +2650,8 @@ function healthPayload(): JsonRecord {
     hctf_live_secrecy_certified: config.hctfLiveSecrecyCertified,
     ctf_bot_fallback_enabled: config.enableCtfBotFallback,
     rank_mutations_enabled: config.enableRankMutations,
+    platform_economy_delivery_enabled: config.enablePlatformEconomyDelivery,
+    embedded_settlement_workers: config.embeddedSettlementWorkers,
     public_leaderboards_enabled: config.enablePublicLeaderboards,
     public_contests_enabled: config.enablePublicContests,
     public_time_puzzles_enabled: config.enablePublicTimePuzzles,
@@ -2585,6 +2712,7 @@ export function createApp(): express.Express {
       routes: {
         health: "/v1/health",
         create_invite: "POST /v1/create_invite",
+        request_fresh_rematch: "POST /v1/request_fresh_rematch",
         contest_dash_config: "GET/POST /v1/contest_dash/config",
         get_honey_balance: "POST /v1/get_honey_balance",
         record_honey_activity: "POST /v1/record_honey_activity",
@@ -2639,6 +2767,24 @@ export function startServer(port = config.port, host = config.bindHost): http.Se
         ts: new Date().toISOString(), event: "public_modes_reconciliation_failed", error: String(error)
       })));
     }, config.opsReconcileIntervalMs);
+    timer.unref();
+  }
+  if (config.embeddedSettlementWorkers && config.durableStore === "postgres" && Boolean(config.databaseUrl)) {
+    let workerBusy = false;
+    const workerId = `vs-web-${process.pid}`;
+    const timer = setInterval(() => {
+      if (workerBusy) return;
+      workerBusy = true;
+      void (async () => {
+        await expireReconnectGrace();
+        await reconcileRankSettlements();
+        await reconcilePlatformEconomyDeliveries();
+        await processOneRankSettlement(workerId);
+        await processOnePlatformEconomyDelivery(workerId);
+      })().catch((error) => console.error(JSON.stringify({
+        ts: new Date().toISOString(), event: "embedded_settlement_worker_failed", error: String(error)
+      }))).finally(() => { workerBusy = false; });
+    }, Math.min(config.rankSettlementPollMs, config.platformEconomyPollMs));
     timer.unref();
   }
   return server;

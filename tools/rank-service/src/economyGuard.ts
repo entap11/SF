@@ -13,6 +13,14 @@ export const RANK_ECONOMY_MUTATION_ACTIONS = new Set([
   "debug_set_last_active"
 ]);
 
+// These routes belong to the pre-Platform Rank implementation. Keeping the
+// classification explicit makes it impossible to revive a second economy
+// writer by changing an environment flag.
+export const RANK_SUPERSEDED_ACTIONS = new Set([
+  "register_player",
+  ...RANK_ECONOMY_MUTATION_ACTIONS
+]);
+
 function enabled(value: string | undefined): boolean {
   return ["1", "true", "yes", "on"].includes(String(value ?? "").trim().toLowerCase());
 }
@@ -39,6 +47,10 @@ export function guardEconomyMutation(): EconomyGuardResult | null {
 
 export function isRankEconomyMutationAction(action: string): boolean {
   return RANK_ECONOMY_MUTATION_ACTIONS.has(action.trim());
+}
+
+export function isRankSupersededAction(action: string): boolean {
+  return RANK_SUPERSEDED_ACTIONS.has(action.trim());
 }
 
 export function rankMutationHttpStatus(result: unknown): number {
