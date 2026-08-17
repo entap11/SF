@@ -2,6 +2,43 @@
 
 Date: August 17, 2026
 
+## August 17 post-certification continuation
+
+Every available non-physical, non-production-mutation step was advanced after
+the certification-estate upgrade. The exact `b409fc9` two-minute performance
+probe passed at 29.5 ms process time and exactly 8.0 ms tick time under the
+unchanged 45/8 ms limits. The full 1,800-second attempt was stopped after its
+post-warmup maximums irreversibly reached 67.7 ms process and 183.1 ms tick
+time. The host was still running an active virtualization workload and other
+desktop processes. This evidence is retained in
+[performance_certification_2026-08-17.md](architecture/render_reactivation/performance_certification_2026-08-17.md);
+the release performance gate remains open and no threshold was changed.
+
+Non-physical credential/session seam coverage, production-backend refusal, and
+the repository all-off preflight passed under exact Godot 4.7.1. The installed
+Android APK contains the `SwarmfrontSecureCredentials` plugin classes, and the
+iOS executable contains the matching singleton and ECDSA implementation. This
+proves packaging only, not Secure Enclave or Android Keystore behavior.
+
+A current production dependency audit found a newly published low-severity
+`body-parser <1.20.6` advisory in the frozen VS dependency graph. The working
+branch now updates only that transitive lockfile entry from 1.20.5 to 1.20.6.
+VS build, full service smoke, and `npm audit --omit=dev` pass with zero
+vulnerabilities. Candidate `.2` and its Deployment Manifest remain immutable;
+the dependency update is post-candidate work and requires a superseding
+candidate before any Production deployment.
+
+The read-only Production audit and proposed all-off migration/cutover sequence
+are recorded in
+[production_reactivation_readiness_2026-08-17.md](architecture/render_reactivation/production_reactivation_readiness_2026-08-17.md).
+Production remains unchanged. The current `SF` service is unprotected,
+non-isolated, Free-plan, memory/file-backed, and lacks player auth, durable
+verification, and remote ops. The legacy Rank database contains 14 player rows
+and 154 audit rows and must be preserved/migrated; it cannot be reset or
+silently relabeled as Production. A Production credential shown by an operator
+diagnostic is now treated as exposed and must be rotated during an explicitly
+authorized change window; its value is not retained in documentation.
+
 ## August 17 all-off certification-estate upgrade
 
 The frozen `sf-4.7.1-b409fc9-20260817.2` candidate is now live on all three
