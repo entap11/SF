@@ -1,6 +1,9 @@
 # Candidate Release Manifest v1
 
-Status: contract frozen; no candidate issued by this document.
+Status: contract frozen. The first approved certification-only candidate is
+[`sf-4.7.1-b409fc9-20260817.1`](candidate-sf-4.7.1-b409fc9-20260817.1.json),
+with manifest self-digest
+`4909ebd17046fafe935eadb624fc513d1fcf870b8a787265e60cbb992c296a43`.
 
 The manifest identifies an approved deployable candidate before any external
 deployment. It is canonical JSON, schema-versioned, hashed, and immutable once

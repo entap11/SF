@@ -1,6 +1,44 @@
 # Current Project Status
 
-Date: August 14, 2026
+Date: August 17, 2026
+
+## August 17 reconnect acceptance and candidate freeze
+
+The corrected reconnect candidate passed the required two-phone physical
+acceptance. Two fresh matches confirmed exact first- and second-interruption
+accounting at `1/3` and `2/3`. On the third iPhone interruption, Android
+received the authoritative win. With Airplane Mode enabled and retained Wi-Fi
+explicitly disabled, the still-offline iPhone showed the final-disconnect
+pending message with controls locked and no invented countdown. Restoring
+connectivity replaced that pending presentation with the authoritative
+disconnect-strike-limit loss.
+
+The retained physical evidence is
+[reconnect_verification_2026-08-17.md](architecture/render_reactivation/reconnect_verification_2026-08-17.md).
+It includes authoritative forfeit observations for sessions `S64189333` and
+`S87915322`, plus the non-blocking roughly six-second cross-device countdown
+display difference observed before the second reconnect.
+
+Candidate `sf-4.7.1-b409fc9-20260817.1` is frozen at exact source
+`b409fc9797274c4a8a3cf895de7ba3d2d968197a` for all-off certification
+deployment only. Its canonical
+[Candidate Release Manifest](architecture/render_reactivation/candidate-sf-4.7.1-b409fc9-20260817.1.json)
+has self-digest
+`4909ebd17046fafe935eadb624fc513d1fcf870b8a787265e60cbb992c296a43`.
+The manifest binds the physically tested Android/iOS bytes, exact Godot 4.7.1
+engine and templates, VS/Rank/authority artifacts, ordered database migrations,
+content, schema, public key IDs, automated evidence, and declared all-off
+posture. It explicitly does not authorize production deployment or player
+activation.
+
+The exact-engine release-critical suite passed again: reconnect and app
+lifecycle, Arena pause source, private-PvP UI, VS replication, human PvP boot,
+outcome overlay, all-off repository preflight, VS full smoke, Rank embedded
+identity/session/quarantine checks, and authority deterministic double replay.
+The Rank HTTP identity smoke remains intentionally assigned to the upgraded
+certification endpoint. Overall release status remains **HOLD** pending the
+unchanged performance threshold and the rest of the certification/production
+program.
 
 ## August 14 third-strike client presentation correction
 
