@@ -1,6 +1,30 @@
 # Current Project Status
 
-Date: August 17, 2026
+Date: August 18, 2026
+
+## August 18 performance diagnosis and remediation
+
+The exact frozen candidate completed seven unattended 1,800-second soaks, but
+none passed the unchanged performance gate. Three runs met the process limit;
+all seven exceeded the 8 ms simulation maximum. The macOS launch job retried
+failed gates unintentionally and was removed along with its final orphan. The
+retries did not mutate release or Production state.
+
+Bounded phase attribution on the post-candidate branch reproduced a 175.1 ms
+simulation tick and assigned 170.4 ms to synchronous `match_end_emit`
+subscribers. Arena's non-authoritative match-end presentation, persistence,
+audio, and settlement-preparation handler now uses `CONNECT_DEFERRED`, so it no
+longer executes inside the authoritative simulation tick. OpsState/SimState
+remain the only gameplay authority, and SimRunner still establishes terminal
+state before emitting the event.
+
+The repeated natural-conquest scenario reduced the transition heartbeat to
+5.0 ms. A final 150-second probe passed the original gate at 23.9 ms process
+and 7.9 ms simulation. Lifecycle, post-match stats, match-clock pause,
+authoritative buff, reconnect, hitch, logging, all-off preflight, and immutable
+manifest checks pass. Full 1,800-second idle-host certification remains open;
+candidate `.2` is unchanged, and the remediation is documented in
+[performance_remediation_2026-08-18.md](architecture/render_reactivation/performance_remediation_2026-08-18.md).
 
 ## August 17 post-certification continuation
 

@@ -243,7 +243,15 @@ static func _format_payload(msg: String, data: Dictionary) -> String:
 		if msg == "SIM_HEARTBEAT":
 			var ticks: int = int(data.get("ticks", -1))
 			var max_tick_ms: float = float(data.get("max_tick_ms", -1.0))
-			return "%s ticks=%d max_tick_ms=%.1f" % [msg, ticks, max_tick_ms]
+			var hotspot_phase: String = str(data.get("hotspot_phase", ""))
+			var hotspot_ms: float = float(data.get("hotspot_ms", -1.0))
+			return "%s ticks=%d max_tick_ms=%.1f hotspot_phase=%s hotspot_ms=%.1f" % [
+				msg,
+				ticks,
+				max_tick_ms,
+				hotspot_phase,
+				hotspot_ms
+			]
 		if msg == "SIM_TICK_COST":
 			var tick_cost_ms: float = float(data.get("dt_ms", -1.0))
 			return "%s dt_ms=%.1f" % [msg, tick_cost_ms]

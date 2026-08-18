@@ -469,41 +469,67 @@ func _tick(dt: float) -> void:
 		_deterministic_now_ms += maxi(0, int(round(dt * 1000.0)))
 	var phase: int = OpsState.match_phase
 	if phase == OpsState.MatchPhase.ENDED:
-		OpsState.enforce_post_match_authority("SimRunner._tick:ENDED")
-		_log_match_phase(now_ms)
-		_log_tick_phase()
+		_timed_phase("post_match_authority", func() -> void:
+			OpsState.enforce_post_match_authority("SimRunner._tick:ENDED")
+		)
+		_timed_phase("post_match_logs", func() -> void:
+			_log_match_phase(now_ms)
+			_log_tick_phase()
+		)
 		_tick_post_match_ghost(dt, true)
-		OpsState.expire_rematch_if_needed()
-		_emit_match_end_if_needed()
-		_emit_post_match_action_if_needed()
+		_timed_phase("rematch_expiry", func() -> void:
+			OpsState.expire_rematch_if_needed()
+		)
+		_timed_phase("match_end_emit", func() -> void:
+			_emit_match_end_if_needed()
+		)
+		_timed_phase("post_match_action", func() -> void:
+			_emit_post_match_action_if_needed()
+		)
 		_finalize_tick_profile(tick_t0_us)
 		return
 	if phase == OpsState.MatchPhase.ENDING:
-		OpsState.enforce_post_match_authority("SimRunner._tick:ENDING")
-		_log_match_phase(now_ms)
-		_log_tick_phase()
+		_timed_phase("post_match_authority", func() -> void:
+			OpsState.enforce_post_match_authority("SimRunner._tick:ENDING")
+		)
+		_timed_phase("post_match_logs", func() -> void:
+			_log_match_phase(now_ms)
+			_log_tick_phase()
+		)
 		_tick_post_match_ghost(dt, true)
 		if now_ms >= int(OpsState.end_screen_ready_ms):
-			SFLog.info("MATCH_END_FINALIZE", {
-				"winner": int(OpsState.winner_id),
-				"reason": str(OpsState.match_end_reason),
-				"phase": int(OpsState.match_phase)
-			})
-			OpsState.finalize_match_end()
+			_timed_phase("match_end_finalize", func() -> void:
+				SFLog.info("MATCH_END_FINALIZE", {
+					"winner": int(OpsState.winner_id),
+					"reason": str(OpsState.match_end_reason),
+					"phase": int(OpsState.match_phase)
+				})
+				OpsState.finalize_match_end()
+			)
 		if OpsState.match_phase == OpsState.MatchPhase.ENDED:
-			_emit_match_end_if_needed()
-			_emit_post_match_action_if_needed()
+			_timed_phase("match_end_emit", func() -> void:
+				_emit_match_end_if_needed()
+			)
+			_timed_phase("post_match_action", func() -> void:
+				_emit_post_match_action_if_needed()
+			)
 		_finalize_tick_profile(tick_t0_us)
 		return
 	_tick_systems(dt)
-	_update_match_stats(now_ms)
-	_check_match_win(now_ms)
+	_timed_phase("match_stats", func() -> void:
+		_update_match_stats(now_ms)
+	)
+	_timed_phase("win_check", func() -> void:
+		_check_match_win(now_ms)
+	)
 	_finalize_tick_profile(tick_t0_us)
 
 func _tick_systems(dt: float) -> void:
 	var dt_ms: int = int(round(dt * 1000.0))
-	_timed_phase("ops_events", func() -> void:
+	_timed_phase("match_clock", func() -> void:
 		OpsState.tick_match_clock(state_ref, dt_ms)
+	)
+	_timed_phase("unintended_power", func() -> void:
 		state_ref.tick_unintended_power(float(dt_ms))
 	)
 	_timed_phase("bot_system", func() -> void:
@@ -522,11 +548,16 @@ func _tick_systems(dt: float) -> void:
 		if edge_cache_system != null:
 			edge_cache_system.rebuild_edge_cache(OpsState)
 	)
-	_timed_phase("unit_system", func() -> void:
+	_timed_phase("swarm_system", func() -> void:
 		if swarm_system != null:
 			swarm_system.tick(dt, unit_system)
+	)
+	_timed_phase("unit_state", func() -> void:
 		if unit_system != null:
 			unit_system.tick(dt)
+	)
+	_timed_phase("unit_render_state", func() -> void:
+		if unit_system != null:
 			unit_system.tick_render_units(dt)
 	)
 	_timed_phase("tower_system", func() -> void:
@@ -647,22 +678,29 @@ func _tick_post_match_ghost(dt: float, update_stats: bool) -> void:
 	if state_ref == null:
 		return
 	var dt_ms: int = int(round(dt * 1000.0))
-	_timed_phase("ghost_ops_events", func() -> void:
+	_timed_phase("ghost_unintended_power", func() -> void:
 		# Keep passive hive growth alive post-match while input remains locked.
 		state_ref.tick_unintended_power(float(dt_ms))
 	)
 	_timed_phase("ghost_lane_flow", func() -> void:
 		state_ref.tick_lane_flow(dt * 1000.0)
 	)
-	_timed_phase("ghost_unit_system", func() -> void:
+	_timed_phase("ghost_swarm_system", func() -> void:
 		if swarm_system != null:
 			swarm_system.tick(dt, unit_system)
+	)
+	_timed_phase("ghost_unit_state", func() -> void:
 		if unit_system != null:
 			unit_system.tick(dt)
+	)
+	_timed_phase("ghost_unit_render_state", func() -> void:
+		if unit_system != null:
 			unit_system.tick_render_units(dt)
 	)
 	if update_stats:
-		_update_match_stats(Time.get_ticks_msec())
+		_timed_phase("match_stats", func() -> void:
+			_update_match_stats(Time.get_ticks_msec())
+		)
 
 func _log_tick_phase() -> void:
 	return

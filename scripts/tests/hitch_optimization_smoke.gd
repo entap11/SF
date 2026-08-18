@@ -9,6 +9,7 @@ func _initialize() -> void:
 	_test_execution_metric_connectivity_cache()
 	_test_bee_clip_endpoint_guard()
 	_test_soak_waits_for_requested_map()
+	_test_match_end_presentation_is_deferred()
 	if _failures.is_empty():
 		print("HITCH_OPTIMIZATION_SMOKE_PASS")
 		quit(0)
@@ -72,6 +73,14 @@ func _test_soak_waits_for_requested_map() -> void:
 	_assert_equal(shell_source.count(awaited_identity) >= 2, true, "soak verifies requested map identity before measuring")
 	_assert_equal(shell_source.contains("current_map_id == expected_map_id"), true, "soak verifies authoritative OpsState map identity")
 	_assert_equal(shell_source.contains("arena_map_path == map_path"), false, "soak does not infer authoritative map identity from render state")
+
+func _test_match_end_presentation_is_deferred() -> void:
+	var arena_source: String = FileAccess.get_file_as_string("res://scripts/arena.gd")
+	_assert_equal(
+		arena_source.contains("sim_runner.match_ended.connect(_on_match_ended, CONNECT_DEFERRED)"),
+		true,
+		"match-end presentation does not run inside the authoritative simulation tick"
+	)
 
 func _assert_equal(actual: Variant, expected: Variant, label: String) -> void:
 	if actual != expected:

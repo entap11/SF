@@ -2,6 +2,10 @@
 
 Status: `SHORT PROBE PASS — FULL GATE NOT CERTIFIED`
 
+Update: targeted diagnosis and the post-candidate remediation are recorded in
+`performance_remediation_2026-08-18.md`. A bounded follow-up probe passes, but
+the complete 1,800-second superseding-candidate gate remains pending.
+
 This record preserves the unchanged-threshold performance work performed after
 the all-off certification-estate deployment. It does not convert the release
 status from `HOLD`.

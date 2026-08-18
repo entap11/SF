@@ -5745,7 +5745,9 @@ func _ensure_sim_runner() -> void:
 	if not sim_runner.sim_ticked.is_connected(_on_sim_ticked):
 		sim_runner.sim_ticked.connect(_on_sim_ticked)
 	if not sim_runner.match_ended.is_connected(_on_match_ended):
-		sim_runner.match_ended.connect(_on_match_ended)
+		# Match-end presentation, persistence, audio, and settlement preparation
+		# must not execute synchronously inside the authoritative simulation tick.
+		sim_runner.match_ended.connect(_on_match_ended, CONNECT_DEFERRED)
 	if not sim_runner.post_match_action.is_connected(_on_post_match_action):
 		sim_runner.post_match_action.connect(_on_post_match_action)
 	unit_system = sim_runner.unit_system if sim_runner != null else null
