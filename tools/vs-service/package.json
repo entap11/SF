@@ -29,7 +29,8 @@
     "smoke:platform-economy": "tsx src/repositories/platformEconomyDeliveryEmbeddedSmoke.ts",
     "worker:rank-settlement": "node --enable-source-maps dist/rankSettlementWorker.js",
     "worker:platform-economy": "node --enable-source-maps dist/platformEconomyWorker.js",
-    "canary:economy": "tsx src/economyLiveCanary.ts"
+    "canary:economy": "tsx src/economyLiveCanary.ts",
+    "ops:economy-beta": "tsx src/cli/economyBetaOps.ts"
   },
   "dependencies": {
     "cors": "^2.8.5",

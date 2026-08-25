@@ -42,6 +42,13 @@ function parseUuidList(value: string | undefined, name: string): string[] {
   return ids;
 }
 
+function parseRolloutScope(value: string | undefined): "" | "CANARY" | "POST_CUTOVER" {
+  const scope = String(value ?? "").trim().toUpperCase();
+  if (!scope) return "";
+  if (scope !== "CANARY" && scope !== "POST_CUTOVER") throw new Error("VS_ECONOMY_ROLLOUT_SCOPE_invalid");
+  return scope;
+}
+
 const productionMode = process.env.NODE_ENV?.trim().toLowerCase() === "production"
   || parseBoolean(process.env.VS_PRODUCTION_MODE, false)
   || parseBoolean(process.env.RENDER, false)
@@ -107,6 +114,7 @@ export const config = {
   economyRolloutPlayerIds: parseUuidList(
     process.env.VS_ECONOMY_ROLLOUT_PLAYER_IDS, "VS_ECONOMY_ROLLOUT_PLAYER_IDS"
   ),
+  economyRolloutScope: parseRolloutScope(process.env.VS_ECONOMY_ROLLOUT_SCOPE),
   enablePublicLeaderboards: parseBoolean(process.env.VS_ENABLE_PUBLIC_LEADERBOARDS, false),
   enablePublicContests: parseBoolean(process.env.VS_ENABLE_PUBLIC_CONTESTS, false),
   enablePublicTimePuzzles: parseBoolean(process.env.VS_ENABLE_PUBLIC_TIME_PUZZLES, false),
@@ -180,7 +188,12 @@ export const config = {
   playerTokenPublicKeyPem: normalizePem(process.env.VS_PLAYER_TOKEN_PUBLIC_KEY_PEM)
 };
 
-if (productionMode && (config.enablePlatformEconomyDelivery || config.enableRankMutations)
-  && (!config.economyRolloutCutoverAt || config.economyRolloutPlayerIds.length === 0)) {
-  throw new Error("economy_rollout_boundary_required");
+if (productionMode && (config.enablePlatformEconomyDelivery || config.enableRankMutations)) {
+  const canaryBoundary = (config.economyRolloutScope === "" || config.economyRolloutScope === "CANARY")
+    && config.economyRolloutPlayerIds.length > 0;
+  const postCutoverBoundary = config.economyRolloutScope === "POST_CUTOVER"
+    && config.economyRolloutPlayerIds.length === 0;
+  if (!config.economyRolloutCutoverAt || (!canaryBoundary && !postCutoverBoundary)) {
+    throw new Error("economy_rollout_boundary_required");
+  }
 }
