@@ -7,9 +7,15 @@ import { PGlitePoolAdapter } from "./pglitePoolAdapter.js";
 import { PostgresDurableCoreRepository } from "./postgresDurableCoreRepository.js";
 import { PostgresPlatformEconomyDeliveryRepository } from "./platformEconomyDelivery.js";
 import { PostgresRankSettlementRepository } from "./rankSettlement.js";
+import { validatePlatformEconomyResponse } from "../platformEconomyProcessor.js";
 
 function expect(condition: unknown, message: string, details?: unknown): void {
   if (!condition) throw new Error(`${message}${details == null ? "" : `: ${JSON.stringify(details)}`}`);
+}
+
+function expectThrows(run: () => void, message: string): void {
+  try { run(); } catch { return; }
+  throw new Error(message);
 }
 
 function contractInput(modeId: "STANDARD_1V1" | "CRUCIBLE_1V1", playerA: string, playerB: string,
@@ -76,6 +82,16 @@ async function completeVerifiedStandard(pool: Pool, contract: Awaited<ReturnType
 }
 
 async function main(): Promise<void> {
+  const responseBinding = {
+    economyEpoch: "beta_launch_0001", matchId: uuidV7(), playerId: uuidV7()
+  };
+  validatePlatformEconomyResponse(responseBinding, {
+    ok: true, epoch_id: responseBinding.economyEpoch, player_id: responseBinding.playerId
+  });
+  expectThrows(() => validatePlatformEconomyResponse(responseBinding, {
+    ok: true, epoch_id: responseBinding.economyEpoch, player_id: responseBinding.playerId,
+    match_id: uuidV7()
+  }), "an explicitly mismatched response match was accepted");
   const db = new PGlite({ extensions: { pgcrypto } });
   await db.waitReady;
   const pool = new PGlitePoolAdapter(db) as unknown as Pool;

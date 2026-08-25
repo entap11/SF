@@ -59,7 +59,7 @@ export async function processOnePlatformEconomyDelivery(workerId: string, nowIso
       });
       return true;
     }
-    validateResponse(job, response);
+    validatePlatformEconomyResponse(job, response);
     await repository.complete({ deliveryId: job.deliveryId, workerId, leaseToken: job.leaseToken,
       startedAt, finishedAt: new Date().toISOString(), response });
     return true;
@@ -85,9 +85,10 @@ export async function reserveCrucibleMatch(matchId: string, nowIso = new Date().
   return repository.crucibleReservationsCommitted(matchId);
 }
 
-function validateResponse(job: PlatformEconomyDelivery, response: JsonRecord): void {
+export function validatePlatformEconomyResponse(job: Pick<PlatformEconomyDelivery,
+  "economyEpoch" | "matchId" | "playerId">, response: JsonRecord): void {
   if (String(response.epoch_id) !== job.economyEpoch) throw new Error("platform_epoch_response_mismatch");
-  if (job.matchId && String(response.match_id ?? "") !== job.matchId) {
+  if (job.matchId && response.match_id != null && String(response.match_id) !== job.matchId) {
     throw new Error("platform_match_response_mismatch");
   }
   if (job.playerId && String(response.player_id ?? "") !== job.playerId) {

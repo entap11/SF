@@ -13,9 +13,10 @@ async function main() {
   assertSafeBase(state.base_url);
   if (!Array.isArray(state.players) || state.players.length !== 2) throw new Error("invalid canary state");
   if (action === "ids") return print({ ok: true, player_ids: state.players.map((player) => player.id) });
+  if (action === "refresh") return refresh(state);
   if (action === "snapshot") return snapshot(state);
   if (action === "spend") return spend(state);
-  throw new Error("action must be register, ids, snapshot, or spend");
+  throw new Error("action must be register, ids, refresh, snapshot, or spend");
 }
 
 async function register() {
@@ -74,6 +75,33 @@ async function snapshot(state) {
     players.push(response.body);
   }
   print({ ok: true, players });
+}
+
+async function refresh(state) {
+  for (const [index, player] of state.players.entries()) {
+    const challenged = await post(state.base_url, "/v1/identity/challenge", {
+      device_id: player.device_id,
+      request_id: `economy-canary-refresh-${Date.now()}-${index}`
+    });
+    expect(challenged.status === 200 && challenged.body.ok === true,
+      "session challenge failed", safeResponse(challenged));
+    const challenge = challenged.body.challenge;
+    const signature = crypto.sign("sha256", Buffer.from(String(challenge.challenge), "utf8"), {
+      key: player.private_key_pem,
+      dsaEncoding: "ieee-p1363"
+    }).toString("base64url");
+    const session = await post(state.base_url, "/v1/identity/session", {
+      challenge_id: challenge.id,
+      signature
+    });
+    expect(session.status === 201 && session.body.ok === true, "session refresh failed", safeResponse(session));
+    player.access_token = String(session.body.access_token ?? "");
+    expect(player.access_token.split(".").length === 3, "refreshed token missing");
+  }
+  state.refreshed_at = new Date().toISOString();
+  await writeFile(stateFile, `${JSON.stringify(state)}\n`, { encoding: "utf8", mode: 0o600 });
+  await chmod(stateFile, 0o600);
+  print({ ok: true, player_ids: state.players.map((player) => player.id), state_file_mode: "0600" });
 }
 
 async function spend(state) {
