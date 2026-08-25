@@ -22,11 +22,12 @@ async function main() {
 async function register() {
   assertSafeBase(configuredBase);
   const players = [];
+  const callSignRun = Date.now().toString(36).slice(-7);
   for (let index = 0; index < 2; index += 1) {
     const keyPair = crypto.generateKeyPairSync("ec", { namedCurve: "prime256v1" });
     const registered = await post(configuredBase, "/v1/identity/register", {
       request_id: `economy-canary-${Date.now()}-${index}`,
-      call_sign: `EcoCanary${index + 1}`,
+      call_sign: `Eco${callSignRun}${index + 1}`.slice(0, 16),
       region: "CANARY",
       device: {
         public_key_jwk: keyPair.publicKey.export({ format: "jwk" }),
