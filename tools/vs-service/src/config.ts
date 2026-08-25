@@ -26,6 +26,22 @@ function normalizePem(value: string | undefined): string {
   return String(value ?? "").trim().replace(/\\n/g, "\n");
 }
 
+function parseOptionalIso(value: string | undefined, name: string): string {
+  const raw = String(value ?? "").trim();
+  if (!raw) return "";
+  const parsed = Date.parse(raw);
+  if (!Number.isFinite(parsed)) throw new Error(`${name}_invalid`);
+  return new Date(parsed).toISOString();
+}
+
+function parseUuidList(value: string | undefined, name: string): string[] {
+  const ids = [...new Set(String(value ?? "").split(",").map((entry) => entry.trim().toLowerCase()).filter(Boolean))];
+  if (ids.some((id) => !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id))) {
+    throw new Error(`${name}_invalid`);
+  }
+  return ids;
+}
+
 const productionMode = process.env.NODE_ENV?.trim().toLowerCase() === "production"
   || parseBoolean(process.env.VS_PRODUCTION_MODE, false)
   || parseBoolean(process.env.RENDER, false)
@@ -85,6 +101,12 @@ export const config = {
   enableCtfBotFallback: parseBoolean(process.env.VS_ENABLE_CTF_BOT_FALLBACK, false),
   enableRankMutations: parseBoolean(process.env.VS_ENABLE_RANK_MUTATIONS, false),
   enablePlatformEconomyDelivery: parseBoolean(process.env.VS_ENABLE_PLATFORM_ECONOMY_DELIVERY, false),
+  economyRolloutCutoverAt: parseOptionalIso(
+    process.env.VS_ECONOMY_ROLLOUT_CUTOVER_AT, "VS_ECONOMY_ROLLOUT_CUTOVER_AT"
+  ),
+  economyRolloutPlayerIds: parseUuidList(
+    process.env.VS_ECONOMY_ROLLOUT_PLAYER_IDS, "VS_ECONOMY_ROLLOUT_PLAYER_IDS"
+  ),
   enablePublicLeaderboards: parseBoolean(process.env.VS_ENABLE_PUBLIC_LEADERBOARDS, false),
   enablePublicContests: parseBoolean(process.env.VS_ENABLE_PUBLIC_CONTESTS, false),
   enablePublicTimePuzzles: parseBoolean(process.env.VS_ENABLE_PUBLIC_TIME_PUZZLES, false),
@@ -157,3 +179,8 @@ export const config = {
   playerTokenKeyId: process.env.VS_PLAYER_TOKEN_KEY_ID?.trim() || "entap-player-v1",
   playerTokenPublicKeyPem: normalizePem(process.env.VS_PLAYER_TOKEN_PUBLIC_KEY_PEM)
 };
+
+if (productionMode && (config.enablePlatformEconomyDelivery || config.enableRankMutations)
+  && (!config.economyRolloutCutoverAt || config.economyRolloutPlayerIds.length === 0)) {
+  throw new Error("economy_rollout_boundary_required");
+}

@@ -124,8 +124,12 @@ async function main(): Promise<void> {
     envelope: { ...honeyEnvelope, payload: { ...honeyEnvelope.payload, altered: true } },
     playerId: PLAYER_A, asset: "HONEY_CENTI", amountUnits: 500, capability: "HONEY_EARN"
   }), "idempotency_conflict");
-  await economy.spendHoney({ envelope: envelope("HONEY_SPEND_V1", { player_id: PLAYER_A, catalog_action_id: "beta.test" }),
-    playerId: PLAYER_A, catalogActionId: "beta.test" });
+  const canarySpend = await economy.spendHoney({ envelope: envelope("HONEY_SPEND_V1", {
+    player_id: PLAYER_A, catalog_action_id: "beta.canary_entitlement"
+  }), playerId: PLAYER_A, catalogActionId: "beta.canary_entitlement" });
+  expect(Array.isArray(canarySpend.granted_entitlements)
+    && canarySpend.granted_entitlements.includes("beta_economy_canary"),
+  "canary spend did not atomically grant its entitlement", canarySpend);
 
   await economy.issuePlayerAsset({
     envelope: envelope("HONEY_ACTIVITY_V1", { player_id: PLAYER_B, activity_key: "store-smoke-funding" }),

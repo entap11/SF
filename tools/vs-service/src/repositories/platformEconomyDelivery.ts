@@ -6,6 +6,11 @@ type Row = Record<string, unknown>;
 export type PlatformEconomyOperation = "HONEY_ACTIVITY" | "NECTAR_MATCH" | "CRUCIBLE_RESERVE"
   | "CRUCIBLE_SETTLE" | "CRUCIBLE_REFUND";
 
+export type EconomyRolloutBoundary = {
+  verifiedAtOrAfter?: string;
+  allowedPlayerIds?: readonly string[];
+};
+
 export type PlatformEconomyDelivery = {
   deliveryId: string;
   producerEventId: string;
@@ -26,7 +31,8 @@ export type PlatformEconomyDelivery = {
 export class PostgresPlatformEconomyDeliveryRepository {
   constructor(private readonly pool: Pool) {}
 
-  async enqueueCrucibleReservations(matchId: string, economyEpoch: string, nowIso: string): Promise<number> {
+  async enqueueCrucibleReservations(matchId: string, economyEpoch: string, nowIso: string,
+    boundary: EconomyRolloutBoundary = {}): Promise<number> {
     const contract = await this.pool.query<Row>(
       `SELECT c.contract_id, c.match_id, c.contract_hash, c.expires_at, c.authority_tier,
           array_agg(r.player_id ORDER BY r.seat_id) FILTER (WHERE r.participant_type = 'HUMAN') AS player_ids
@@ -40,6 +46,7 @@ export class PostgresPlatformEconomyDeliveryRepository {
     if (String(row.authority_tier) !== "AUTHORITY_VERIFIED" || playerIds.length !== 2) {
       throw new DurableCoreError("crucible_contract_not_reservable");
     }
+    if (!rolloutAllows(nowIso, playerIds, boundary)) throw new DurableCoreError("economy_rollout_boundary_denied");
     let inserted = 0;
     for (const playerId of playerIds) {
       const payload: JsonRecord = {
@@ -72,15 +79,21 @@ export class PostgresPlatformEconomyDeliveryRepository {
     });
   }
 
-  async reconcileVerifiedResults(economyEpoch: string, nowIso: string): Promise<number> {
+  async reconcileVerifiedResults(economyEpoch: string, nowIso: string,
+    boundary: EconomyRolloutBoundary = {}): Promise<number> {
+    const rollout = normalizeBoundary(boundary);
     const results = await this.pool.query<Row>(
       `SELECT r.result_id, r.match_id, r.contract_id, r.terminal_reason, r.result_json,
-          r.verified_at, c.mode_id, c.authority_tier
+          r.verified_at, c.mode_id, c.authority_tier,
+          ARRAY(SELECT rr.player_id::text FROM vs_match_roster rr
+            WHERE rr.contract_id = c.contract_id AND rr.participant_type = 'HUMAN'
+            ORDER BY rr.seat_id) AS human_player_ids
        FROM vs_terminal_results r
        JOIN vs_verifier_signed_receipts s ON s.result_id = r.result_id
        JOIN vs_match_contracts c ON c.contract_id = r.contract_id
        WHERE c.authority_tier = 'AUTHORITY_VERIFIED'
-       ORDER BY r.verified_at, r.result_id`
+         AND ($1::timestamptz IS NULL OR r.verified_at >= $1::timestamptz)
+       ORDER BY r.verified_at, r.result_id`, [rollout.verifiedAtOrAfter]
     );
     let inserted = 0;
     for (const row of results.rows) {
@@ -91,6 +104,8 @@ export class PostgresPlatformEconomyDeliveryRepository {
       const modeId = String(row.mode_id);
       const terminalReason = String(row.terminal_reason);
       const occurredAt = iso(row.verified_at);
+      const rosterPlayerIds = Array.isArray(row.human_player_ids) ? row.human_player_ids.map(String) : [];
+      if (!rolloutAllows(occurredAt, rosterPlayerIds, boundary)) continue;
       const placements = Array.isArray(result.placements) ? result.placements as JsonRecord[] : [];
       if (modeId === "CRUCIBLE_1V1") {
         const winner = firstPlayer(placements[0]);
@@ -136,7 +151,9 @@ export class PostgresPlatformEconomyDeliveryRepository {
   }
 
   async leaseNext(workerId: string, nowIso: string, leaseSec: number,
-    filter: { matchId?: string; operation?: PlatformEconomyOperation } = {}): Promise<PlatformEconomyDelivery | null> {
+    filter: { matchId?: string; operation?: PlatformEconomyOperation } = {},
+    boundary: EconomyRolloutBoundary = {}): Promise<PlatformEconomyDelivery | null> {
+    const rollout = normalizeBoundary(boundary);
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -146,12 +163,24 @@ export class PostgresPlatformEconomyDeliveryRepository {
          WHERE status = 'LEASED' AND lease_expires_at <= $1`, [nowIso]
       );
       const found = await client.query<Row>(
-        `SELECT * FROM vs_platform_economy_deliveries
-         WHERE status IN ('PENDING', 'RETRY') AND available_at <= $1
-           AND ($2::uuid IS NULL OR match_id = $2)
-           AND ($3::text IS NULL OR operation = $3)
-         ORDER BY available_at, created_at, delivery_id LIMIT 1 FOR UPDATE SKIP LOCKED`,
-        [nowIso, filter.matchId ?? null, filter.operation ?? null]
+        `SELECT d.* FROM vs_platform_economy_deliveries d
+         WHERE d.status IN ('PENDING', 'RETRY') AND d.available_at <= $1
+           AND ($2::uuid IS NULL OR d.match_id = $2)
+           AND ($3::text IS NULL OR d.operation = $3)
+           AND ($4::timestamptz IS NULL OR d.occurred_at >= $4::timestamptz)
+           AND (COALESCE(array_length($5::text[], 1), 0) = 0 OR
+             (d.contract_id IS NULL AND d.player_id::text = ANY($5::text[])) OR
+             (d.contract_id IS NOT NULL
+               AND EXISTS (SELECT 1 FROM vs_match_roster allowed_roster
+                 WHERE allowed_roster.contract_id = d.contract_id
+                   AND allowed_roster.participant_type = 'HUMAN')
+               AND NOT EXISTS (SELECT 1 FROM vs_match_roster denied_roster
+                 WHERE denied_roster.contract_id = d.contract_id
+                   AND denied_roster.participant_type = 'HUMAN'
+                   AND NOT (denied_roster.player_id::text = ANY($5::text[])))))
+         ORDER BY d.available_at, d.created_at, d.delivery_id LIMIT 1 FOR UPDATE OF d SKIP LOCKED`,
+        [nowIso, filter.matchId ?? null, filter.operation ?? null,
+          rollout.verifiedAtOrAfter, rollout.allowedPlayerIds]
       );
       if (!found.rows[0]) { await client.query("COMMIT"); return null; }
       const leaseToken = uuidV7();
@@ -300,3 +329,23 @@ function json(value: unknown): JsonRecord {
 
 function iso(value: unknown): string { return new Date(value instanceof Date ? value : String(value)).toISOString(); }
 async function rollback(client: PoolClient): Promise<void> { try { await client.query("ROLLBACK"); } catch {} }
+
+function normalizeBoundary(boundary: EconomyRolloutBoundary): {
+  verifiedAtOrAfter: string | null;
+  allowedPlayerIds: string[];
+} {
+  const rawCutover = String(boundary.verifiedAtOrAfter ?? "").trim();
+  const verifiedAtOrAfter = rawCutover ? iso(rawCutover) : null;
+  const allowedPlayerIds = [...new Set((boundary.allowedPlayerIds ?? [])
+    .map((playerId) => String(playerId).trim().toLowerCase()).filter(Boolean))];
+  return { verifiedAtOrAfter, allowedPlayerIds };
+}
+
+function rolloutAllows(occurredAt: string, rosterPlayerIds: string[], boundary: EconomyRolloutBoundary): boolean {
+  const rollout = normalizeBoundary(boundary);
+  if (rollout.verifiedAtOrAfter && Date.parse(occurredAt) < Date.parse(rollout.verifiedAtOrAfter)) return false;
+  if (rollout.allowedPlayerIds.length === 0) return true;
+  if (rosterPlayerIds.length === 0) return false;
+  const allowed = new Set(rollout.allowedPlayerIds);
+  return rosterPlayerIds.every((playerId) => allowed.has(String(playerId).trim().toLowerCase()));
+}

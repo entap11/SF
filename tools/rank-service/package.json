@@ -16,7 +16,8 @@
     "smoke:platform-economy": "DATABASE_URL=postgres://embedded:embedded@127.0.0.1:1/embedded tsx src/platformEconomyEmbeddedSmoke.ts",
     "smoke:quarantine": "DATABASE_URL=postgres://quarantine:quarantine@127.0.0.1:1/quarantine tsx src/economyQuarantineSmoke.ts",
     "simulate:beta": "DATABASE_URL=postgres://sim:sim@127.0.0.1:5432/sim tsx src/cli/beta-sim.ts",
-    "reset:beta-economy": "tsx src/cli/beta-economy-reset.ts"
+    "reset:beta-economy": "tsx src/cli/beta-economy-reset.ts",
+    "canary:economy": "tsx src/cli/economy-live-canary.ts"
   },
   "dependencies": {
     "dotenv": "^16.5.0",

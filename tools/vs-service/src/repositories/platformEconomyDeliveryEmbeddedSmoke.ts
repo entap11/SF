@@ -6,6 +6,7 @@ import { sha256Canonical, uuidV7, type CreateContractInput, type JsonRecord } fr
 import { PGlitePoolAdapter } from "./pglitePoolAdapter.js";
 import { PostgresDurableCoreRepository } from "./postgresDurableCoreRepository.js";
 import { PostgresPlatformEconomyDeliveryRepository } from "./platformEconomyDelivery.js";
+import { PostgresRankSettlementRepository } from "./rankSettlement.js";
 
 function expect(condition: unknown, message: string, details?: unknown): void {
   if (!condition) throw new Error(`${message}${details == null ? "" : `: ${JSON.stringify(details)}`}`);
@@ -117,10 +118,25 @@ async function main(): Promise<void> {
   const standardA = uuidV7(); const standardB = uuidV7();
   const standard = await core.createContract(contractInput("STANDARD_1V1", standardA, standardB, nowIso));
   const resultId = await completeVerifiedStandard(pool, standard, standardA, standardB, nowIso);
-  expect(await repository.reconcileVerifiedResults("beta_launch_0001", nowIso) === 4,
+  const historicalIso = new Date(new Date(nowIso).getTime() - 120_000).toISOString();
+  const cutoverIso = new Date(new Date(nowIso).getTime() - 60_000).toISOString();
+  const historicalA = uuidV7(); const historicalB = uuidV7();
+  const historical = await core.createContract(contractInput(
+    "STANDARD_1V1", historicalA, historicalB, historicalIso
+  ));
+  const historicalResultId = await completeVerifiedStandard(
+    pool, historical, historicalA, historicalB, historicalIso
+  );
+  const outsiderA = uuidV7(); const outsiderB = uuidV7();
+  const outsider = await core.createContract(contractInput("STANDARD_1V1", outsiderA, outsiderB, nowIso));
+  const outsiderResultId = await completeVerifiedStandard(pool, outsider, outsiderA, outsiderB, nowIso);
+  const boundary = { verifiedAtOrAfter: cutoverIso, allowedPlayerIds: [standardA, standardB] };
+  expect(await repository.reconcileVerifiedResults("beta_launch_0001", nowIso, boundary) === 4,
     "verified standard result did not produce two Honey and two Nectar facts");
-  expect(await repository.reconcileVerifiedResults("beta_launch_0001", nowIso) === 0,
+  expect(await repository.reconcileVerifiedResults("beta_launch_0001", nowIso, boundary) === 0,
     "verified fact reconciliation duplicated deliveries");
+  expect(await repository.reconcileVerifiedResults("beta_launch_0001", nowIso) === 8,
+    "unfiltered setup did not expose historical and non-allowlisted deliveries");
   await pool.query(
     `DELETE FROM vs_platform_economy_deliveries
      WHERE delivery_id = (
@@ -128,7 +144,7 @@ async function main(): Promise<void> {
        WHERE result_id = $1 AND operation = 'NECTAR_MATCH' LIMIT 1
      )`, [resultId]
   );
-  expect(await repository.reconcileVerifiedResults("beta_launch_0001", nowIso) === 1,
+  expect(await repository.reconcileVerifiedResults("beta_launch_0001", nowIso, boundary) === 1,
     "partial verified fact fanout was not repaired idempotently");
   const facts = await pool.query<{ operation: string; player_id: string; producer_event_id: string }>(
     "SELECT operation, player_id::text, producer_event_id FROM vs_platform_economy_deliveries WHERE result_id = $1 ORDER BY operation, player_id",
@@ -137,9 +153,42 @@ async function main(): Promise<void> {
   expect(facts.rows.filter((row) => row.operation === "HONEY_ACTIVITY").length === 2
     && facts.rows.filter((row) => row.operation === "NECTAR_MATCH").length === 2,
   "fact fanout incorrect", facts.rows);
+  const leasedResultIds: string[] = [];
+  for (let index = 0; index < 4; index += 1) {
+    const leased = await repository.leaseNext(`boundary-worker-${index}`, nowIso, 60, {}, boundary);
+    expect(leased?.resultId === resultId, "rollout lease escaped the bounded result", leased);
+    leasedResultIds.push(String(leased!.resultId));
+    await repository.complete({ deliveryId: leased!.deliveryId, workerId: `boundary-worker-${index}`,
+      leaseToken: leased!.leaseToken, startedAt: nowIso, finishedAt: nowIso,
+      response: { ok: true, epoch_id: "beta_launch_0001", player_id: leased!.playerId } });
+  }
+  expect(await repository.leaseNext("boundary-worker-empty", nowIso, 60, {}, boundary) === null,
+    "historical or non-allowlisted delivery was leaseable");
+  expect(leasedResultIds.every((leasedResultId) => leasedResultId === resultId),
+    "rollout lease returned a foreign result", leasedResultIds);
+  const blockedDeliveryCounts = await pool.query<{ result_id: string; count: number }>(
+    `SELECT result_id::text, count(*)::int AS count FROM vs_platform_economy_deliveries
+     WHERE result_id IN ($1, $2) GROUP BY result_id ORDER BY result_id`,
+    [historicalResultId, outsiderResultId]
+  );
+  expect(blockedDeliveryCounts.rows.every((row) => row.count === 4),
+    "blocked delivery fixtures were not retained as pending evidence", blockedDeliveryCounts.rows);
+
+  const rankSettlements = new PostgresRankSettlementRepository(pool);
+  expect(await rankSettlements.reconcile(nowIso) === 3,
+    "rank settlement boundary setup did not retain all verified results");
+  const boundedRankLease = await rankSettlements.leaseNext("bounded-rank-worker", nowIso, 60, boundary);
+  expect(boundedRankLease?.resultId === resultId, "rank settlement lease escaped the bounded result", boundedRankLease);
+  await rankSettlements.fail({ settlementId: boundedRankLease!.settlementId, workerId: "bounded-rank-worker",
+    leaseToken: boundedRankLease!.leaseToken, startedAt: nowIso, finishedAt: nowIso,
+    request: {}, response: { ok: false, err: "bounded_test_complete" }, errorCode: "bounded_test_complete",
+    retryable: false, retryDelaySec: 0 });
+  expect(await rankSettlements.leaseNext("bounded-rank-worker-empty", nowIso, 60, boundary) === null,
+    "historical or non-allowlisted rank settlement was leaseable");
   console.log(JSON.stringify({ ok: true, smoke: "platform_economy_delivery",
     crucible_reservations_receipt_gated: true, durable_retry: true,
     standard_fact_fanout: { honey: 2, nectar: 2 }, partial_fanout_repaired: true,
+    rollout_cutover_enforced: true, rollout_roster_enforced: true, lease_boundary_enforced: true,
     pending: await repository.pendingCount() }));
   await db.close();
 }

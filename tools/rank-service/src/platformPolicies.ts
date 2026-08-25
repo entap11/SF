@@ -41,7 +41,8 @@ const HONEY_CATALOG: Record<string, HoneyCatalogItem> = {
   "store_sku:skin_bg_circuit_forge": { costCenti: 28_000, entitlements: ["skin_bg_circuit_forge"] },
   "store_sku:analysis_forensic_replay": { costCenti: 60_000, entitlements: ["analysis_forensic"] },
   "store_sku:analysis_ai_commentary": { costCenti: 50_000, entitlements: ["analysis_ai"] },
-  "beta.test": { costCenti: 100, entitlements: [] }
+  "beta.test": { costCenti: 100, entitlements: [] },
+  "beta.canary_entitlement": { costCenti: 100, entitlements: ["beta_economy_canary"] }
 };
 
 export function honeyCatalogItem(actionId: string): HoneyCatalogItem | null {

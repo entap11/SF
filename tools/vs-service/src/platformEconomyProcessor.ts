@@ -20,7 +20,8 @@ export async function reconcilePlatformEconomyDeliveries(nowIso = new Date().toI
   if (config.durableStore !== "postgres") return 0;
   if (!config.enablePlatformEconomyDelivery) return 0;
   if (!config.economyEpoch) throw new Error("VS_ECONOMY_EPOCH_required");
-  return getPlatformEconomyDeliveryRepository().reconcileVerifiedResults(config.economyEpoch, nowIso);
+  return getPlatformEconomyDeliveryRepository().reconcileVerifiedResults(config.economyEpoch, nowIso,
+    rolloutBoundary());
 }
 
 export async function processOnePlatformEconomyDelivery(workerId: string, nowIso = new Date().toISOString(),
@@ -31,7 +32,8 @@ export async function processOnePlatformEconomyDelivery(workerId: string, nowIso
     throw new Error("platform_economy_delivery_not_configured");
   }
   const repository = getPlatformEconomyDeliveryRepository();
-  const job = await repository.leaseNext(workerId, nowIso, config.platformEconomyLeaseSec, filter);
+  const job = await repository.leaseNext(workerId, nowIso, config.platformEconomyLeaseSec, filter,
+    rolloutBoundary());
   if (!job) return false;
   const startedAt = new Date().toISOString();
   let response: JsonRecord = {};
@@ -75,7 +77,7 @@ export async function processOnePlatformEconomyDelivery(workerId: string, nowIso
 export async function reserveCrucibleMatch(matchId: string, nowIso = new Date().toISOString()): Promise<boolean> {
   if (!config.economyEpoch) throw new Error("VS_ECONOMY_EPOCH_required");
   const repository = getPlatformEconomyDeliveryRepository();
-  await repository.enqueueCrucibleReservations(matchId, config.economyEpoch, nowIso);
+  await repository.enqueueCrucibleReservations(matchId, config.economyEpoch, nowIso, rolloutBoundary());
   for (let index = 0; index < 2; index += 1) {
     await processOnePlatformEconomyDelivery(`crucible-reserve:${matchId}`, new Date().toISOString(),
       { matchId, operation: "CRUCIBLE_RESERVE" });
@@ -103,4 +105,11 @@ async function safeJson(response: Response): Promise<JsonRecord> {
     const value = await response.json();
     return typeof value === "object" && value != null && !Array.isArray(value) ? value as JsonRecord : {};
   } catch { return {}; }
+}
+
+function rolloutBoundary() {
+  return {
+    verifiedAtOrAfter: config.economyRolloutCutoverAt,
+    allowedPlayerIds: config.economyRolloutPlayerIds
+  };
 }
