@@ -69,6 +69,25 @@ run_smoke() {
   fi
 }
 
+check_backend_health() {
+  local backend_url="$1"
+  local label="$2"
+  local service_url="${backend_url%/}"
+  local health_url=""
+  local health_response=""
+  if [[ "$service_url" == */v1 ]]; then
+    service_url="${service_url%/v1}"
+  fi
+  health_url="${service_url}/health"
+  if health_response="$(curl --silent --show-error --fail --max-time 30 "$health_url")" \
+    && printf '%s' "$health_response" | rg -q '"ok"[[:space:]]*:[[:space:]]*true'; then
+    pass "$label"
+  else
+    fail "$label"
+    FAILURES=$((FAILURES + 1))
+  fi
+}
+
 VS_BACKEND_URL=""
 if [[ -f "$ROOT_DIR/project.godot" ]]; then
   VS_BACKEND_URL="$(rg -n '^vs/backend_url=' "$ROOT_DIR/project.godot" | sed -E 's/.*=\"(.*)\"/\1/' | head -n 1 || true)"
@@ -87,10 +106,11 @@ if [[ -f "$ROOT_DIR/project.godot" ]]; then
 fi
 
 if [[ -x "$GODOT_BIN" ]]; then
-  run_smoke "res://scripts/dev/vs_pvp_smoke.gd" "VS debug local PvP smoke"
+  run_smoke "res://scripts/dev/vs_pvp_smoke.gd" "VS debug local PvP smoke" "--vs-smoke-local"
   run_smoke "res://scripts/dev/vs_pvp_smoke.gd" "VS release guard refuses fake multiplayer" "--vs-smoke-release-guard"
   if [[ -n "$VS_BACKEND_URL" && "$VS_BACKEND_URL" == https://* ]]; then
-    run_smoke "res://scripts/dev/vs_pvp_smoke.gd" "VS configured backend PvP smoke" "--vs-smoke-backend-url=$VS_BACKEND_URL"
+    check_backend_health "$VS_BACKEND_URL" "VS configured backend health"
+    run_smoke "res://tools/production_backend_refusal_smoke_test.gd" "Production backend mutation guard"
   fi
   run_smoke "res://tools/economy_layer_smoke_test.gd" "Economy authority smoke"
   run_smoke "res://tools/honey_progression_smoke_test.gd" "Honey progression smoke"
