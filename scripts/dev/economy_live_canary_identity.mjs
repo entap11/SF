@@ -111,7 +111,7 @@ async function spend(state) {
     catalog_action_id: "beta.canary_entitlement"
   };
   const first = await post(state.base_url, "/v1/platform/economy/honey/spend", request, player.access_token);
-  expect(first.status === 200 && first.body.ok === true && first.body.duplicate === false,
+  expect(first.status === 200 && first.body.ok === true,
     "first Honey spend failed", safeResponse(first));
   const duplicate = await post(state.base_url, "/v1/platform/economy/honey/spend", request, player.access_token);
   expect(duplicate.status === 200 && duplicate.body.ok === true && duplicate.body.duplicate === true,
@@ -129,6 +129,7 @@ async function spend(state) {
     ok: true,
     player_id: player.id,
     honey_spend_centi: 100,
+    resumed_after_first_commit: first.body.duplicate === true,
     duplicate_retry: true,
     altered_retry_rejected: true,
     entitlement: "beta_economy_canary",

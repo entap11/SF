@@ -140,11 +140,18 @@ async function main(): Promise<void> {
   }, "catalog-fixed-id");
   const catalogSpend = await economy.spendHoney({ envelope: catalogEnvelope, playerId: PLAYER_B,
     catalogActionId: "store_sku:skin_hive_obsidian" });
-  const catalogRetry = await economy.spendHoney({ envelope: catalogEnvelope, playerId: PLAYER_B,
+  const catalogRetry = await economy.spendHoney({ envelope: {
+    ...catalogEnvelope, occurredAt: new Date(Date.parse(catalogEnvelope.occurredAt) + 1_000).toISOString()
+  }, playerId: PLAYER_B,
     catalogActionId: "store_sku:skin_hive_obsidian" });
   expect(catalogSpend.duplicate === false && catalogRetry.duplicate === true
     && catalogSpend.transaction_id === catalogRetry.transaction_id,
   "catalog retry did not return original entitlement receipt", { catalogSpend, catalogRetry });
+  await expectCode(() => economy.spendHoney({
+    envelope: { ...catalogEnvelope, occurredAt: new Date().toISOString(),
+      payload: { ...catalogEnvelope.payload, catalog_action_id: "beta.test" } },
+    playerId: PLAYER_B, catalogActionId: "beta.test"
+  }), "idempotency_conflict");
   expect(Array.isArray(catalogSpend.granted_entitlements)
     && catalogSpend.granted_entitlements.includes("skin_hive_obsidian"),
   "catalog spend did not atomically grant its entitlement", catalogSpend);

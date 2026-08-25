@@ -182,7 +182,7 @@ export class PlatformEconomyRepository {
         entitlements: entitlements.rows.map((row) => row.entitlement_id),
         transaction_id: tx, platform_event_id: platformEventId
       } };
-    });
+    }, { stablePlayerIntent: true });
   }
 
   async awardHoneyActivity(envelopeInput: ProducerEnvelope): Promise<JsonRecord> {
@@ -701,7 +701,8 @@ export class PlatformEconomyRepository {
 
   private async runEvent(
     envelopeInput: ProducerEnvelope,
-    work: (client: PoolClient, platformEventId: string) => Promise<EventWorkResult>
+    work: (client: PoolClient, platformEventId: string) => Promise<EventWorkResult>,
+    options: { stablePlayerIntent?: boolean } = {}
   ): Promise<JsonRecord> {
     const envelope = validateEnvelope(envelopeInput);
     const requestHash = sha256Canonical({
@@ -710,7 +711,7 @@ export class PlatformEconomyRepository {
       event_type: envelope.eventType,
       epoch_id: envelope.epochId,
       source_authority: envelope.sourceAuthority,
-      occurred_at: envelope.occurredAt,
+      ...(options.stablePlayerIntent ? {} : { occurred_at: envelope.occurredAt }),
       schema_version: envelope.schemaVersion,
       payload: envelope.payload
     });
@@ -730,7 +731,12 @@ export class PlatformEconomyRepository {
           [envelope.producerService, envelope.producerEventId]
         );
         const receipt = existing.rows[0];
-        if (!receipt || String(receipt.request_hash) !== requestHash) {
+        const legacyStableRetry = options.stablePlayerIntent === true
+          && String(receipt?.status) === "COMPLETED"
+          && isRecord(receipt?.response_json)
+          && String((receipt!.response_json as JsonRecord).player_id) === String(envelope.payload.player_id)
+          && String((receipt!.response_json as JsonRecord).catalog_action_id) === String(envelope.payload.catalog_action_id);
+        if (!receipt || (String(receipt.request_hash) !== requestHash && !legacyStableRetry)) {
           throw new PlatformEconomyError("idempotency_conflict", 409);
         }
         if (String(receipt.status) !== "COMPLETED" || !isRecord(receipt.response_json)) {
