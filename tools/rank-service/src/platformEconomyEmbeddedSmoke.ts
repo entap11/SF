@@ -2,6 +2,7 @@ import type { Pool, QueryResult } from "pg";
 import { PGlite, type PGliteInterface } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { PlatformEconomyError, PlatformEconomyRepository, type JsonRecord, type ProducerEnvelope } from "./platformEconomy.js";
+import { evaluateHoneyFact } from "./platformPolicies.js";
 import { RankStore } from "./store.js";
 
 type DbResult<T> = { rows: T[]; affectedRows?: number };
@@ -65,6 +66,23 @@ async function insertPlayer(pool: Pool, id: string, entapId: string, callSign: s
 }
 
 async function main(): Promise<void> {
+  const competitiveHoneyActivities = [
+    "competitive.live_free",
+    "competitive.live_money",
+    "competitive.async_free",
+    "competitive.async_money",
+    "competitive.tournament_free",
+    "competitive.tournament_money"
+  ];
+  for (const activityKey of competitiveHoneyActivities) {
+    const belowMinimum = evaluateHoneyFact({ activity_key: activityKey, completed: true, duration_sec: 119 }, 0);
+    expect(belowMinimum.ok === false && belowMinimum.reason === "below_minimum_participation",
+      `${activityKey} awarded Honey below two minutes`, belowMinimum);
+    const atMinimum = evaluateHoneyFact({ activity_key: activityKey, completed: true, duration_sec: 120 }, 0);
+    expect(atMinimum.ok === true && atMinimum.effective_seconds === 120 && Number(atMinimum.amount_centi) > 0,
+      `${activityKey} did not award Honey at two minutes`, atMinimum);
+  }
+
   const db = new PGlite({ extensions: { pgcrypto } });
   await db.waitReady;
   const pool = new Adapter(db) as unknown as Pool;
@@ -237,6 +255,7 @@ async function main(): Promise<void> {
     ok: true, smoke: "platform_economy", epoch: EPOCH, zero_reset: true,
     capabilities_default_off: true, producer_uniqueness: true, altered_retry_rejected: true,
     original_receipt_returned: true, rollback_atomic: true, journal_immutable: true,
+    competitive_honey_minimum_seconds: 120,
     catalog_entitlements_authoritative: true,
     reserve_account: "reserve:award", reserve_debit_forbidden: true,
     crucible_contract: "1000+1000=1800+200", start_receipt_gated: true,

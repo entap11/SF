@@ -575,6 +575,19 @@ async function main(): Promise<void> {
     const honeyPolicy = await post(baseUrl, "get_honey_policy", {});
     const honeyPolicyPayload = honeyPolicy.policy as JsonRecord;
     expect(String(honeyPolicyPayload.precision) === "centi_honey", "Honey policy precision mismatch", honeyPolicy);
+    const honeyActivities = honeyPolicyPayload.activities as JsonRecord;
+    for (const activityKey of [
+      "competitive.live_free",
+      "competitive.live_money",
+      "competitive.async_free",
+      "competitive.async_money",
+      "competitive.tournament_free",
+      "competitive.tournament_money"
+    ]) {
+      const activityPolicy = honeyActivities[activityKey] as JsonRecord;
+      expect(Number(activityPolicy.min_seconds) === 120,
+        `${activityKey} Honey minimum is not two minutes`, activityPolicy);
+    }
     const supersededHoney = await postRaw(baseUrl, "record_honey_activity", {
       player_id: "legacy-smoke", activity_key: "competitive.live_free"
     }, matchHeaders);

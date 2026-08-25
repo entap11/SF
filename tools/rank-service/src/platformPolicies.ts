@@ -8,6 +8,8 @@ type HoneySpec = {
   repeatable: boolean;
 };
 
+const COMPETITIVE_HONEY_MIN_SECONDS = 2 * 60;
+
 const HONEY: Record<string, HoneySpec> = {
   "community.challenge": spec(100, 300, 60, false, true),
   "community.featured_contribution": spec(200, 900, 0, false, false),
@@ -15,12 +17,12 @@ const HONEY: Record<string, HoneySpec> = {
   "engagement.daily_objectives": spec(200, 1200, 300, false, true),
   "engagement.weekly_objectives": spec(400, 5400, 1200, false, true),
   "engagement.weekly_all_modes": spec(400, 5400, 1200, false, true),
-  "competitive.live_free": spec(400, 600, 180, true, true),
-  "competitive.live_money": spec(600, 600, 180, true, true),
-  "competitive.async_free": spec(400, 600, 180, true, true),
-  "competitive.async_money": spec(600, 600, 180, true, true),
-  "competitive.tournament_free": spec(400, 600, 180, true, true),
-  "competitive.tournament_money": spec(600, 600, 180, true, true),
+  "competitive.live_free": spec(400, 600, COMPETITIVE_HONEY_MIN_SECONDS, true, true),
+  "competitive.live_money": spec(600, 600, COMPETITIVE_HONEY_MIN_SECONDS, true, true),
+  "competitive.async_free": spec(400, 600, COMPETITIVE_HONEY_MIN_SECONDS, true, true),
+  "competitive.async_money": spec(600, 600, COMPETITIVE_HONEY_MIN_SECONDS, true, true),
+  "competitive.tournament_free": spec(400, 600, COMPETITIVE_HONEY_MIN_SECONDS, true, true),
+  "competitive.tournament_money": spec(600, 600, COMPETITIVE_HONEY_MIN_SECONDS, true, true),
   "competitive.placement_weekly": spec(800, 0, 0, false, true),
   "competitive.placement_monthly": spec(1600, 0, 0, false, true),
   "competitive.placement_seasonal": spec(3200, 0, 0, false, true),
