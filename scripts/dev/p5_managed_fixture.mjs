@@ -12,12 +12,23 @@ const mode = process.argv.at(-1) ?? "";
 const mapHash = "325e97a6677eb32e2f396fa9077b614c76a2150dad960243e8ae00b55909d14a";
 const rulesHash = "d7a78887b71c7d010db1b8ea1af84aa847ca877644878f6c3a0d96aed26aa57c";
 const simBuildId = process.env.P5_SIM_BUILD_ID?.trim() ?? "";
+const canaryPlayerA = process.env.ECONOMY_CANARY_PLAYER_A?.trim().toLowerCase() ?? "";
+const canaryPlayerB = process.env.ECONOMY_CANARY_PLAYER_B?.trim().toLowerCase() ?? "";
 const managedCommandTickOffset = 2;
 if (!simBuildId) throw new Error("P5_SIM_BUILD_ID is required");
 
+function requiredUuid(value, name) {
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)) {
+    throw new Error(`${name} is required and must be a UUID`);
+  }
+  return value;
+}
+
 function contractInput(label, nowIso, overrides = {}) {
-  const playerA = uuidV7();
-  const playerB = uuidV7();
+  const economyCanary = label === "economy-canary";
+  const playerA = economyCanary ? requiredUuid(canaryPlayerA, "ECONOMY_CANARY_PLAYER_A") : uuidV7();
+  const playerB = economyCanary ? requiredUuid(canaryPlayerB, "ECONOMY_CANARY_PLAYER_B") : uuidV7();
+  if (playerA === playerB) throw new Error("canary players must be distinct");
   return {
     playerA,
     playerB,
@@ -41,9 +52,11 @@ function contractInput(label, nowIso, overrides = {}) {
         { playerId: playerB, displayName: "P5 B", participantType: "HUMAN", seatId: 2,
           teamId: 2, colorId: "PURPLE", readyState: "LOCKED", connectionState: "CONNECTED", joinedAt: nowIso }
       ],
-      rankPolicy: { enabled: false, policy_id: "P5_CERTIFICATION_NONE" },
+      rankPolicy: economyCanary
+        ? { enabled: true, policy_id: "BETA_STANDARD_WAX_V1" }
+        : { enabled: false, policy_id: "P5_CERTIFICATION_NONE" },
       economyPolicy: { policy_id: "NONE" },
-      practicePolicy: { practice: true },
+      practicePolicy: { practice: !economyCanary },
       createdAt: nowIso,
       expiresAt: new Date(Date.parse(nowIso) + 900_000).toISOString()
     }
@@ -152,6 +165,7 @@ try {
   if (mode === "snapshot") output = await snapshot();
   else if (mode === "status") output = await matrixStatus();
   else if (mode === "replay-positive") output = await prepareReplay(mode);
+  else if (mode === "economy-canary") output = await prepareReplay(mode);
   else if (mode === "replay-restart") output = await prepareReplay(mode);
   else if (mode === "negative-map") output = await prepareReplay(mode, { mapHash: "a".repeat(64) });
   else if (mode === "negative-rules") output = await prepareReplay(mode, { rulesetHash: "b".repeat(64) });

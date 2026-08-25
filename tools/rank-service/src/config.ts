@@ -97,7 +97,7 @@ export const config: RankServiceConfig = {
     receiptMaxAgeSec: Math.max(30, parseIntValue(process.env.RANK_VERIFIER_RECEIPT_MAX_AGE_SEC, 3_600))
   },
   rank: {
-    baseGain: parseFloatValue(process.env.RANK_BASE_GAIN, 100.0),
+    baseGain: parseFloatValue(process.env.RANK_BASE_GAIN, 0.0),
     opponentStrengthExponent: parseFloatValue(process.env.RANK_OPPONENT_STRENGTH_EXPONENT, 0.6),
     opponentStrengthMin: parseFloatValue(process.env.RANK_OPPONENT_STRENGTH_MIN, 0.6),
     opponentStrengthMax: parseFloatValue(process.env.RANK_OPPONENT_STRENGTH_MAX, 1.6),
@@ -131,7 +131,7 @@ export const config: RankServiceConfig = {
     },
     inactivityGraceDays: parseIntValue(process.env.RANK_INACTIVITY_GRACE_DAYS, 14),
     dailyDecayRate: parseFloatValue(process.env.RANK_DAILY_DECAY_RATE, 0.0075),
-    waxFloor: parseFloatValue(process.env.RANK_WAX_FLOOR, 100.0),
+    waxFloor: parseFloatValue(process.env.RANK_WAX_FLOOR, 0.0),
     playersPerTierToUnlock: parseIntValue(process.env.RANK_PLAYERS_PER_TIER_TO_UNLOCK, 300),
     fullOpenTopTierWeight: parseFloatValue(process.env.RANK_FULL_OPEN_TOP_TIER_WEIGHT, 1.0),
     fullOpenMiddleWeightMultiplierVsTop: parseFloatValue(process.env.RANK_FULL_OPEN_MIDDLE_WEIGHT_MULTIPLIER, 1.25),

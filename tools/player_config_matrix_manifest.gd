@@ -83,7 +83,7 @@ static func expected_team_layout(topology: String) -> Array[int]:
 		TOPOLOGY_1V1:
 			return [1, 2]
 		TOPOLOGY_2V2:
-			return [1, 1, 2, 2]
+			return [1, 2, 1, 2]
 		TOPOLOGY_3P_FFA:
 			return [1, 2, 3]
 		TOPOLOGY_4P_FFA:

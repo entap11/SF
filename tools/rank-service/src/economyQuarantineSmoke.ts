@@ -1,11 +1,13 @@
 import type { Pool } from "pg";
 import {
   RANK_ECONOMY_MUTATION_ACTIONS,
+  RANK_SUPERSEDED_ACTIONS,
   economyDisabledResult,
   economyMutationsEnabled,
   economyResetEnabled,
   guardEconomyMutation,
   isRankEconomyMutationAction,
+  isRankSupersededAction,
   rankMutationHttpStatus,
   rankTokenAuthorized
 } from "./economyGuard.js";
@@ -60,6 +62,11 @@ async function main(): Promise<void> {
   }
   expect(isRankEconomyMutationAction("admin_recompute"), "administrative recompute escaped economy classification");
   expect(RANK_ECONOMY_MUTATION_ACTIONS.size === 6, "rank quarantine action list changed without updating its test");
+  expect(isRankSupersededAction("register_player"), "legacy unauthenticated registration was not superseded");
+  for (const action of RANK_ECONOMY_MUTATION_ACTIONS) {
+    expect(isRankSupersededAction(action), `legacy economy writer was not permanently superseded: ${action}`);
+  }
+  expect(RANK_SUPERSEDED_ACTIONS.size === 7, "Rank superseded action list changed without updating its test");
 
   let writerCalled = false;
   const blockedWrite = await store.writeEconomy(() => {

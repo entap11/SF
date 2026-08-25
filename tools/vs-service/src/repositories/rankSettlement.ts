@@ -1,6 +1,7 @@
 import type { Pool, PoolClient } from "pg";
 import { deepClone, DurableCoreError, sha256Canonical, uuidV7, type JsonRecord } from "./durableCore.js";
 import type { SignedSyncResult } from "./verificationAuthority.js";
+import type { EconomyRolloutBoundary } from "./platformEconomyDelivery.js";
 
 type Row = Record<string, unknown>;
 export type RankSettlementStatus = "PENDING" | "LEASED" | "RETRY" | "SETTLED" | "FAILED" | "NOT_APPLICABLE";
@@ -16,7 +17,8 @@ export type RankSettlementView = {
 export class PostgresRankSettlementRepository {
   constructor(private readonly pool: Pool) {}
 
-  async reconcile(nowIso: string): Promise<number> {
+  async reconcile(nowIso: string, boundary: EconomyRolloutBoundary = {}): Promise<number> {
+    const rollout = normalizeBoundary(boundary);
     const inserted = await this.pool.query(
       `INSERT INTO vs_rank_settlement_jobs
         (settlement_id, result_id, rank_event_id, match_id, contract_id, match_epoch,
@@ -30,12 +32,23 @@ export class PostgresRankSettlementRepository {
        WHERE c.mode_id = 'STANDARD_1V1'
          AND c.authority_tier = 'AUTHORITY_VERIFIED'
          AND COALESCE((c.contract_json->'rank_policy'->>'enabled')::boolean, false) = true
-       ON CONFLICT (result_id) DO NOTHING`, [nowIso]
+         AND ($2::timestamptz IS NULL OR r.verified_at >= $2::timestamptz)
+         AND (COALESCE(array_length($3::text[], 1), 0) = 0 OR
+           (EXISTS (SELECT 1 FROM vs_match_roster allowed_roster
+              WHERE allowed_roster.contract_id = c.contract_id
+                AND allowed_roster.participant_type = 'HUMAN')
+            AND NOT EXISTS (SELECT 1 FROM vs_match_roster denied_roster
+              WHERE denied_roster.contract_id = c.contract_id
+                AND denied_roster.participant_type = 'HUMAN'
+                AND NOT (denied_roster.player_id::text = ANY($3::text[])))))
+       ON CONFLICT (result_id) DO NOTHING`, [nowIso, rollout.verifiedAtOrAfter, rollout.allowedPlayerIds]
     );
     return inserted.rowCount ?? 0;
   }
 
-  async leaseNext(workerId: string, nowIso: string, leaseSec: number): Promise<RankSettlementBundle | null> {
+  async leaseNext(workerId: string, nowIso: string, leaseSec: number,
+    boundary: EconomyRolloutBoundary = {}): Promise<RankSettlementBundle | null> {
+    const rollout = normalizeBoundary(boundary);
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
@@ -45,9 +58,21 @@ export class PostgresRankSettlementRepository {
          WHERE status = 'LEASED' AND lease_expires_at <= $1`, [nowIso]
       );
       const found = await client.query<Row>(
-        `SELECT * FROM vs_rank_settlement_jobs
-         WHERE status IN ('PENDING', 'RETRY') AND available_at <= $1
-         ORDER BY available_at, created_at, settlement_id LIMIT 1 FOR UPDATE SKIP LOCKED`, [nowIso]
+        `SELECT j.* FROM vs_rank_settlement_jobs j
+         JOIN vs_terminal_results r ON r.result_id = j.result_id
+         JOIN vs_match_contracts c ON c.contract_id = j.contract_id
+         WHERE j.status IN ('PENDING', 'RETRY') AND j.available_at <= $1
+           AND ($2::timestamptz IS NULL OR r.verified_at >= $2::timestamptz)
+           AND (COALESCE(array_length($3::text[], 1), 0) = 0 OR
+             (EXISTS (SELECT 1 FROM vs_match_roster allowed_roster
+                WHERE allowed_roster.contract_id = c.contract_id
+                  AND allowed_roster.participant_type = 'HUMAN')
+              AND NOT EXISTS (SELECT 1 FROM vs_match_roster denied_roster
+                WHERE denied_roster.contract_id = c.contract_id
+                  AND denied_roster.participant_type = 'HUMAN'
+                  AND NOT (denied_roster.player_id::text = ANY($3::text[])))))
+         ORDER BY j.available_at, j.created_at, j.settlement_id
+         LIMIT 1 FOR UPDATE OF j SKIP LOCKED`, [nowIso, rollout.verifiedAtOrAfter, rollout.allowedPlayerIds]
       );
       if (!found.rows[0]) { await client.query("COMMIT"); return null; }
       const leaseToken = uuidV7();
@@ -193,3 +218,14 @@ function json(value: unknown): JsonRecord {
 }
 function iso(value: unknown): string { return new Date(value instanceof Date ? value : String(value)).toISOString(); }
 async function rollback(client: PoolClient): Promise<void> { try { await client.query("ROLLBACK"); } catch {} }
+
+function normalizeBoundary(boundary: EconomyRolloutBoundary): {
+  verifiedAtOrAfter: string | null;
+  allowedPlayerIds: string[];
+} {
+  const rawCutover = String(boundary.verifiedAtOrAfter ?? "").trim();
+  const verifiedAtOrAfter = rawCutover ? new Date(rawCutover).toISOString() : null;
+  const allowedPlayerIds = [...new Set((boundary.allowedPlayerIds ?? [])
+    .map((playerId) => String(playerId).trim().toLowerCase()).filter(Boolean))];
+  return { verifiedAtOrAfter, allowedPlayerIds };
+}

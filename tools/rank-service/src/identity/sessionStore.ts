@@ -2,7 +2,7 @@ import crypto, { type JsonWebKey } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { signPlayerAccessToken, type PlayerTokenKeyConfig } from "./playerToken.js";
 
-const PLAYER_SESSION_SCOPES = ["contest:play", "match:queue"];
+const PLAYER_SESSION_SCOPES = ["contest:play", "economy:read", "economy:spend", "match:queue", "progression:claim"];
 
 type IdentityPlayer = {
   id: string;
@@ -292,7 +292,9 @@ export class IdentitySessionStore {
       const sessionResult = await client.query<{ id: string; player_id: string; device_id: string }>(
         `
           INSERT INTO entap_player_sessions (player_id, device_id, scopes, expires_at)
-          VALUES ($1::uuid, $2::uuid, ARRAY['contest:play', 'match:queue']::text[], now() + ($3 * interval '1 second'))
+          VALUES ($1::uuid, $2::uuid,
+            ARRAY['contest:play', 'economy:read', 'economy:spend', 'match:queue', 'progression:claim']::text[],
+            now() + ($3 * interval '1 second'))
           RETURNING id::text, player_id::text, device_id::text
         `,
         [challenge.player_id, challenge.device_id, this.tokenConfig.accessTokenTtlSec]

@@ -1,0 +1,95 @@
+diff --git a/drivers/coreaudio/audio_driver_coreaudio.cpp b/drivers/coreaudio/audio_driver_coreaudio.cpp
+--- a/drivers/coreaudio/audio_driver_coreaudio.cpp
++++ b/drivers/coreaudio/audio_driver_coreaudio.cpp
+@@ -38,6 +38,10 @@
+ #define kOutputBus 0
+ #define kInputBus 1
+ 
++#ifndef MACOS_ENABLED
++extern bool godot_ios_audio_start_is_ready();
++#endif
++
+ #ifdef MACOS_ENABLED
+ OSStatus AudioDriverCoreAudio::input_device_address_cb(AudioObjectID inObjectID,
+ 		UInt32 inNumberAddresses, const AudioObjectPropertyAddress *inAddresses,
+@@ -245,6 +249,12 @@ OSStatus AudioDriverCoreAudio::input_callback(void *inRefCon,
+ }
+ 
+ void AudioDriverCoreAudio::start() {
++#ifndef MACOS_ENABLED
++	if (!godot_ios_audio_start_is_ready()) {
++		return;
++	}
++#endif
++
+ 	if (!active) {
+ 		OSStatus result = AudioOutputUnitStart(audio_unit);
+ 		if (result != noErr) {
+diff --git a/platform/ios/app_delegate.mm b/platform/ios/app_delegate.mm
+--- a/platform/ios/app_delegate.mm
++++ b/platform/ios/app_delegate.mm
+@@ -60,6 +60,12 @@ enum {
+ 	SESSION_CATEGORY_SOLO_AMBIENT
+ };
+ 
++static bool godot_ios_audio_start_ready = false;
++
++bool godot_ios_audio_start_is_ready() {
++	return godot_ios_audio_start_ready;
++}
++
+ static ViewController *mainViewController = nil;
+ 
+ + (ViewController *)viewController {
+@@ -123,7 +129,6 @@ static ViewController *mainViewController = nil;
+ 	} else {
+ 		[[AVAudioSession sharedInstance] setCategory:category error:nil];
+ 	}
+-
+ 	return YES;
+ }
+ 
+@@ -160,11 +165,18 @@ static ViewController *mainViewController = nil;
+ // notification panel by swiping from the upper part of the screen.
+ 
+ - (void)applicationWillResignActive:(UIApplication *)application {
++	godot_ios_audio_start_ready = false;
+ 	OS_IOS::get_singleton()->on_focus_out();
+ }
+ 
+ - (void)applicationDidBecomeActive:(UIApplication *)application {
+ 	OS_IOS::get_singleton()->on_focus_in();
++	dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 100 * NSEC_PER_MSEC), dispatch_get_main_queue(), ^{
++		if ([UIApplication sharedApplication].applicationState == UIApplicationStateActive) {
++			godot_ios_audio_start_ready = true;
++			OS_IOS::get_singleton()->start_audio();
++		}
++	});
+ }
+ 
+ - (void)dealloc {
+diff --git a/platform/ios/os_ios.h b/platform/ios/os_ios.h
+--- a/platform/ios/os_ios.h
++++ b/platform/ios/os_ios.h
+@@ -127,6 +127,7 @@ public:
+ 
+ 	void on_focus_out();
+ 	void on_focus_in();
++	void start_audio();
+ };
+ 
+ #endif // IOS_ENABLED
+diff --git a/platform/ios/os_ios.mm b/platform/ios/os_ios.mm
+--- a/platform/ios/os_ios.mm
++++ b/platform/ios/os_ios.mm
+@@ -619,6 +619,10 @@ void OS_IOS::on_focus_in() {
+ 
+ 		audio_driver.start();
+ 	}
++}
++
++void OS_IOS::start_audio() {
++	audio_driver.start();
+ }
+ 
+ #endif // IOS_ENABLED

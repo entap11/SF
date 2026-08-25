@@ -22,6 +22,7 @@ func public_key_jwk(_key_alias: String) -> Dictionary:
 
 func sign_challenge(_key_alias: String, _challenge_utf8: String) -> Dictionary:
 	# Implementations return a base64url ECDSA/SHA-256 signature in `signature`.
+	# The Rank verifier accepts IEEE-P1363 or X9.62 DER encoding.
 	return {"ok": false, "err": "secure_credential_store_unavailable"}
 
 func delete_device_key(_key_alias: String) -> Dictionary:

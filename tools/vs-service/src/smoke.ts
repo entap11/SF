@@ -157,6 +157,29 @@ async function main(): Promise<void> {
     const hostEvents = hostPoll.events as JsonRecord[];
     expect(Array.isArray(hostEvents) && hostEvents.some((event) => event.uid === guest.uid), "host did not receive guest event", hostPoll);
 
+    const hostRematch = await post(baseUrl, "request_fresh_rematch", { session_id: sessionId, uid: host.uid });
+    expect(hostRematch.status === "pending" && Number(hostRematch.votes_received) === 1,
+      "first rematch vote should wait for opponent", hostRematch);
+    const guestRematch = await post(baseUrl, "request_fresh_rematch", { session_id: sessionId, uid: guest.uid });
+    const rematchSessionId = String(guestRematch.session_id ?? "");
+    const rematchSession = guestRematch.session as JsonRecord;
+    const rematchContext = rematchSession.context as JsonRecord;
+    expect(guestRematch.status === "ready" && rematchSessionId.length > 0 && rematchSessionId !== sessionId,
+      "second rematch vote did not create a fresh session", guestRematch);
+    expect(rematchSession.status === "started" && rematchSession.source === "rematch",
+      "fresh rematch session did not start", guestRematch);
+    expect(rematchContext.rematch_parent_session_id === sessionId && Number(rematchContext.rematch_index) === 1,
+      "fresh rematch lineage missing", guestRematch);
+    expect(!Object.prototype.hasOwnProperty.call(rematchContext, "stage_map_paths")
+      && !Object.prototype.hasOwnProperty.call(rematchContext, "match_randomizer"),
+    "fresh rematch reused the parent setup roll", rematchContext);
+    const hostRematchPoll = await post(baseUrl, "request_fresh_rematch", { session_id: sessionId, uid: host.uid });
+    expect(hostRematchPoll.session_id === rematchSessionId && hostRematchPoll.cached === true,
+      "first voter did not receive the same fresh session", hostRematchPoll);
+    const freshCommandPoll = await post(baseUrl, "poll_intents", { session_id: rematchSessionId, uid: host.uid, after_seq: 0 });
+    expect(Array.isArray(freshCommandPoll.events) && (freshCommandPoll.events as JsonRecord[]).length === 0,
+      "fresh rematch inherited parent commands", freshCommandPoll);
+
     const q1 = await post(baseUrl, "enqueue_quick_match", { profile: { uid: "q1", display_name: "Q1" }, context });
     expect(q1.matched === false && String(q1.ticket_id ?? "").length > 0, "first quick ticket failed", q1);
     const q2 = await post(baseUrl, "enqueue_quick_match", { profile: { uid: "q2", display_name: "Q2" }, context });
@@ -212,6 +235,28 @@ async function main(): Promise<void> {
       idempotency_key: `settle:${paidSessionId}:paid_guest`
     }, matchHeaders);
     expect(paidSecondSettle.ok === false && paidSecondSettle.err === "match_already_closed", "second paid settle should fail", paidSecondSettle);
+
+    const paidHostRematch = await post(baseUrl, "request_fresh_rematch", {
+      session_id: paidSessionId,
+      uid: "paid_host"
+    });
+    expect(paidHostRematch.status === "pending", "first paid rematch vote should wait", paidHostRematch);
+    const paidGuestRematch = await post(baseUrl, "request_fresh_rematch", {
+      session_id: paidSessionId,
+      uid: "paid_guest"
+    });
+    const paidRematchSessionId = String(paidGuestRematch.session_id ?? "");
+    const paidRematchSession = paidGuestRematch.session as JsonRecord;
+    const paidRematchContext = paidRematchSession.context as JsonRecord;
+    expect(paidGuestRematch.status === "ready" && paidRematchSessionId.length > 0,
+      "paid rematch did not create a fresh session", paidGuestRematch);
+    expect(paidRematchSession.status === "started" && paidRematchContext.ledger_status === "escrowed",
+      "paid rematch did not open fresh escrow", paidGuestRematch);
+    const paidRematchTransactions = await post(baseUrl, "get_money_transactions", {
+      session_id: paidRematchSessionId
+    }, adminHeaders);
+    expect((paidRematchTransactions.transactions as JsonRecord[]).length === 2,
+      "paid rematch should debit both players in its own ledger", paidRematchTransactions);
 
     const directOpen = await post(baseUrl, "open_money_escrow", {
       session_id: "direct_refund_session",
@@ -530,6 +575,18 @@ async function main(): Promise<void> {
     const honeyPolicy = await post(baseUrl, "get_honey_policy", {});
     const honeyPolicyPayload = honeyPolicy.policy as JsonRecord;
     expect(String(honeyPolicyPayload.precision) === "centi_honey", "Honey policy precision mismatch", honeyPolicy);
+    const supersededHoney = await postRaw(baseUrl, "record_honey_activity", {
+      player_id: "legacy-smoke", activity_key: "competitive.live_free"
+    }, matchHeaders);
+    expect(supersededHoney.http_status === 410 && supersededHoney.err === "platform_economy_authority_required",
+      "legacy Honey mutation route was not retired", supersededHoney);
+    const supersededCrucible = await postRaw(baseUrl, "open_crucible_escrow", {
+      match_id: "legacy-smoke", player_a_id: "a", player_b_id: "b"
+    }, matchHeaders);
+    expect(supersededCrucible.http_status === 410 && supersededCrucible.err === "platform_economy_authority_required",
+      "legacy Crucible mutation route was not retired", supersededCrucible);
+    const exerciseSupersededEconomyRoutes = false;
+    if (exerciseSupersededEconomyRoutes) {
     const honeyActivity = await post(baseUrl, "record_honey_activity", {
       player_id: "activity_player",
       activity_key: "competitive.live_free",
@@ -879,6 +936,7 @@ async function main(): Promise<void> {
       actor_id: "ops_smoke",
       patch: { capacity_max: 100, reserved_slots: 0 }
     }, adminHeaders);
+    }
 
     const devQuick = await post(baseUrl, "enqueue_quick_match", { profile: { uid: "dev_q", display_name: "Dev Q" }, context });
     const devFill = await post(baseUrl, "debug_fill_quick_match", {

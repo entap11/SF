@@ -1,11 +1,9 @@
 import express, { type NextFunction, type Request, type Response } from "express";
-import { adminRecompute } from "./adminRecompute.js";
 import { config } from "./config.js";
 import {
-  economyDisabledResult,
   economyMutationsEnabled,
-  economyResetPermitted,
   isRankEconomyMutationAction,
+  isRankSupersededAction,
   rankTokenAuthorized
 } from "./economyGuard.js";
 import { pool } from "./db/pool.js";
@@ -32,6 +30,11 @@ import {
   tierNames
 } from "./logic.js";
 import { RankStore } from "./store.js";
+import {
+  PlatformEconomyError,
+  PlatformEconomyRepository,
+  type ProducerEnvelope
+} from "./platformEconomy.js";
 import type { MatchQueueEntry, PlayerRecord, RankState } from "./types.js";
 import {
   bearerTokenFromHeader,
@@ -43,7 +46,6 @@ import {
 import { IdentitySessionError, IdentitySessionStore } from "./identity/sessionStore.js";
 import { bearerToken, ServiceTrustError, verifyServiceJwt } from "./serviceTrust.js";
 import { parseSignedVerifierReceipt, VerifiedReceiptError, verifyStandard1v1Receipt } from "./verifiedReceipt.js";
-import { applyVerifiedStandard1v1Settlement } from "./verifiedSettlement.js";
 
 const BOT_PLAYER_ID = /^bot_[0-9]{6}$/;
 const PROCESS_START_UNIX = nowUnix();
@@ -306,6 +308,36 @@ function identityFailure(res: Response, error: unknown): void {
   throw error;
 }
 
+function platformFailure(res: Response, error: unknown): void {
+  if (error instanceof PlatformEconomyError) {
+    res.status(error.status).json({ ok: false, err: error.code });
+    return;
+  }
+  if (error instanceof ServiceTrustError) {
+    res.status(error.status).json({ ok: false, err: error.code });
+    return;
+  }
+  if (error instanceof PlayerTokenError) {
+    identityFailure(res, error);
+    return;
+  }
+  throw error;
+}
+
+function producerEnvelope(body: Record<string, unknown>, producerService: string, eventType: string): ProducerEnvelope {
+  const payload = isRecord(body.payload) ? body.payload : {};
+  return {
+    producerService,
+    producerEventId: toStringValue(body.producer_event_id),
+    eventType,
+    epochId: toStringValue(body.economy_epoch),
+    sourceAuthority: toStringValue(body.source_authority) || producerService,
+    occurredAt: toStringValue(body.occurred_at) || new Date().toISOString(),
+    schemaVersion: Math.max(1, Math.trunc(toNumberValue(body.schema_version, 1))),
+    payload
+  };
+}
+
 function requireBearerAuth(req: Request, res: Response, next: NextFunction): void {
   if (!config.apiToken) {
     res.status(503).json({ ok: false, err: "rank_auth_not_configured", code: "rank_auth_not_configured" });
@@ -327,8 +359,15 @@ function requireBearerAuth(req: Request, res: Response, next: NextFunction): voi
 
 function requireRankActionAuth(req: Request, res: Response, next: NextFunction): void {
   const action = toStringValue(req.params.action).replace(/^\/+/, "");
-  if (action === "register_player") {
-    next();
+  if (isRankSupersededAction(action)) {
+    res.status(410).json({
+      ok: false,
+      err: action === "register_player"
+        ? "player_identity_authority_required"
+        : "platform_economy_authority_required",
+      code: "legacy_rank_action_superseded",
+      action
+    });
     return;
   }
   requireBearerAuth(req, res, next);
@@ -364,15 +403,9 @@ function normalizeQueueEntries(raw: unknown): MatchQueueEntry[] {
 async function main(): Promise<void> {
   const store = new RankStore(pool, config.legacyStatePath);
   await store.init();
+  const platformEconomy = new PlatformEconomyRepository(pool);
   const identitySessions = new IdentitySessionStore(pool, config.identity, config.identity.challengeTtlSec);
   const identityConfigured = playerTokenConfigured(config.identity);
-  if (economyResetPermitted()) {
-    const economyEpochResult = await store.applyEconomyEpoch(
-      config.economyEpoch,
-      Math.max(config.rank.waxFloor, config.rank.baseGain)
-    );
-    console.log(JSON.stringify({ event: "rank_economy_epoch", ...economyEpochResult }));
-  }
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));
@@ -381,10 +414,14 @@ async function main(): Promise<void> {
     "/health",
     asyncHandler(async (_req, res) => {
       const dbOk = await store.healthCheck();
+      const [platformEpoch, platformCapabilities] = dbOk
+        ? await Promise.all([platformEconomy.getCurrentEpoch(), platformEconomy.capabilitySnapshot()])
+        : [null, {}];
       res.status(dbOk ? 200 : 503).json({
         ok: dbOk,
         service: "swarmfront-rank-service",
         build: SERVICE_BUILD,
+        platform_economy_authority: true,
         economy_mutations_enabled: economyMutationsEnabled(),
         verified_match_mutations_enabled: config.verifiedMatchMutationsEnabled,
         public_leaderboards_enabled: config.publicLeaderboardsEnabled,
@@ -395,6 +432,8 @@ async function main(): Promise<void> {
         player_identity_sessions_configured: identityConfigured,
         player_token_issuer: config.identity.issuer,
         player_token_audience: config.identity.audience,
+        platform_economy_epoch: platformEpoch,
+        platform_economy_capabilities: platformCapabilities,
         storage: { kind: "postgres", path: redactDatabaseUrl(config.databaseUrl) }
       });
     })
@@ -428,10 +467,6 @@ async function main(): Promise<void> {
         res.status(503).json({ ok: false, err: "rank_mutations_disabled" });
         return;
       }
-      if (!economyMutationsEnabled()) {
-        res.status(503).json(economyDisabledResult());
-        return;
-      }
       try {
         const claims = verifyServiceJwt(bearerToken(req.header("authorization")), config.serviceAuth, "rank:settle");
         if (toStringValue(isRecord(req.body) ? req.body.mode_id : "") !== "STANDARD_1V1") {
@@ -442,16 +477,237 @@ async function main(): Promise<void> {
         if (toStringValue(isRecord(req.body) ? req.body.rank_event_id : "") !== String(payload.result_id)) {
           throw new VerifiedReceiptError("rank_event_binding_invalid");
         }
-        const result = await applyVerifiedStandard1v1Settlement(store, payload, String(claims.sub));
+        const placements = payload.placements as Record<string, unknown>[];
+        const winnerId = String((placements[0]?.player_ids as unknown[] | undefined)?.[0] ?? "");
+        const loserId = String((placements[1]?.player_ids as unknown[] | undefined)?.[0] ?? "");
+        const currentEpoch = await platformEconomy.getCurrentEpoch();
+        if (!currentEpoch) throw new PlatformEconomyError("active_epoch_missing", 503);
+        const result = await platformEconomy.settleStandardWax({
+          envelope: {
+            producerService: String(claims.sub),
+            producerEventId: String(payload.result_id),
+            eventType: "STANDARD_WAX_SETTLEMENT_V1",
+            epochId: String(currentEpoch.epoch_id),
+            sourceAuthority: String(payload.authority_method),
+            occurredAt: String(payload.verified_at),
+            schemaVersion: 1,
+            payload
+          },
+          winnerPlayerId: winnerId,
+          loserPlayerId: loserId,
+          modeName: "STANDARD",
+          noContest: String(payload.terminal_reason) === "NO_CONTEST"
+        });
         const status = result.ok === false && result.err === "rank_players_missing" ? 409 : 200;
         res.status(status).json(result);
       } catch (error) {
+        if (error instanceof PlatformEconomyError) {
+          platformFailure(res, error);
+          return;
+        }
         if (error instanceof ServiceTrustError || error instanceof VerifiedReceiptError) {
           res.status(error.status).json({ ok: false, err: error.code });
           return;
         }
         throw error;
       }
+    })
+  );
+
+  app.post(
+    "/v1/service/economy/honey-activity",
+    asyncHandler(async (req, res) => {
+      try {
+        const claims = verifyServiceJwt(bearerToken(req.header("authorization")), config.serviceAuth, "economy:produce");
+        const body = isRecord(req.body) ? req.body : {};
+        const result = await platformEconomy.awardHoneyActivity(producerEnvelope(body, String(claims.sub), "HONEY_ACTIVITY_V1"));
+        res.json(result);
+      } catch (error) { platformFailure(res, error); }
+    })
+  );
+
+  app.post(
+    "/v1/service/economy/nectar-match",
+    asyncHandler(async (req, res) => {
+      try {
+        const claims = verifyServiceJwt(bearerToken(req.header("authorization")), config.serviceAuth, "economy:produce");
+        const body = isRecord(req.body) ? req.body : {};
+        const result = await platformEconomy.awardNectarMatch(producerEnvelope(body, String(claims.sub), "NECTAR_MATCH_V1"));
+        res.json(result);
+      } catch (error) { platformFailure(res, error); }
+    })
+  );
+
+  app.post(
+    "/v1/service/economy/crucible/reserve",
+    asyncHandler(async (req, res) => {
+      try {
+        const claims = verifyServiceJwt(bearerToken(req.header("authorization")), config.serviceAuth, "economy:reserve");
+        const body = isRecord(req.body) ? req.body : {};
+        const envelope = producerEnvelope(body, String(claims.sub), "CRUCIBLE_RESERVE_V1");
+        const payload = envelope.payload;
+        const result = await platformEconomy.reserveCrucibleParticipant({ envelope,
+          matchId: toStringValue(payload.match_id), contractId: toStringValue(payload.contract_id),
+          contractHash: toStringValue(payload.contract_hash), playerId: toStringValue(payload.player_id),
+          playerAId: toStringValue(payload.player_a_id), playerBId: toStringValue(payload.player_b_id),
+          expiresAt: toStringValue(payload.expires_at) });
+        res.json(result);
+      } catch (error) { platformFailure(res, error); }
+    })
+  );
+
+  app.post(
+    "/v1/service/economy/crucible/settle",
+    asyncHandler(async (req, res) => {
+      try {
+        const claims = verifyServiceJwt(bearerToken(req.header("authorization")), config.serviceAuth, "economy:settle");
+        const body = isRecord(req.body) ? req.body : {};
+        const envelope = producerEnvelope(body, String(claims.sub), "CRUCIBLE_SETTLE_V1");
+        const payload = envelope.payload;
+        const result = await platformEconomy.settleCrucible({ envelope,
+          matchId: toStringValue(payload.match_id), resultId: toStringValue(payload.result_id),
+          winnerPlayerId: toStringValue(payload.winner_player_id) });
+        res.json(result);
+      } catch (error) { platformFailure(res, error); }
+    })
+  );
+
+  app.post(
+    "/v1/service/economy/crucible/refund",
+    asyncHandler(async (req, res) => {
+      try {
+        const claims = verifyServiceJwt(bearerToken(req.header("authorization")), config.serviceAuth, "economy:settle");
+        const body = isRecord(req.body) ? req.body : {};
+        const envelope = producerEnvelope(body, String(claims.sub), "CRUCIBLE_REFUND_V1");
+        const payload = envelope.payload;
+        const result = await platformEconomy.refundCrucible({ envelope,
+          matchId: toStringValue(payload.match_id), resultId: toStringValue(payload.result_id),
+          reason: toStringValue(payload.reason) });
+        res.json(result);
+      } catch (error) { platformFailure(res, error); }
+    })
+  );
+
+  app.get(
+    "/v1/platform/economy/me",
+    asyncHandler(async (req, res) => {
+      try {
+        const token = bearerTokenFromHeader(req.header("authorization"));
+        if (!token) throw new PlayerTokenError("token_missing");
+        const claims = verifyPlayerAccessToken(token, config.identity, { requiredScope: "economy:read" });
+        res.json(await platformEconomy.getPlayerBalances(claims.sub));
+      } catch (error) { platformFailure(res, error); }
+    })
+  );
+
+  app.get(
+    "/v1/admin/platform/reconcile",
+    requireBearerAuth,
+    asyncHandler(async (req, res) => {
+      try { res.json(await platformEconomy.reconcile(toStringValue(req.query.epoch_id) || undefined)); }
+      catch (error) { platformFailure(res, error); }
+    })
+  );
+
+  app.post(
+    "/v1/admin/platform/capability",
+    requireBearerAuth,
+    asyncHandler(async (req, res) => {
+      try {
+        const body = isRecord(req.body) ? req.body : {};
+        const capability = toStringValue(body.capability).toUpperCase();
+        if (!["NECTAR", "HONEY_EARN", "HONEY_SPEND", "WAX_STANDARD", "WAX_CRUCIBLE"].includes(capability)) {
+          throw new PlatformEconomyError("unknown_capability");
+        }
+        res.json({ ok: true, capability: await platformEconomy.setCapability(
+          capability as "NECTAR" | "HONEY_EARN" | "HONEY_SPEND" | "WAX_STANDARD" | "WAX_CRUCIBLE",
+          toBooleanValue(body.enabled)
+        ) });
+      } catch (error) { platformFailure(res, error); }
+    })
+  );
+
+  app.post(
+    "/v1/admin/platform/epoch/draft",
+    requireBearerAuth,
+    asyncHandler(async (req, res) => {
+      try {
+        const body = isRecord(req.body) ? req.body : {};
+        res.status(201).json({ ok: true, epoch: await platformEconomy.createEpochDraft({
+          epochId: toStringValue(body.epoch_id), seasonId: toStringValue(body.season_id),
+          artifactDigest: toStringValue(body.artifact_digest), openingHoneyCenti: 0,
+          openingWaxMillis: 0, openingNectarMilli: 0
+        }) });
+      } catch (error) { platformFailure(res, error); }
+    })
+  );
+
+  app.post(
+    "/v1/admin/platform/epoch/:epochId/prepare",
+    requireBearerAuth,
+    asyncHandler(async (req, res) => {
+      try {
+        const body = isRecord(req.body) ? req.body : {};
+        res.json({ ok: true, epoch: await platformEconomy.prepareEpoch(toStringValue(req.params.epochId), body) });
+      } catch (error) { platformFailure(res, error); }
+    })
+  );
+
+  app.post(
+    "/v1/admin/platform/epoch/:epochId/reconcile",
+    requireBearerAuth,
+    asyncHandler(async (req, res) => {
+      try { res.json({ ok: true, epoch: await platformEconomy.markEpochReconciled(toStringValue(req.params.epochId)) }); }
+      catch (error) { platformFailure(res, error); }
+    })
+  );
+
+  app.post(
+    "/v1/admin/platform/epoch/:epochId/activate",
+    requireBearerAuth,
+    asyncHandler(async (req, res) => {
+      try { res.json({ ok: true, epoch: await platformEconomy.activateEpoch(toStringValue(req.params.epochId)) }); }
+      catch (error) { platformFailure(res, error); }
+    })
+  );
+
+  app.post(
+    "/v1/admin/platform/epoch/:epochId/abort",
+    requireBearerAuth,
+    asyncHandler(async (req, res) => {
+      try { res.json({ ok: true, epoch: await platformEconomy.abortEpoch(toStringValue(req.params.epochId)) }); }
+      catch (error) { platformFailure(res, error); }
+    })
+  );
+
+  app.post(
+    "/v1/platform/economy/honey/spend",
+    asyncHandler(async (req, res) => {
+      try {
+        const token = bearerTokenFromHeader(req.header("authorization"));
+        if (!token) throw new PlayerTokenError("token_missing");
+        const claims = verifyPlayerAccessToken(token, config.identity, { requiredScope: "economy:spend" });
+        const body = isRecord(req.body) ? req.body : {};
+        const currentEpoch = await platformEconomy.getCurrentEpoch();
+        if (!currentEpoch) throw new PlatformEconomyError("active_epoch_missing", 503);
+        const requestId = toStringValue(body.request_id);
+        if (!validRequestId(requestId)) throw new PlatformEconomyError("invalid_request_id");
+        const result = await platformEconomy.spendHoney({
+          envelope: {
+            producerService: "player-intent",
+            producerEventId: `${claims.sub}:${requestId}`,
+            eventType: "HONEY_SPEND_V1",
+            epochId: String(currentEpoch.epoch_id),
+            sourceAuthority: "entap-player-session",
+            occurredAt: new Date().toISOString(),
+            schemaVersion: 1,
+            payload: { player_id: claims.sub, catalog_action_id: toStringValue(body.catalog_action_id) }
+          },
+          playerId: claims.sub,
+          catalogActionId: toStringValue(body.catalog_action_id)
+        });
+        res.json(result);
+      } catch (error) { platformFailure(res, error); }
     })
   );
 
@@ -663,8 +919,12 @@ async function main(): Promise<void> {
     "/v1/admin/recompute",
     requireBearerAuth,
     asyncHandler(async (_req, res) => {
-      const result = await adminRecompute(store);
-      res.status(result.status).json(result.body);
+      res.status(410).json({
+        ok: false,
+        err: "platform_economy_authority_required",
+        code: "legacy_rank_action_superseded",
+        action: "admin_recompute"
+      });
     })
   );
 
@@ -675,8 +935,11 @@ async function main(): Promise<void> {
       const action = toStringValue(req.params.action).replace(/^\/+/, "");
       const payload = isRecord(req.body) ? req.body : {};
 
-      if (isRankEconomyMutationAction(action) && !economyMutationsEnabled()) {
-        res.status(503).json(economyDisabledResult());
+      // Superseded actions are rejected by requireRankActionAuth before this
+      // handler. This assertion retains a fail-closed second line of defense.
+      if (isRankEconomyMutationAction(action)) {
+        res.status(410).json({ ok: false, err: "platform_economy_authority_required",
+          code: "legacy_rank_action_superseded", action });
         return;
       }
 

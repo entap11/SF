@@ -13,8 +13,11 @@
     "smoke:session": "tsx src/identity/sessionSmoke.ts",
     "smoke:session:embedded": "tsx src/identity/embeddedSessionSmoke.ts",
     "smoke:verified-settlement": "DATABASE_URL=postgres://embedded:embedded@127.0.0.1:1/embedded RANK_ECONOMY_MUTATIONS_ENABLED=true RANK_VERIFIED_MATCH_MUTATIONS_ENABLED=true tsx src/verifiedSettlementEmbeddedSmoke.ts",
+    "smoke:platform-economy": "DATABASE_URL=postgres://embedded:embedded@127.0.0.1:1/embedded tsx src/platformEconomyEmbeddedSmoke.ts",
     "smoke:quarantine": "DATABASE_URL=postgres://quarantine:quarantine@127.0.0.1:1/quarantine tsx src/economyQuarantineSmoke.ts",
-    "simulate:beta": "DATABASE_URL=postgres://sim:sim@127.0.0.1:5432/sim tsx src/cli/beta-sim.ts"
+    "simulate:beta": "DATABASE_URL=postgres://sim:sim@127.0.0.1:5432/sim tsx src/cli/beta-sim.ts",
+    "reset:beta-economy": "tsx src/cli/beta-economy-reset.ts",
+    "canary:economy": "tsx src/cli/economy-live-canary.ts"
   },
   "dependencies": {
     "dotenv": "^16.5.0",

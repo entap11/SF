@@ -61,12 +61,24 @@ async function main(): Promise<void> {
     "settle_crucible_match", "refund_crucible_match", "resolve_crucible_review", "record_crucible_lifecycle",
     "record_competitive_wax_result", "award_crucible_wax", "debug_set_crucible_balance"
   ];
+  const superseded = new Set([
+    "record_honey_activity", "grant_honey", "debit_hive_honey_purchase", "debug_set_honey_balance",
+    "update_crucible_config", "open_crucible_escrow", "settle_crucible_match", "refund_crucible_match",
+    "resolve_crucible_review", "record_crucible_lifecycle", "record_competitive_wax_result",
+    "award_crucible_wax", "debug_set_crucible_balance"
+  ]);
 
   try {
     for (const prefix of [root, base]) {
       for (const action of quarantined) {
         const result = await post(prefix, action);
-        expect(result.http_status === 503 && result.err === "economy_disabled" && result.code === "economy_disabled",
+        const moved = superseded.has(action)
+          && result.http_status === 410 && result.err === "platform_economy_authority_required";
+        const disabled = result.http_status === 503
+          && (["economy_disabled", "platform_economy_delivery_disabled"].includes(String(result.err)));
+        const playerAuthClosed = action === "debit_honey" && result.http_status === 401
+          && result.err === "player_token_required";
+        expect(moved || disabled || playerAuthClosed,
           `quarantine failed for ${prefix}/${action}`, result);
       }
     }
@@ -86,9 +98,10 @@ async function main(): Promise<void> {
     expect(JSON.stringify(healthKeys) === JSON.stringify([
       "admin_auth_required", "authenticated_1v1_slice_enabled", "build", "contest_rewards_enabled",
       "crucible_wax_settlement_enabled", "ctf_bot_fallback_enabled",
-      "durable_public_1v1_enabled", "economy_mutations_enabled", "hctf_live_secrecy_certified",
+      "durable_public_1v1_enabled", "economy_mutations_enabled", "embedded_settlement_workers",
+      "hctf_live_secrecy_certified",
       "match_authority_auth_required", "match_verification_enabled", "ok", "ops_reconcile_interval_ms",
-      "player_auth_configured",
+      "platform_economy_delivery_enabled", "player_auth_configured",
       "public_1v1_enabled", "public_2v2_enabled", "public_3p_ffa_enabled", "public_4p_ffa_enabled",
       "public_async_3map_enabled", "public_async_5map_enabled",
       "public_contests_enabled", "public_contests_store_authorized",
@@ -100,6 +113,7 @@ async function main(): Promise<void> {
     expect(health.economy_mutations_enabled === false && health.admin_auth_required === true
       && health.match_authority_auth_required === true && health.authenticated_1v1_slice_enabled === false
       && health.match_verification_enabled === false && health.durable_public_1v1_enabled === false
+      && health.platform_economy_delivery_enabled === false && health.embedded_settlement_workers === true
       && health.public_1v1_enabled === false && health.public_2v2_enabled === false
       && health.public_3p_ffa_enabled === false && health.public_4p_ffa_enabled === false
       && health.public_async_3map_enabled === false
@@ -147,7 +161,7 @@ async function main(): Promise<void> {
 
     const privateReads = [
       "get_money_transactions", "get_money_payout_summary", "debug_get_money_ledger_snapshot", "list_async_contest_results",
-      "list_async_contest_payout_reports", "get_honey_balance", "get_honey_transactions",
+      "list_async_contest_payout_reports", "get_honey_transactions",
       "preview_hive_honey_purchase", "debug_get_honey_ledger_snapshot", "debug_get_crucible_snapshot", "get_wax_audit_snapshot"
     ];
     for (const action of privateReads) {
@@ -158,6 +172,9 @@ async function main(): Promise<void> {
       });
       expect(forged.http_status === 401, `forged admin read passed: ${action}`, forged);
     }
+    const honeyRead = await post(base, "get_honey_balance", { player_id: "some_other_player" });
+    expect(honeyRead.http_status === 401 && honeyRead.err === "player_token_required",
+      "Honey balance read was not player-authenticated", honeyRead);
 
     process.env.VS_ECONOMY_MUTATIONS_ENABLED = "true";
     const missingAuthority = await post(base, "settle_money_match", { session_id: "forged", winner_id: "attacker" });

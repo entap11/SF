@@ -65,6 +65,10 @@ static func capture(tree: SceneTree, ops_state: Node) -> Dictionary:
 	return snapshot
 
 
+static func protected_state_hash(tree: SceneTree) -> String:
+	return DeterministicHash.hash_variant(_capture_protected_state(tree))
+
+
 static func restore(snapshot: Dictionary, tree: SceneTree, ops_state: Node) -> Dictionary:
 	var restore_errors: Array[String] = []
 	_restore_project_settings(snapshot.get("project_settings", {}) as Dictionary)

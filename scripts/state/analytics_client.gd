@@ -33,7 +33,8 @@ var _flush_timer: Timer = null
 var _perf_harness_isolation: bool = false
 
 func _ready() -> void:
-	if TestBackendPolicyScript.automated_test_process():
+	if TestBackendPolicyScript.automated_test_process() \
+	or (OS.is_debug_build() and OS.get_cmdline_user_args().has("--startup-hitch-diagnostic")):
 		_perf_harness_isolation = true
 	_load_state()
 	_load_queue()
@@ -207,6 +208,12 @@ func get_health_snapshot() -> Dictionary:
 
 func set_perf_harness_isolation(enabled: bool) -> bool:
 	if not OS.is_debug_build():
+		return false
+	if not enabled and OS.get_cmdline_user_args().has("--startup-hitch-diagnostic"):
+		# The startup diagnostic is a dedicated process. Keep analytics isolated
+		# through match teardown and autoload exit, not only through its sample window.
+		_perf_harness_isolation = true
+		_sync_flush_timer()
 		return false
 	var tree: SceneTree = get_tree()
 	if enabled and (tree == null or not bool(tree.get_meta("sf_perf_harness_active", false))):

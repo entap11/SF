@@ -19,6 +19,7 @@ const LaneVisualHierarchyScript: Script = preload("res://scripts/renderers/lane_
 const COLORKEY_SHADER := preload("res://shaders/sf_colorkey_alpha.gdshader")
 const LANE_BAND_SHADER := preload("res://shaders/lane_band.gdshader")
 const HiveNodeScript := preload("res://scripts/hive/hive_node.gd")
+const StartupHitchDiagnosticScript := preload("res://scripts/dev/startup_hitch_diagnostic.gd")
 
 @export var debug_lane_seg_overlay: bool = false
 @export var debug_draw_magenta_x: bool = false
@@ -51,9 +52,9 @@ const LANE_SEGMENT_KEY := "lane.segment"
 const LANE_CONNECTOR_KEY := "lane.connector"
 const LANE_TEX_KEY := "lane.points"
 const LANE_FALLBACK_PATH := "res://assets/sprites/sf_skin_v1/lane_white_5space.png"
+const LANE_FALLBACK_REGION := Rect2(0.0, 376.0, 1536.0, 232.0)
 const LANE_SEGMENT_TARGET_PX := 84.0
 const LANE_STRIP_TEXTURE_MIN_WIDTH_PX := 1024.0
-const LANE_TEXTURE_TRIM_LUMA_THRESHOLD := 0.70
 const LANE_SEGMENT_SCALE := 1.0
 const LANE_CONNECTOR_SCALE := 0.75
 const LANE_MAX_SEGMENTS := 64
@@ -124,8 +125,6 @@ var _lane_candidates_visible: bool = false
 var _lane_flash_expire_by_id: Dictionary = {}
 var _lane_tex: Texture2D = null
 var _lane_connector_tex: Texture2D = null
-var _lane_tex_has_alpha: bool = false
-var _lane_connector_tex_has_alpha: bool = false
 var _lane_nodes_by_key: Dictionary = {}
 var _lane_key_by_id: Dictionary = {}
 var _lane_sprite_root: Node2D = null
@@ -173,6 +172,11 @@ var _lane_grab_edge_rail_b: Line2D = null
 var _buff_target_lane_probes: Dictionary = {}
 var _buff_target_lane_generation: int = 0
 var _buff_target_next_path_revision: int = 1
+var _startup_hitch_probe_active: bool = false
+var _startup_hitch_first_process_probed: bool = false
+var _startup_hitch_model_probe_count: int = 0
+var _startup_hitch_anchor_probe_count: int = 0
+var _startup_hitch_rebuild_probe_count: int = 0
 
 static func is_lane_visual_hierarchy_enabled() -> bool:
 	return bool(LaneVisualHierarchyScript.call("is_enabled"))
@@ -615,6 +619,7 @@ func _make_lane_segment_sprite(from: Vector2, to: Vector2, tex: Texture2D) -> Sp
 	return sprite
 
 func _ready() -> void:
+	_startup_hitch_probe_active = _startup_hitch_mark("lane_ready_started")
 	SFLog.allow_tag("RENDER_PROCESS_HEARTBEAT")
 	SFLog.allow_tag("RENDER_AUDIT_LANES")
 	SFLog.allow_tag("LANE_ENDPOINTS")
@@ -632,12 +637,18 @@ func _ready() -> void:
 	set_process(USE_LANE_SPRITES and show_lane_sprites)
 	_lane_candidates_visible = false
 	_request_rebuild("ready")
+	if _startup_hitch_probe_active:
+		_startup_hitch_mark("lane_ready_completed")
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_PREDELETE or what == NOTIFICATION_EXIT_TREE:
 		_clear_buff_target_lane_probes("renderer_teardown")
 
 func _process(delta: float) -> void:
+	var probe_first_process: bool = _startup_hitch_probe_active and not _startup_hitch_first_process_probed
+	if probe_first_process:
+		_startup_hitch_first_process_probed = true
+		_startup_hitch_mark("lane_first_process_started", {"delta_ms": snappedf(delta * 1000.0, 0.001)})
 	var process_t0_us: int = Time.get_ticks_usec()
 	if USE_LANE_SPRITES and show_lane_sprites:
 		_update_lane_visuals(delta)
@@ -648,6 +659,10 @@ func _process(delta: float) -> void:
 		queue_redraw()
 	_audit_render_maybe_flush()
 	_record_process_heartbeat(process_t0_us)
+	if probe_first_process:
+		_startup_hitch_mark("lane_first_process_completed", {
+			"duration_ms": snappedf(float(Time.get_ticks_usec() - process_t0_us) / 1000.0, 0.001)
+		})
 
 func _record_process_heartbeat(process_t0_us: int) -> void:
 	var now_ms: int = Time.get_ticks_msec()
@@ -707,6 +722,14 @@ func bind_state(state_ref: GameState) -> void:
 	queue_redraw()
 
 func set_model(rm: Dictionary) -> void:
+	var probe_index: int = _startup_hitch_model_probe_count + 1
+	var probe_model: bool = _startup_hitch_probe_active and probe_index <= 2 and _startup_hitch_mark(
+		"lane_set_model_%02d_started" % probe_index,
+		{"incoming_lane_count": _startup_hitch_lane_count(rm)}
+	)
+	if probe_model:
+		_startup_hitch_model_probe_count = probe_index
+	var probe_started_usec: int = Time.get_ticks_usec() if probe_model else 0
 	model = rm
 	var sample_sim_us: int = int(round(float(model.get("sim_time_s", 0.0)) * 1000000.0))
 	var map_id_for_cache: String = str(rm.get("map_id", rm.get("id", "")))
@@ -758,6 +781,11 @@ func set_model(rm: Dictionary) -> void:
 	var active_sig: String = _compute_active_lane_signature()
 	if active_sig != _last_sig:
 		_request_rebuild("state_changed")
+	if probe_model:
+		_startup_hitch_mark("lane_set_model_%02d_completed" % probe_index, {
+			"duration_ms": snappedf(float(Time.get_ticks_usec() - probe_started_usec) / 1000.0, 0.001),
+			"lane_count": _startup_hitch_lane_count(model)
+		})
 
 func set_hive_nodes(dict: Dictionary) -> void:
 	var next_sig: int = _compute_hive_nodes_sig(dict)
@@ -805,6 +833,14 @@ func _schedule_anchor_snapshot_rebuild(reason: String) -> void:
 	call_deferred("_rebuild_anchor_snapshot_deferred", reason)
 
 func _rebuild_anchor_snapshot_deferred(reason: String) -> void:
+	var probe_index: int = _startup_hitch_anchor_probe_count + 1
+	var probe_anchor: bool = _startup_hitch_probe_active and probe_index <= 2 and _startup_hitch_mark(
+		"lane_anchor_snapshot_%02d_started" % probe_index,
+		{"reason": reason, "hive_count": hive_nodes_by_id.size()}
+	)
+	if probe_anchor:
+		_startup_hitch_anchor_probe_count = probe_index
+	var probe_started_usec: int = Time.get_ticks_usec() if probe_anchor else 0
 	_pending_snapshot_rebuild = false
 	_anchor_world_by_hive_id.clear()
 	for key_any in hive_nodes_by_id.keys():
@@ -823,6 +859,11 @@ func _rebuild_anchor_snapshot_deferred(reason: String) -> void:
 		"count": _anchor_world_by_hive_id.size(),
 		"reason": reason
 	})
+	if probe_anchor:
+		_startup_hitch_mark("lane_anchor_snapshot_%02d_completed" % probe_index, {
+			"duration_ms": snappedf(float(Time.get_ticks_usec() - probe_started_usec) / 1000.0, 0.001),
+			"anchor_count": _anchor_world_by_hive_id.size()
+		})
 
 func mark_lane_changed(lane_id: int) -> void:
 	_last_changed_lane_id = lane_id
@@ -1226,16 +1267,20 @@ func _load_lane_textures() -> void:
 	var registry := SpriteRegistry.get_instance()
 	if registry != null:
 		var resolved: Dictionary = CosmeticThemeDB.resolve_lane_texture(registry)
-		tex = _unwrap_atlas(resolved.get("texture", null) as Texture2D)
+		# The sprite manifest owns immutable trim geometry. Preserve its
+		# AtlasTexture so boot never needs a GPU readback or pixel scan.
+		tex = resolved.get("texture", null) as Texture2D
 		tex_path = str(resolved.get("path", ""))
 		tex_key = str(resolved.get("key", LANE_TEX_KEY))
 	if tex == null and ResourceLoader.exists(LANE_FALLBACK_PATH):
-		tex = ResourceLoader.load(LANE_FALLBACK_PATH) as Texture2D
+		var fallback_source := ResourceLoader.load(LANE_FALLBACK_PATH) as Texture2D
+		if fallback_source != null:
+			var fallback_atlas := AtlasTexture.new()
+			fallback_atlas.atlas = fallback_source
+			fallback_atlas.region = LANE_FALLBACK_REGION
+			tex = fallback_atlas
 		tex_path = LANE_FALLBACK_PATH
-	var raw_size := Vector2i.ZERO
-	if tex != null:
-		raw_size = Vector2i(tex.get_width(), tex.get_height())
-		tex = _trim_texture(tex)
+	var raw_size := _source_texture_size(tex)
 	if tex != null and not _lane_tex_logged:
 		_lane_tex_logged = true
 		SFLog.info("LANE_TEX_RESOLVE_OK", {
@@ -1250,16 +1295,15 @@ func _load_lane_textures() -> void:
 		})
 	_lane_tex = tex
 	_lane_connector_tex = tex
-	_lane_tex_has_alpha = _texture_has_alpha(_lane_tex)
-	_lane_connector_tex_has_alpha = _lane_tex_has_alpha
 
-func _unwrap_atlas(tex: Texture2D) -> Texture2D:
+func _source_texture_size(tex: Texture2D) -> Vector2i:
+	if tex == null:
+		return Vector2i.ZERO
 	if tex is AtlasTexture:
 		var at := tex as AtlasTexture
 		if at.atlas is Texture2D:
-			return at.atlas as Texture2D
-		return null
-	return tex
+			return Vector2i(at.atlas.get_width(), at.atlas.get_height())
+	return Vector2i(tex.get_width(), tex.get_height())
 
 func _ensure_lane_sprite_root() -> void:
 	if _lane_sprite_root != null and is_instance_valid(_lane_sprite_root):
@@ -1299,59 +1343,6 @@ func _lane_segment_len() -> float:
 	# We want enough segments to visualize a moving front_t (impact point).
 	# Using texture width makes n collapse to 1 when the lane texture is large.
 	return LANE_SEGMENT_TARGET_PX
-
-func _texture_has_alpha(tex: Texture2D) -> bool:
-	if tex == null:
-		return false
-	var img := tex.get_image()
-	if img == null:
-		return false
-	var fmt := img.get_format()
-	return fmt in [Image.FORMAT_RGBA8, Image.FORMAT_RGBAF, Image.FORMAT_RGBAH]
-
-func _trim_texture(tex: Texture2D) -> Texture2D:
-	if tex == null:
-		return null
-	var img := tex.get_image()
-	if img == null:
-		return tex
-
-	var used := img.get_used_rect()
-	if used.size == img.get_size():
-		var bright_used := _bright_lane_used_rect(img)
-		if bright_used.size.x > 0 and bright_used.size.y > 0:
-			used = bright_used
-	# If the image is basically empty or already tight, bail.
-	if used.size.x <= 0 or used.size.y <= 0:
-		return tex
-	if used.size == img.get_size():
-		return tex
-
-	var atlas := AtlasTexture.new()
-	atlas.atlas = tex
-	atlas.region = used
-	return atlas
-
-func _bright_lane_used_rect(img: Image) -> Rect2i:
-	var min_x: int = img.get_width()
-	var min_y: int = img.get_height()
-	var max_x: int = -1
-	var max_y: int = -1
-	for y in range(img.get_height()):
-		for x in range(img.get_width()):
-			var c: Color = img.get_pixel(x, y)
-			if c.a <= 0.01:
-				continue
-			var lum: float = (c.r * 0.299) + (c.g * 0.587) + (c.b * 0.114)
-			if lum < LANE_TEXTURE_TRIM_LUMA_THRESHOLD:
-				continue
-			min_x = mini(min_x, x)
-			min_y = mini(min_y, y)
-			max_x = maxi(max_x, x)
-			max_y = maxi(max_y, y)
-	if max_x < min_x or max_y < min_y:
-		return Rect2i()
-	return Rect2i(min_x, min_y, (max_x - min_x) + 1, (max_y - min_y) + 1)
 
 func _get_lane_colorkey_material() -> ShaderMaterial:
 	if _lane_colorkey_material != null:
@@ -1612,11 +1603,24 @@ func _request_rebuild(reason: String) -> void:
 	call_deferred("_flush_rebuild")
 
 func _flush_rebuild() -> void:
+	var probe_index: int = _startup_hitch_rebuild_probe_count + 1
+	var probe_rebuild: bool = _startup_hitch_probe_active and probe_index <= 4 and _startup_hitch_mark(
+		"lane_rebuild_%02d_started" % probe_index,
+		{"reason": _rebuild_req_reason, "lane_count": _startup_hitch_lane_count(model)}
+	)
+	if probe_rebuild:
+		_startup_hitch_rebuild_probe_count = probe_index
+	var probe_started_usec: int = Time.get_ticks_usec() if probe_rebuild else 0
 	_rebuild_pending = false
 	_lane_endpoints_logged_this_rebuild = false
 	_anchor_proof_logged_this_rebuild = false
 	var sig := _compute_active_lane_signature()
 	if sig == _last_sig:
+		if probe_rebuild:
+			_startup_hitch_mark("lane_rebuild_%02d_completed" % probe_index, {
+				"duration_ms": snappedf(float(Time.get_ticks_usec() - probe_started_usec) / 1000.0, 0.001),
+				"skipped": true
+			})
 		return
 	_last_sig = sig
 	if AUDIT_RENDER or DEBUG_LANES:
@@ -1630,6 +1634,19 @@ func _flush_rebuild() -> void:
 			"unit_lift_y_px": EdgeVisual.UNIT_LIFT_Y_PX
 		}, "", 250)
 	_rebuild_lane_sprites_now()
+	if probe_rebuild:
+		_startup_hitch_mark("lane_rebuild_%02d_completed" % probe_index, {
+			"duration_ms": snappedf(float(Time.get_ticks_usec() - probe_started_usec) / 1000.0, 0.001),
+			"skipped": false,
+			"lane_node_count": _lane_nodes_by_key.size()
+		})
+
+func _startup_hitch_mark(marker_name: String, detail: Dictionary = {}) -> bool:
+	return StartupHitchDiagnosticScript.mark_tree_event(get_tree(), marker_name, detail)
+
+func _startup_hitch_lane_count(source: Dictionary) -> int:
+	var lanes_any: Variant = source.get("lanes", [])
+	return (lanes_any as Array).size() if typeof(lanes_any) == TYPE_ARRAY else 0
 
 func _compute_active_lane_signature() -> String:
 	var parts: Array[String] = []

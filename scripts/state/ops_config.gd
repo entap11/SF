@@ -129,9 +129,10 @@ func get_fail_closed_policy() -> Dictionary:
 		"paid_entries": false,
 		"honey_rewards": false,
 		"local_honey_rewards": false,
+		"local_nectar_rewards": false,
 		"observer_mode": false,
 		"rank_backend": false,
-		"rank_local_beta_fallback": true,
+		"rank_local_beta_fallback": false,
 		"external_ads": false,
 		"house_ads": true,
 		"maintenance_mode_requires_valid_config": true,
@@ -243,6 +244,9 @@ func honey_rewards_enabled() -> bool:
 func local_honey_rewards_enabled() -> bool:
 	return get_flag("enable_local_honey_rewards", false)
 
+func local_nectar_rewards_enabled() -> bool:
+	return get_flag("enable_local_nectar_rewards", false)
+
 func observer_mode_enabled() -> bool:
 	return get_flag("enable_observer_mode", false)
 
@@ -252,7 +256,7 @@ func rank_backend_enabled() -> bool:
 func rank_local_beta_fallback_allowed() -> bool:
 	return rank_local_beta_fallback_allowed_for_runtime(
 		OS.is_debug_build(),
-		get_flag("enable_rank_local_beta_fallback", true)
+		get_flag("enable_rank_local_beta_fallback", false)
 	)
 
 static func rank_local_beta_fallback_allowed_for_runtime(is_debug_build: bool, configured_debug_flag: bool) -> bool:
@@ -349,8 +353,9 @@ func _sanitize_config(config: Dictionary) -> Dictionary:
 	flags["enable_observer_mode"] = bool(flags.get("enable_observer_mode", false))
 	flags["enable_honey_rewards"] = bool(flags.get("enable_honey_rewards", false))
 	flags["enable_local_honey_rewards"] = bool(flags.get("enable_local_honey_rewards", false))
+	flags["enable_local_nectar_rewards"] = bool(flags.get("enable_local_nectar_rewards", false))
 	flags["enable_rank_backend"] = bool(flags.get("enable_rank_backend", false))
-	flags["enable_rank_local_beta_fallback"] = bool(flags.get("enable_rank_local_beta_fallback", true))
+	flags["enable_rank_local_beta_fallback"] = bool(flags.get("enable_rank_local_beta_fallback", false))
 	for rollout_flag in PUBLIC_ROLLOUT_FLAGS:
 		flags[rollout_flag] = bool(flags.get(rollout_flag, false))
 	merged["feature_flags"] = flags
@@ -563,7 +568,8 @@ func _minimal_defaults() -> Dictionary:
 			"enable_honey_rewards": false,
 			"enable_local_honey_rewards": false,
 			"enable_rank_backend": false,
-			"enable_rank_local_beta_fallback": true
+			"enable_rank_local_beta_fallback": false,
+			"enable_local_nectar_rewards": false
 		},
 		"ads": {"external_ads_enabled": false, "house_ads_enabled": true, "placements": {}, "house_ticker_items": []},
 		"match_tuning": {},

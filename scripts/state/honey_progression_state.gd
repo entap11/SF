@@ -237,15 +237,18 @@ func intent_spend_player_honey(whole_honey: int, source_name: String, metadata: 
 	var amount_centi: int = amount * CENTI_PER_HONEY
 	var backend: Node = _honey_backend()
 	var profile_manager: Node = _profile_manager()
+	var authority_result: Dictionary = {}
 	var backend_online: bool = backend != null and backend.has_method("is_authoritative_transport_online") and bool(backend.call("is_authoritative_transport_online"))
 	if backend_online:
 		var player_id: String = str(profile_manager.call("get_user_id")).strip_edges() if profile_manager != null and profile_manager.has_method("get_user_id") else ""
 		if player_id.is_empty() or not backend.has_method("debit_honey"):
 			return {"ok": false, "reason": "honey_authority_unavailable", "honey_balance": _profile_honey_balance()}
-		var backend_result: Dictionary = backend.call("debit_honey", player_id, amount_centi, source, metadata, "honey_debit:%s:%s" % [player_id, event_id]) as Dictionary
-		if not bool(backend_result.get("ok", false)):
-			return {"ok": false, "reason": str(backend_result.get("err", "honey_debit_failed")), "backend_result": backend_result, "honey_balance": _profile_honey_balance()}
-		_sync_profile_to_authoritative_honey(maxi(0, int(backend_result.get("balance_centi", 0))), "backend_debit:%s" % event_id)
+		authority_result = backend.call("debit_honey", player_id, amount_centi, source, metadata, "honey_debit:%s:%s" % [player_id, event_id]) as Dictionary
+		if not bool(authority_result.get("ok", false)):
+			return {"ok": false, "reason": str(authority_result.get("err", "honey_debit_failed")), "backend_result": authority_result, "honey_balance": _profile_honey_balance()}
+		_sync_profile_to_authoritative_honey(maxi(0, int(authority_result.get("balance_centi", 0))), "backend_debit:%s" % event_id)
+		if profile_manager != null and profile_manager.has_method("apply_platform_entitlements"):
+			profile_manager.call("apply_platform_entitlements", authority_result.get("entitlements", []))
 	else:
 		if not _local_honey_rewards_enabled():
 			return {"ok": false, "reason": "honey_authority_unavailable", "honey_balance": _profile_honey_balance()}
@@ -271,7 +274,18 @@ func intent_spend_player_honey(whole_honey: int, source_name: String, metadata: 
 	honey_event.emit(event)
 	SFLog.info("HONEY_EVENT", event)
 	_emit_changed()
-	return {"ok": true, "event_id": event_id, "honey_spent": amount, "honey_balance": _profile_honey_balance()}
+	var response: Dictionary = {
+		"ok": true,
+		"event_id": event_id,
+		"honey_spent": amount,
+		"honey_balance": _profile_honey_balance(),
+		"authority": "platform" if backend_online else "local"
+	}
+	if backend_online:
+		response["transaction_id"] = authority_result.get("transaction_id", null)
+		response["granted_entitlements"] = authority_result.get("granted_entitlements", [])
+		response["entitlements"] = authority_result.get("entitlements", [])
+	return response
 
 func intent_record_tournament_placement(placement: int, metadata: Dictionary = {}) -> Dictionary:
 	var amount: int = _placement_bonus_centi(placement, false)

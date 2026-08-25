@@ -27,8 +27,30 @@ func _init() -> void:
 		vs_handshake.call("_configure_transport")
 	ops_config.call("force_config_for_smoke", {
 		"schema_version": 1,
+		"config_version": "battle-path-quarantine-smoke",
+		"feature_flags": {"enable_local_nectar_rewards": false}
+	})
+	var quarantined_before: Dictionary = battle_pass_state.call("get_snapshot") as Dictionary
+	var quarantined_attempt: Dictionary = battle_pass_state.call(
+		"intent_record_pvp_completion", "1V1", false, 0, true,
+		{"event_id": "quarantine-smoke", "duration_sec": 120.0}
+	) as Dictionary
+	var quarantined_after: Dictionary = battle_pass_state.call("get_snapshot") as Dictionary
+	_assert_true(bool(quarantined_attempt.get("suppressed", false)) \
+		and str(quarantined_attempt.get("reason", "")) == "platform_progression_fact_owned_by_service",
+		"client Nectar fact should be quarantined when Platform owns progression")
+	_assert_eq(int(quarantined_after.get("battle_pass_xp", -1)),
+		int(quarantined_before.get("battle_pass_xp", -2)), "quarantined client fact should not change Nectar")
+	_assert_true(quarantined_after.get("daily_challenges", []) == quarantined_before.get("daily_challenges", []),
+		"quarantined client fact should not change challenge progress")
+	ops_config.call("force_config_for_smoke", {
+		"schema_version": 1,
 		"config_version": "battle-path-smoke",
-		"feature_flags": {"enable_honey_rewards": true, "enable_local_honey_rewards": true}
+		"feature_flags": {
+			"enable_honey_rewards": true,
+			"enable_local_honey_rewards": true,
+			"enable_local_nectar_rewards": true
+		}
 	})
 	if profile_manager.has_method("set_user_id"):
 		profile_manager.call("set_user_id", "018f2c4d-89ab-7def-8abc-123456789abc")

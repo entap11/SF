@@ -14,6 +14,7 @@ import type { PublicContestRepository } from "./publicContest.js";
 import { PostgresPublicContestRepository } from "./postgresPublicContestRepository.js";
 import { PostgresCrucibleSettlementRepository } from "./crucibleSettlement.js";
 import { PostgresPublicModesOpsRepository } from "./publicModesOps.js";
+import { PostgresPlatformEconomyDeliveryRepository } from "./platformEconomyDelivery.js";
 
 let repository: DurableCoreRepository | null = null;
 let public1v1Repository: Public1v1Repository | null = null;
@@ -22,6 +23,7 @@ let rankSettlementRepository: PostgresRankSettlementRepository | null = null;
 let publicContestRepository: PublicContestRepository | null = null;
 let crucibleSettlementRepository: PostgresCrucibleSettlementRepository | null = null;
 let publicModesOpsRepository: PostgresPublicModesOpsRepository | null = null;
+let platformEconomyDeliveryRepository: PostgresPlatformEconomyDeliveryRepository | null = null;
 
 export function durableCoreStatus(): {
   enabled: boolean;
@@ -94,4 +96,11 @@ export function getPublicModesOpsRepository(): PostgresPublicModesOpsRepository 
   if (!config.databaseUrl) throw new Error("VS_DATABASE_URL_required_for_public_modes_ops");
   publicModesOpsRepository ??= new PostgresPublicModesOpsRepository(durablePool);
   return publicModesOpsRepository;
+}
+
+export function getPlatformEconomyDeliveryRepository(): PostgresPlatformEconomyDeliveryRepository {
+  if (config.durableStore !== "postgres") throw new Error("postgres_platform_economy_delivery_store_required");
+  if (!config.databaseUrl) throw new Error("VS_DATABASE_URL_required_for_platform_economy_delivery");
+  platformEconomyDeliveryRepository ??= new PostgresPlatformEconomyDeliveryRepository(durablePool);
+  return platformEconomyDeliveryRepository;
 }

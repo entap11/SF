@@ -11295,7 +11295,19 @@ func _on_store_sku_pressed(sku: Dictionary) -> void:
 		if not bool(spend_result.get("ok", false)):
 			status_label.text = _honey_purchase_failure_text(spend_result, title, price_honey)
 			return
-		var grant_result: Dictionary = _grant_entitlements(entitlements, "store_sku:%s" % sku_id)
+		var grant_result: Dictionary = {}
+		if str(spend_result.get("authority", "")) == "platform":
+			_sync_entitlements_from_profile()
+			var granted: Array[String] = []
+			var granted_any: Variant = spend_result.get("granted_entitlements", [])
+			if typeof(granted_any) == TYPE_ARRAY:
+				for flag_any in granted_any as Array:
+					var clean_flag: String = str(flag_any).strip_edges()
+					if clean_flag != "":
+						granted.append(clean_flag)
+			grant_result = {"ok": true, "granted": granted, "store_entitlements": _store_owned_entitlements.duplicate(true)}
+		else:
+			grant_result = _grant_entitlements(entitlements, "store_sku:%s" % sku_id)
 		_update_store_prefs_visibility(str(sku.get("category", "")))
 		_populate_store_category(str(sku.get("category", "")))
 		_refresh_dash_account_snapshot()

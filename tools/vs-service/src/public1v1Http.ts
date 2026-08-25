@@ -2,10 +2,11 @@ import crypto from "node:crypto";
 import type { Request, Response } from "express";
 import { config } from "./config.js";
 import { DurableCoreError, type JsonRecord } from "./repositories/durableCore.js";
-import { getCrucibleSettlementRepository, getPublic1v1Repository } from "./repositories/durableCoreRuntime.js";
+import { getPlatformEconomyDeliveryRepository, getPublic1v1Repository } from "./repositories/durableCoreRuntime.js";
 import type { Public1v1Policy, Public1v1QueueResult, PublicDuelQueueMode } from "./repositories/public1v1.js";
 import { bearerPlayerToken, PlayerAuthError, verifyPlayerToken } from "./playerAuth.js";
 import { requirePublicRollout } from "./publicModesOpsHttp.js";
+import { processOnePlatformEconomyDelivery, reserveCrucibleMatch } from "./platformEconomyProcessor.js";
 
 const ACTIONS = new Set([
   "poll_public_1v1", "cancel_public_1v1", "get_public_1v1_session",
@@ -56,8 +57,8 @@ export async function handleDurablePublic1v1Action(
         if (modeId === "CRUCIBLE_1V1") {
           await requirePublicRollout("enable_crucible_wax_settlement", text(req.body?.client_build),
             "crucible_wax_settlement_disabled");
-          if (await getCrucibleSettlementRepository().balance(authenticated.playerId) < 1000) {
-            throw new DurableCoreError("insufficient_wax");
+          if (!config.enablePlatformEconomyDelivery || !config.economyEpoch) {
+            throw new DurableCoreError("platform_economy_delivery_disabled");
           }
         }
         const result = await repository.enqueue({
@@ -73,8 +74,8 @@ export async function handleDurablePublic1v1Action(
           policy
         });
         if (modeId === "CRUCIBLE_1V1" && result.ticket.matchId) {
-          await getCrucibleSettlementRepository().openEscrow(result.ticket.matchId,
-            `match:${result.ticket.matchId}:open`, nowIso);
+          const reserved = await reserveCrucibleMatch(result.ticket.matchId, nowIso);
+          if (!reserved) throw new DurableCoreError("crucible_reservations_pending");
         }
         respondQueue(res, result);
         return true;
@@ -133,8 +134,17 @@ export async function handleDurablePublic1v1Action(
         return true;
       }
       case "leave_public_1v1": {
+        const matchId = text(req.body?.match_id ?? req.body?.session_id);
+        const before = await repository.getSession(matchId, authenticated.playerId);
         const session = await repository.leave(lifecycle(req, authenticated.playerId, requestKey(req), nowIso),
           config.public1v1ReconnectGraceSec);
+        if (text(record(before.context).mode_id) === "CRUCIBLE_1V1" && text(session.status) === "CANCELLED") {
+          const deliveries = getPlatformEconomyDeliveryRepository();
+          await deliveries.enqueueCrucibleCancellationRefund(matchId, config.economyEpoch,
+            "match_cancelled_before_start", nowIso);
+          await processOnePlatformEconomyDelivery(`crucible-refund:${matchId}`, new Date().toISOString(),
+            { matchId, operation: "CRUCIBLE_REFUND" });
+        }
         ok(res, { session, session_id: session.session_id });
         return true;
       }
@@ -255,7 +265,8 @@ function statusFor(code: string): number {
     "public_ctf_disabled", "public_hctf_disabled", "human_hctf_secrecy_not_certified",
     "ctf_bot_fallback_disabled", "public_crucible_disabled", "crucible_wax_settlement_disabled",
     "public_3p_ffa_disabled", "public_2v2_disabled", "public_4p_ffa_disabled",
-    "postgres_multiseat_store_required"].includes(code)) return 503;
+    "postgres_multiseat_store_required", "platform_economy_delivery_disabled"].includes(code)) return 503;
+  if (code === "crucible_reservations_pending") return 409;
   if (code === "insufficient_wax") return 402;
   return 400;
 }

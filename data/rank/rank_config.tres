@@ -2,7 +2,7 @@
 
 [resource]
 enabled = true
-base_gain = 100.0
+base_gain = 0.0
 opponent_strength_exponent = 0.6
 opponent_strength_min = 0.6
 opponent_strength_max = 1.6
@@ -45,7 +45,7 @@ mode_modifiers = {
 }
 inactivity_grace_days = 14
 daily_decay_rate = 0.0075
-wax_floor = 100.0
+wax_floor = 0.0
 players_per_tier_to_unlock = 300
 full_open_top_tier_weight = 1.0
 full_open_middle_weight_multiplier_vs_top = 1.25

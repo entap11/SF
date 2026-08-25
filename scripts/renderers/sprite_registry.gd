@@ -3,6 +3,7 @@ extends Node
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const HiveGrowthRules := preload("res://scripts/sim/hive_growth_rules.gd")
+const StartupHitchDiagnosticScript := preload("res://scripts/dev/startup_hitch_diagnostic.gd")
 
 const DEFAULT_MANIFEST_PATH := "res://assets/sprites/sf_skin_v1/skin_manifest.json"
 
@@ -114,20 +115,60 @@ func get_tex(key: String) -> Texture2D:
 func prewarm_hive_textures() -> void:
 	if _hive_textures_prewarmed:
 		return
+	var probe_active: bool = _startup_hitch_mark_once("sprite_registry_hive_prewarm_started", {
+		"manifest_loaded_before": _loaded,
+		"texture_cache_entries_before": _textures_by_key.size(),
+		"alpha_cache_entries_before": _tex_alpha_cache.size()
+	})
 	_hive_textures_prewarmed = true
-	_ensure_loaded()
 	var start_us: int = Time.get_ticks_usec()
+	_ensure_loaded()
 	var loaded_count: int = 0
+	var key_index: int = 0
 	for tier_key in ["small", "med", "large"]:
 		for owner_key_value in ["neutral", "p1", "p2", "p3", "p4"]:
+			key_index += 1
 			var key := "hive.%s.%s" % [tier_key, owner_key_value]
-			if get_tex(key) != null:
+			var key_started_usec: int = Time.get_ticks_usec()
+			var alpha_cache_entries_before: int = _tex_alpha_cache.size()
+			var texture: Texture2D = get_tex(key)
+			var key_duration_ms: float = float(Time.get_ticks_usec() - key_started_usec) / 1000.0
+			if texture != null:
 				loaded_count += 1
+			if probe_active:
+				_startup_hitch_mark_once("sprite_registry_hive_prewarm_key_%02d_completed" % key_index, {
+					"key": key,
+					"duration_ms": snappedf(key_duration_ms, 0.001),
+					"texture_available": texture != null,
+					"texture_path": get_tex_path(key),
+					"texture_size": Vector2i(texture.get_width(), texture.get_height()) if texture != null else Vector2i.ZERO,
+					"alpha_cache_entries_before": alpha_cache_entries_before,
+					"alpha_cache_entries_after": _tex_alpha_cache.size()
+				})
+	var duration_ms: float = float(Time.get_ticks_usec() - start_us) / 1000.0
 	SFLog.info("SPRITE_REGISTRY_HIVE_PREWARM", {
 		"keys": loaded_count,
 		"alpha_cache_entries": _tex_alpha_cache.size(),
-		"ms": float(Time.get_ticks_usec() - start_us) / 1000.0
+		"ms": duration_ms
 	})
+	if probe_active:
+		_startup_hitch_mark_once("sprite_registry_hive_prewarm_completed", {
+			"duration_ms": snappedf(duration_ms, 0.001),
+			"keys_attempted": key_index,
+			"keys_available": loaded_count,
+			"texture_cache_entries_after": _textures_by_key.size(),
+			"alpha_cache_entries_after": _tex_alpha_cache.size()
+		})
+
+func _startup_hitch_mark_once(marker_name: String, detail: Dictionary = {}) -> bool:
+	return StartupHitchDiagnosticScript.mark_tree_event_once(_startup_hitch_tree(), marker_name, detail)
+
+func _startup_hitch_tree() -> SceneTree:
+	var tree: SceneTree = get_tree()
+	if tree != null:
+		return tree
+	var main_loop: MainLoop = Engine.get_main_loop()
+	return main_loop as SceneTree if main_loop is SceneTree else null
 
 func get_tex_path(key: String) -> String:
 	_ensure_loaded()
@@ -141,12 +182,11 @@ func _ensure_alpha(tex: Texture2D, key: String) -> Texture2D:
 	var colorkey: Dictionary = get_colorkey(key)
 	var colorkey_enabled: bool = bool(colorkey.get("enabled", false))
 	var auto_key_white: bool = _should_auto_key_white(key)
+	if not colorkey_enabled and not auto_key_white:
+		return tex
 	var cache_key: String = _alpha_cache_key(tex, key, colorkey, auto_key_white)
 	if _tex_alpha_cache.has(cache_key):
 		return _tex_alpha_cache[cache_key]
-	if not colorkey_enabled and not auto_key_white:
-		_tex_alpha_cache[cache_key] = tex
-		return tex
 
 	var img: Image = tex.get_image()
 	if img == null:

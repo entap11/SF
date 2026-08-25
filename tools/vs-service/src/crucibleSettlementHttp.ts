@@ -19,27 +19,9 @@ export async function handleCrucibleSettlementAction(action: string, req: Reques
       requireToken(req, config.adminToken, "admin_auth_required");
       ok(res, { metrics: await repository.metrics() }); return true;
     }
-    if (action === "set_public_crucible_balance") {
-      requireToken(req, config.adminToken, "admin_auth_required");
-      ok(res, await repository.setPlayerBalance(text(req.body?.player_id), integer(req.body?.balance_millis),
-        requestKey(req), nowIso)); return true;
-    }
-    await requirePublicRollout("enable_crucible_wax_settlement", null, "crucible_wax_settlement_disabled");
-    if (action === "refund_public_crucible" || action === "reverse_public_crucible_settlement") {
-      requireToken(req, config.adminToken, "admin_auth_required");
-      const matchId = text(req.body?.match_id); const reason = text(req.body?.reason) || "ops_correction";
-      ok(res, action === "refund_public_crucible"
-        ? await repository.refund(matchId, reason, requestKey(req), nowIso)
-        : await repository.reverseSettlement(matchId, reason, requestKey(req), nowIso));
-      return true;
-    }
-    requireToken(req, config.matchAuthorityToken, "match_authority_required");
-    await requirePublicRollout("enable_public_crucible", null, "public_crucible_disabled");
-    if (action === "open_public_crucible_escrow") {
-      ok(res, await repository.openEscrow(text(req.body?.match_id), requestKey(req), nowIso)); return true;
-    }
-    ok(res, await repository.settleVerified(text(req.body?.match_id), text(req.body?.result_id), requestKey(req), nowIso));
-    return true;
+    // The VS ledger is retained for historical reconciliation only. Platform is the
+    // sole Wax writer; no deployment flag or admin token may reactivate this path.
+    throw new DurableCoreError("platform_wax_authority_required");
   } catch (error) {
     if (error instanceof DurableCoreError) fail(res, error.code, status(error.code));
     else throw error;
@@ -64,6 +46,7 @@ function integer(value: unknown): number {
 function status(code: string): number {
   if (code.endsWith("_required")) return 401;
   if (code.includes("disabled")) return 503;
+  if (code === "platform_wax_authority_required") return 410;
   if (code.includes("not_found")) return 404;
   if (code.includes("already") || code.includes("not_open") || code.startsWith("idempotency_")) return 409;
   if (code === "insufficient_wax") return 402;

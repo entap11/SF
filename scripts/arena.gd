@@ -212,6 +212,9 @@ const PREMATCH_IDENTITY_CARD_FADE_SEC: float = 0.25
 const PREMATCH_HIVE_FOCUS_START_MS: int = 5250
 const PREMATCH_HIVE_PULSE_SEC: float = 0.42
 const PREMATCH_COUNTDOWN_RETURN_MS: int = 3000
+const PREMATCH_WARMUP_BUDGET_USEC: int = 1500
+const POST_START_WORK_DELAY_MS: int = 1200
+const POST_START_WORK_BUDGET_USEC: int = 1500
 const PREMATCH_HIVE_FOCUS_ZOOM_MULT: float = 1.45
 const PREMATCH_TEAM_BUFFER_ALPHA: float = 0.22
 const MM_BACKGROUND_ART_TEXTURE: Texture2D = preload("res://assets/sprites/sf_skin_v1/mm_back_art.png")
@@ -246,6 +249,7 @@ var input_system: InputSystem
 var debug_system: DebugSystem
 var audio_system: AudioSystem
 var _prematch_countdown_sfx_player: AudioStreamPlayer = null
+var _prematch_countdown_stream: AudioStream = null
 var _tower_shot_sfx_counts: Dictionary = {}
 var _tower_shot_sfx_stream: AudioStream = null
 var _swarm_sfx_stream: AudioStream = null
@@ -366,6 +370,7 @@ var _tutorial_section2_controller: ArenaTutorialSection2Controller = ArenaTutori
 var _tutorial_section3_controller: ArenaTutorialSection3Controller = ArenaTutorialSection3Controller.new()
 var _prematch_remaining_ms_f: float = 0.0
 var _prematch_last_sec: int = -1
+var _prematch_countdown_sfx_started: bool = false
 var _prematch_records_faded: bool = false
 var _prematch_countdown_faded: bool = false
 var _power_bar_reveal_started: bool = false
@@ -548,6 +553,10 @@ var _dbg_last_event: String = ""
 var _dbg_last_event_ms: int = 0
 var _dbg_last_hitch_ms: int = 0
 var _render_assets_prewarmed: bool = false
+var _startup_readiness_initialized: bool = false
+var _prematch_warmup_tasks: Array[Dictionary] = []
+var _post_start_work_tasks: Array[Dictionary] = []
+var _post_start_work_not_before_msec: int = 0
 var _hb_last_ms: int = 0
 var _hb_frames: int = 0
 var _hb_max_frame_ms: float = 0.0
@@ -576,9 +585,14 @@ var _lifecycle_local_pause_active: bool = false
 var _lifecycle_local_pause_sim_was_running: bool = false
 var _lifecycle_local_pause_reason: String = ""
 
+func _enter_tree() -> void:
+	_startup_hitch_mark("arena_enter_tree")
+
+
 func _ready() -> void:
 	if Engine.is_editor_hint():
 		return
+	_startup_hitch_mark("arena_ready_entered")
 	_buff_presentation_epoch = "%d:%d" % [get_instance_id(), Time.get_ticks_usec()]
 	_restore_buff_activation_runtime_state()
 	_allow_camfit_log_tags()
@@ -639,6 +653,7 @@ func _ready() -> void:
 	})
 	SFLog.trace("CURRENT CAMERA", {"camera": get_viewport().get_camera_2d()})
 	await get_tree().process_frame
+	_startup_hitch_mark_once("arena_ready_continuation_started")
 	var cam := $Camera2D
 	var vcam := get_viewport().get_camera_2d()
 	SFLog.trace("ARENA CAM", {"arena_cam": cam, "viewport_cam": vcam})
@@ -683,9 +698,7 @@ func _ready() -> void:
 	# before the simulation is allowed to run.
 	_ensure_timer_hud()
 	_ensure_progressive_counter_hud()
-	call_deferred("_ensure_in_game_ad_surface")
-	call_deferred("_ensure_runtime_telemetry_overlay")
-	call_deferred("_ensure_pvp_debug_overlay")
+	_prepare_post_start_work()
 	_configure_grid_spec(grid_w, grid_h)
 	_map_bounds_size = Vector2.ZERO
 	var arena_scale: Vector2 = global_transform.get_scale()
@@ -700,13 +713,60 @@ func _ready() -> void:
 	call_deferred("_start_match_flow_deferred")
 	_log_fit_state("ready")
 	mark_render_dirty("ready")
+	var startup_scan_started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_post_add_map_like_scan_started")
 	_dump_map_like_nodes("after_clear_ready")
+	_startup_hitch_callback_completed("arena_post_add_map_like_scan", startup_scan_started_usec)
+	startup_scan_started_usec = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_post_add_name_scan_started")
 	_debug_scan_names()
+	_startup_hitch_callback_completed("arena_post_add_name_scan", startup_scan_started_usec)
+	startup_scan_started_usec = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_post_add_renderer_scan_started")
 	_dump_map_renderers("boot")
+	_startup_hitch_callback_completed("arena_post_add_renderer_scan", startup_scan_started_usec)
+	startup_scan_started_usec = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_post_add_viewport_texture_scan_started")
 	_dump_viewports_and_textures()
+	_startup_hitch_callback_completed("arena_post_add_viewport_texture_scan", startup_scan_started_usec)
+	startup_scan_started_usec = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_post_add_script_tree_scan_started")
 	_dump_tree_with_scripts("/root/DevMapRunner")
+	_startup_hitch_callback_completed("arena_post_add_script_tree_scan", startup_scan_started_usec)
 	# (moved to top of _ready())
+	startup_scan_started_usec = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_post_add_canvas_script_scan_started")
 	_list_canvasitems_with_scripts("/root/DevMapRunner/Arena")
+	_startup_hitch_callback_completed("arena_post_add_canvas_script_scan", startup_scan_started_usec)
+	_startup_hitch_mark("arena_ready_completed")
+	_startup_readiness_initialized = true
+
+
+func _startup_hitch_diagnostic() -> Node:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return null
+	var nodes: Array[Node] = tree.get_nodes_in_group(&"startup_hitch_diagnostic")
+	return nodes.back() if not nodes.is_empty() else null
+
+
+func _startup_hitch_mark(marker_name: String, detail: Dictionary = {}) -> void:
+	var diagnostic: Node = _startup_hitch_diagnostic()
+	if diagnostic != null and diagnostic.has_method("mark_event"):
+		diagnostic.call("mark_event", marker_name, detail)
+
+
+func _startup_hitch_mark_once(marker_name: String, detail: Dictionary = {}) -> void:
+	var diagnostic: Node = _startup_hitch_diagnostic()
+	if diagnostic != null and diagnostic.has_method("mark_once"):
+		diagnostic.call("mark_once", marker_name, detail)
+
+
+func _startup_hitch_callback_completed(marker_prefix: String, started_usec: int, outcome: String = "completed") -> void:
+	_startup_hitch_mark_once("%s_completed" % marker_prefix, {
+		"duration_ms": snappedf(float(Time.get_ticks_usec() - started_usec) / 1000.0, 0.001),
+		"outcome": outcome
+	})
 
 func _configure_map_hex_background() -> void:
 	_ensure_map_mm_background_art()
@@ -952,11 +1012,17 @@ func restart_match_flow_for_shell_launch() -> void:
 	_start_match_flow()
 
 func _start_match_flow_deferred() -> void:
+	_startup_hitch_mark_once("arena_deferred_match_flow_scheduled")
 	await get_tree().process_frame
+	_startup_hitch_mark_once("arena_deferred_match_flow_first_frame_resumed")
 	await get_tree().process_frame
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_match_flow_second_frame_resumed")
 	if not is_inside_tree():
+		_startup_hitch_callback_completed("arena_deferred_match_flow", started_usec, "outside_tree")
 		return
 	_start_match_flow()
+	_startup_hitch_callback_completed("arena_deferred_match_flow", started_usec)
 
 func _apply_tutorial_low_pressure_scenario() -> void:
 	if OpsState == null or not OpsState.has_method("set_bot_profile"):
@@ -1563,7 +1629,8 @@ func _begin_prematch() -> void:
 		"phase": int(OpsState.match_phase),
 		"ms": int(OpsState.prematch_remaining_ms)
 	})
-	_play_prematch_countdown_sfx()
+	_prepare_prematch_countdown_sfx()
+	_prematch_countdown_sfx_started = false
 	_prematch_last_sec = -1
 	_prematch_records_faded = false
 	_prematch_countdown_faded = false
@@ -1573,6 +1640,7 @@ func _begin_prematch() -> void:
 	_prematch_countdown_return_started = false
 	_power_bar_reveal_started = false
 	_clear_prematch_pulses()
+	_prepare_prematch_warmup_tasks()
 	_apply_team_orientation_buffers()
 	_show_prematch_ui()
 	if sim_runner != null:
@@ -1584,8 +1652,8 @@ func _begin_prematch() -> void:
 func _play_prematch_countdown_sfx() -> void:
 	if not _is_game_sfx_enabled():
 		return
-	var stream: AudioStream = load(PREMATCH_COUNTDOWN_SOUND_PATH) as AudioStream
-	if stream == null:
+	_prepare_prematch_countdown_sfx()
+	if _prematch_countdown_stream == null:
 		if SFLog.LOGGING_ENABLED:
 			push_warning("PREMATCH_COUNTDOWN_SOUND_MISSING: " + PREMATCH_COUNTDOWN_SOUND_PATH)
 		return
@@ -1594,8 +1662,13 @@ func _play_prematch_countdown_sfx() -> void:
 		_prematch_countdown_sfx_player.name = "PrematchCountdownSfxPlayer"
 		add_child(_prematch_countdown_sfx_player)
 	_prematch_countdown_sfx_player.stop()
-	_prematch_countdown_sfx_player.stream = stream
+	_prematch_countdown_sfx_player.stream = _prematch_countdown_stream
 	_prematch_countdown_sfx_player.play()
+
+func _prepare_prematch_countdown_sfx() -> void:
+	if _prematch_countdown_stream != null or not _is_game_sfx_enabled():
+		return
+	_prematch_countdown_stream = load(PREMATCH_COUNTDOWN_SOUND_PATH) as AudioStream
 
 func _is_game_sfx_enabled() -> bool:
 	var tree: SceneTree = get_tree()
@@ -3364,8 +3437,11 @@ func _layout_prematch_ad_surface() -> void:
 	_prematch_ad_surface.size = ad_size
 
 func _ensure_in_game_ad_surface() -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_in_game_ad_started")
 	var hud_root: Control = _resolve_hud_root()
 	if hud_root == null:
+		_startup_hitch_callback_completed("arena_deferred_in_game_ad", started_usec, "missing_hud_root")
 		return
 	if _in_game_ad_surface == null or not is_instance_valid(_in_game_ad_surface):
 		var existing: Node = hud_root.get_node_or_null("InGameHudAdSurface")
@@ -3374,6 +3450,7 @@ func _ensure_in_game_ad_surface() -> void:
 		else:
 			var created_any: Variant = AdSurfaceScript.new()
 			if not (created_any is Control):
+				_startup_hitch_callback_completed("arena_deferred_in_game_ad", started_usec, "invalid_surface")
 				return
 			_in_game_ad_surface = created_any as Control
 			_in_game_ad_surface.name = "InGameHudAdSurface"
@@ -3384,6 +3461,7 @@ func _ensure_in_game_ad_surface() -> void:
 	_in_game_ad_surface.z_index = IN_GAME_AD_HUD_Z_INDEX
 	_layout_in_game_ad_surface()
 	_snap_power_bar_to_map_top("in_game_ad_surface_ready")
+	_startup_hitch_callback_completed("arena_deferred_in_game_ad", started_usec)
 
 func _layout_in_game_ad_surface() -> void:
 	if _in_game_ad_surface == null:
@@ -4319,6 +4397,12 @@ func _display_name_for_seat(seat: int, uid: String, is_cpu: bool) -> String:
 func _update_prematch_flow(delta: float) -> void:
 	if OpsState.match_phase != OpsState.MatchPhase.PREMATCH:
 		return
+	if _match_loading_cover_holds_countdown():
+		return
+	if not _prematch_countdown_sfx_started:
+		_prematch_countdown_sfx_started = true
+		_play_prematch_countdown_sfx()
+	_run_prematch_warmup_budget()
 	_prematch_remaining_ms_f = max(0.0, _prematch_remaining_ms_f - delta * 1000.0)
 	OpsState.sim_mutate("Arena._update_prematch_flow", func() -> void:
 		OpsState.set_prematch_remaining_ms(int(ceil(_prematch_remaining_ms_f)), "Arena._update_prematch_flow")
@@ -4355,7 +4439,7 @@ func _update_prematch_flow(delta: float) -> void:
 	# Apply one final fit during prematch so RUNNING does not need a visible camera correction.
 	if _prematch_remaining_ms_f <= float(PREMATCH_UI_CROSSFADE_MS) and not _prematch_final_fit_requested:
 		_prematch_final_fit_requested = true
-	if _prematch_remaining_ms_f <= 0.0 and not _prematch_countdown_faded:
+	if _prematch_remaining_ms_f <= 0.0 and _prematch_warmup_tasks.is_empty() and not _prematch_countdown_faded:
 		_prematch_countdown_faded = true
 		_fade_prematch_countdown()
 
@@ -4396,6 +4480,7 @@ func _finish_prematch() -> void:
 		_audit_ops_write("input_locked_reason", "Arena._finish_prematch")
 		OpsState.input_locked_reason = ""
 	)
+	_startup_hitch_mark("prematch_completed")
 	if _prematch_overlay != null:
 		_prematch_overlay.visible = false
 	if _prematch_identity_card != null:
@@ -4403,6 +4488,8 @@ func _finish_prematch() -> void:
 	_clear_prematch_pulses()
 	_arm_camera_transition_lock("prematch_to_running")
 	_start_match_sim("prematch_complete")
+	_arm_post_start_work()
+	_startup_hitch_mark("player_input_unlocked")
 	SFLog.warn("INPUT_UNLOCKED", {"reason": "prematch_complete"})
 
 func _begin_power_bar_reveal() -> void:
@@ -4415,11 +4502,99 @@ func _prewarm_render_assets() -> void:
 	_render_assets_prewarmed = true
 	var prewarm_t0_us: int = Time.get_ticks_usec()
 	if unit_renderer != null and unit_renderer.has_method("prewarm_pool"):
+		_startup_hitch_mark("unit_pool_prewarm_started")
 		unit_renderer.call("prewarm_pool")
+		_startup_hitch_mark("unit_pool_prewarm_completed", {
+			"pool": unit_renderer.call("get_pool_telemetry_snapshot") if unit_renderer.has_method("get_pool_telemetry_snapshot") else {}
+		})
 	if vfx_manager != null and vfx_manager.has_method("prewarm"):
+		_startup_hitch_mark("vfx_pool_prewarm_started")
 		vfx_manager.call("prewarm")
+		_startup_hitch_mark("vfx_pool_prewarm_completed", {
+			"pool": vfx_manager.call("get_pool_telemetry_snapshot") if vfx_manager.has_method("get_pool_telemetry_snapshot") else {}
+		})
 	var duration_ms: float = float(Time.get_ticks_usec() - prewarm_t0_us) / 1000.0
 	_publish_pool_runtime_telemetry({"match_prewarm_duration_ms": snappedf(duration_ms, 0.01)})
+
+func is_startup_readiness_complete() -> bool:
+	return bool(startup_readiness_snapshot().get("ready", false))
+
+func startup_readiness_snapshot() -> Dictionary:
+	var registry: SpriteRegistry = SpriteRegistry.get_instance()
+	var hive_textures_ready: bool = registry != null and bool(registry.get("_hive_textures_prewarmed"))
+	var map_ready: bool = state != null and state.hives != null and not state.hives.is_empty()
+	return {
+		"ready": _startup_readiness_initialized and _render_assets_prewarmed and hive_textures_ready and map_ready,
+		"arena_initialized": _startup_readiness_initialized,
+		"render_pools_ready": _render_assets_prewarmed,
+		"hive_textures_ready": hive_textures_ready,
+		"map_ready": map_ready,
+		"prematch_warmup_tasks": _prematch_warmup_tasks.size(),
+	}
+
+func queue_prematch_warmup_task(task_id: String, task: Callable) -> void:
+	if task.is_valid():
+		_prematch_warmup_tasks.append({"id": task_id, "callable": task})
+
+func _prepare_prematch_warmup_tasks() -> void:
+	_prematch_warmup_tasks.clear()
+	if vfx_manager == null or not vfx_manager.has_method("take_prematch_warmup_tasks"):
+		return
+	var tasks_any: Variant = vfx_manager.call("take_prematch_warmup_tasks")
+	if typeof(tasks_any) != TYPE_ARRAY:
+		return
+	for task_any in tasks_any as Array:
+		if typeof(task_any) != TYPE_DICTIONARY:
+			continue
+		var task: Dictionary = task_any as Dictionary
+		queue_prematch_warmup_task(str(task.get("id", "vfx")), task.get("callable", Callable()) as Callable)
+
+func _run_prematch_warmup_budget() -> void:
+	if _prematch_warmup_tasks.is_empty():
+		return
+	var started_usec: int = Time.get_ticks_usec()
+	var task: Dictionary = _prematch_warmup_tasks.pop_front()
+	var callback: Callable = task.get("callable", Callable()) as Callable
+	if callback.is_valid():
+		callback.call()
+	_startup_hitch_mark("prematch_warmup_task_completed", {
+		"id": str(task.get("id", "")),
+		"duration_usec": Time.get_ticks_usec() - started_usec,
+		"budget_usec": PREMATCH_WARMUP_BUDGET_USEC,
+	})
+
+func _match_loading_cover_holds_countdown() -> bool:
+	var loading_coordinator: Node = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	return loading_coordinator != null \
+		and loading_coordinator.has_method("is_match_transition_active") \
+		and bool(loading_coordinator.call("is_match_transition_active"))
+
+func _prepare_post_start_work() -> void:
+	_post_start_work_tasks.clear()
+	queue_post_start_work("in_game_ad_surface", Callable(self, "_ensure_in_game_ad_surface"))
+	queue_post_start_work("runtime_telemetry_overlay", Callable(self, "_ensure_runtime_telemetry_overlay"))
+	queue_post_start_work("pvp_debug_overlay", Callable(self, "_ensure_pvp_debug_overlay"))
+
+func queue_post_start_work(task_id: String, task: Callable) -> void:
+	if task.is_valid():
+		_post_start_work_tasks.append({"id": task_id, "callable": task})
+
+func _arm_post_start_work() -> void:
+	_post_start_work_not_before_msec = Time.get_ticks_msec() + POST_START_WORK_DELAY_MS
+
+func _run_post_start_work_budget() -> void:
+	if _post_start_work_tasks.is_empty() or Time.get_ticks_msec() < _post_start_work_not_before_msec:
+		return
+	var started_usec: int = Time.get_ticks_usec()
+	var task: Dictionary = _post_start_work_tasks.pop_front()
+	var callback: Callable = task.get("callable", Callable()) as Callable
+	if callback.is_valid():
+		callback.call()
+	_startup_hitch_mark("post_start_work_completed", {
+		"id": str(task.get("id", "")),
+		"duration_usec": Time.get_ticks_usec() - started_usec,
+		"budget_usec": POST_START_WORK_BUDGET_USEC,
+	})
 
 func _publish_pool_runtime_telemetry(extra: Dictionary = {}) -> void:
 	if OpsState == null or not OpsState.has_method("update_runtime_telemetry"):
@@ -4469,6 +4644,7 @@ func _pool_runtime_telemetry_snapshot() -> Dictionary:
 func _start_match_sim(reason: String) -> void:
 	if _match_started:
 		return
+	_startup_hitch_mark("simulation_activation_requested", {"reason": reason})
 	_match_started = true
 	_post_match_analysis_summary.clear()
 	_post_match_stats_snapshot.clear()
@@ -7469,10 +7645,13 @@ func _on_viewport_size_changed() -> void:
 	_snap_power_bar_to_map_top("viewport_resize")
 
 func _resize_world_viewport() -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_world_viewport_resize_started")
 	var tree: SceneTree = get_tree()
 	var wvc: Control = _world_viewport_cache.resolve_container(tree) if _world_viewport_cache != null else null
 	var sv: SubViewport = _world_viewport_cache.resolve_subviewport(tree) if _world_viewport_cache != null else null
 	if wvc == null or sv == null:
+		_startup_hitch_callback_completed("arena_deferred_world_viewport_resize", started_usec, "missing_viewport")
 		return
 	var old_size: Vector2i = sv.size
 	var target: Vector2 = wvc.size
@@ -7485,6 +7664,7 @@ func _resize_world_viewport() -> void:
 		"sv_old": old_size,
 		"sv_new": new_size
 	})
+	_startup_hitch_callback_completed("arena_deferred_world_viewport_resize", started_usec)
 
 func _ensure_playfield_outline() -> PlayfieldOutline:
 	if is_instance_valid(_playfield_outline):
@@ -7987,9 +8167,12 @@ func _tick_arena_heartbeat(delta: float) -> void:
 func _tick_arena_runtime(delta: float) -> void:
 	_enforce_camera_transition_lock()
 	_update_prematch_flow(delta)
+	if OpsState.match_phase == OpsState.MatchPhase.RUNNING:
+		_run_post_start_work_budget()
 	if OpsState.match_phase == OpsState.MatchPhase.PREMATCH \
 	and int(OpsState.prematch_remaining_ms) <= 0 \
 	and _prematch_countdown_faded \
+	and _prematch_warmup_tasks.is_empty() \
 	and (_prematch_countdown_label == null or _prematch_countdown_label.modulate.a <= 0.01) \
 	and bool(OpsState.input_locked):
 		SFLog.warn("PREMATCH_WATCHDOG_FINISH", {
@@ -8235,6 +8418,39 @@ func _authoritative_runtime_counts_snapshot() -> Dictionary:
 		"units_by_lane_count": units_by_lane_count
 	}
 
+
+func startup_hitch_diagnostic_snapshot() -> Dictionary:
+	var authority_counts: Dictionary = _authoritative_runtime_counts_snapshot()
+	if state != null:
+		authority_counts["hive_count"] = state.hives.size()
+		authority_counts["tower_count"] = state.towers.size()
+		authority_counts["barracks_count"] = state.barracks.size()
+	else:
+		authority_counts["hive_count"] = 0
+		authority_counts["tower_count"] = 0
+		authority_counts["barracks_count"] = 0
+	authority_counts["projectile_count"] = null
+	authority_counts["projectile_count_availability"] = "not_exposed_by_authoritative_state"
+	return {
+		"presentation_visible": _startup_hitch_effectively_visible(),
+		"prematch_overlay_visible": _prematch_overlay != null and is_instance_valid(_prematch_overlay) and _prematch_overlay.visible,
+		"authority_counts": authority_counts,
+		"pool_telemetry": _pool_runtime_telemetry_snapshot(),
+		"shader_material_warmup_state": "completed" if _render_assets_prewarmed else "not_started"
+	}
+
+
+func _startup_hitch_effectively_visible() -> bool:
+	if not is_inside_tree() or not is_visible_in_tree():
+		return false
+	var alpha: float = 1.0
+	var current: Node = self
+	while current != null:
+		if current is CanvasItem:
+			alpha *= (current as CanvasItem).modulate.a
+		current = current.get_parent()
+	return alpha > 0.01
+
 func _runtime_telemetry_overlay_enabled() -> bool:
 	if not show_runtime_telemetry_overlay:
 		return false
@@ -8243,15 +8459,20 @@ func _runtime_telemetry_overlay_enabled() -> bool:
 	return OS.get_environment("SF_RUNTIME_TELEMETRY_OVERLAY").strip_edges() == "1"
 
 func _ensure_runtime_telemetry_overlay() -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_runtime_telemetry_started")
 	if not _runtime_telemetry_overlay_enabled():
 		if _runtime_telemetry_overlay != null and is_instance_valid(_runtime_telemetry_overlay):
 			_runtime_telemetry_overlay.visible = false
+		_startup_hitch_callback_completed("arena_deferred_runtime_telemetry", started_usec, "disabled")
 		return
 	if _runtime_telemetry_overlay != null and is_instance_valid(_runtime_telemetry_overlay):
 		_runtime_telemetry_overlay.visible = true
+		_startup_hitch_callback_completed("arena_deferred_runtime_telemetry", started_usec, "reused")
 		return
 	var parent: Control = _resolve_hud_root()
 	if parent == null:
+		_startup_hitch_callback_completed("arena_deferred_runtime_telemetry", started_usec, "missing_hud_root")
 		return
 	var panel := PanelContainer.new()
 	panel.name = "RuntimeTelemetryOverlay"
@@ -8287,6 +8508,7 @@ func _ensure_runtime_telemetry_overlay() -> void:
 	_runtime_telemetry_label = label
 	_position_runtime_telemetry_overlay()
 	_update_runtime_telemetry_overlay(true)
+	_startup_hitch_callback_completed("arena_deferred_runtime_telemetry", started_usec)
 
 func _position_runtime_telemetry_overlay() -> void:
 	if _runtime_telemetry_overlay == null or not is_instance_valid(_runtime_telemetry_overlay):
@@ -8295,17 +8517,23 @@ func _position_runtime_telemetry_overlay() -> void:
 	_runtime_telemetry_overlay.position = Vector2(12.0, top_px + 12.0)
 
 func _ensure_pvp_debug_overlay() -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_pvp_overlay_started")
 	if _pvp_debug_overlay != null and is_instance_valid(_pvp_debug_overlay):
+		_startup_hitch_callback_completed("arena_deferred_pvp_overlay", started_usec, "reused")
 		return
 	var parent: Node = _resolve_pvp_debug_overlay_parent()
 	if parent == null:
+		_startup_hitch_callback_completed("arena_deferred_pvp_overlay", started_usec, "missing_parent")
 		return
 	var existing: Control = parent.get_node_or_null("PvpDebugOverlay") as Control
 	if existing != null:
 		_pvp_debug_overlay = existing
+		_startup_hitch_callback_completed("arena_deferred_pvp_overlay", started_usec, "reused")
 		return
 	var overlay_any: Variant = PvpDebugOverlayScript.new()
 	if not (overlay_any is Control):
+		_startup_hitch_callback_completed("arena_deferred_pvp_overlay", started_usec, "invalid_overlay")
 		return
 	var overlay: Control = overlay_any as Control
 	overlay.name = "PvpDebugOverlay"
@@ -8319,6 +8547,7 @@ func _ensure_pvp_debug_overlay() -> void:
 	overlay.z_index = 4095
 	parent.add_child(overlay)
 	_pvp_debug_overlay = overlay
+	_startup_hitch_callback_completed("arena_deferred_pvp_overlay", started_usec)
 
 func _resolve_pvp_debug_overlay_parent() -> Node:
 	var hud_root: Control = _resolve_hud_root()
@@ -8523,14 +8752,19 @@ func mark_render_dirty(reason: String = "") -> void:
 		queue_redraw()
 
 func _debug_camera(tag: String) -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_debug_camera_started", {"tag": tag})
 	if debug_system == null:
+		_startup_hitch_callback_completed("arena_deferred_debug_camera", started_usec, "missing_debug_system")
 		return
 	var v := get_viewport()
 	if v == null:
+		_startup_hitch_callback_completed("arena_deferred_debug_camera", started_usec, "missing_viewport")
 		return
 	var active := v.get_camera_2d()
 	var ours: Camera2D = camera if camera != null else $Camera2D
 	if ours == null:
+		_startup_hitch_callback_completed("arena_deferred_debug_camera", started_usec, "missing_camera")
 		return
 	debug_system.debug_camera(
 		tag,
@@ -8540,6 +8774,7 @@ func _debug_camera(tag: String) -> void:
 		ours.global_position,
 		ours.zoom
 	)
+	_startup_hitch_callback_completed("arena_deferred_debug_camera", started_usec)
 
 func _update_win_overlay() -> void:
 	if win_overlay == null:
@@ -8575,12 +8810,16 @@ func cam_set(tag: String, pos: Vector2, zoom: Vector2) -> void:
 	SFLog.trace("CAM_SET", {"tag": tag, "pos": pos, "zoom": zoom})
 
 func _debug_scan_cameras() -> void:
+	_startup_hitch_mark_once("arena_deferred_camera_scan_scheduled")
 	await get_tree().process_frame
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_camera_scan_resumed")
 	var cams: Array = []
 	_scan_cameras(get_tree().root, cams)
 	SFLog.trace("CAMERA2D COUNT", {"count": cams.size()})
 	for c in cams:
 		SFLog.trace(" - ", {"path": _node_path_for_log(c), "current": c.is_current(), "enabled": c.enabled})
+	_startup_hitch_callback_completed("arena_deferred_camera_scan", started_usec)
 
 func _scan_cameras(node: Node, out: Array) -> void:
 	if node is Camera2D:
@@ -9095,20 +9334,27 @@ func apply_camera_fit_next_frame(reason: String = "") -> void:
 	call_deferred("_apply_camera_fit_deferred", reason, _camera_fit_request_serial)
 
 func _apply_camera_fit_deferred(reason: String, request_serial: int) -> void:
+	var marker_prefix: String = "arena_deferred_camera_fit_%02d" % request_serial
+	_startup_hitch_mark("%s_scheduled" % marker_prefix, {"reason": reason})
 	await get_tree().process_frame
+	_startup_hitch_mark("%s_first_frame_resumed" % marker_prefix, {"reason": reason})
 	await get_tree().process_frame
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark("%s_second_frame_resumed" % marker_prefix, {"reason": reason})
 	if request_serial != _camera_fit_request_serial:
 		SFLog.warn("CAMFIT_DEFER_DROP", {
 			"reason": reason,
 			"request_serial": request_serial,
 			"latest_serial": _camera_fit_request_serial
 		})
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "superseded")
 		return
 	SFLog.warn("CAMFIT_DEFER_APPLY", {
 		"reason": reason,
 		"request_serial": request_serial
 	})
 	apply_camera_fit(reason)
+	_startup_hitch_callback_completed(marker_prefix, started_usec)
 
 func apply_camera_fit(reason: String = "") -> bool:
 	if not _camera_fit_reason_allowed(reason):
@@ -9203,8 +9449,11 @@ func _apply_canon_camera_fit(tag: String) -> void:
 	apply_camera_fit(tag)
 
 func _fit_camera_to_viewport(tag: String = "fitcam", forced_bounds_world: Rect2 = Rect2(), forced_playfield_rect_px: Rect2 = Rect2()) -> bool:
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_main_camera_fit_started", {"tag": tag})
 	var cam: Camera2D = camera if camera != null else $Camera2D
 	if cam == null:
+		_startup_hitch_callback_completed("arena_deferred_main_camera_fit", started_usec, "missing_camera")
 		return false
 	var arena_rect: Rect2 = _arena_rect()
 	var arena_size: Vector2 = arena_rect.size
@@ -9221,6 +9470,7 @@ func _fit_camera_to_viewport(tag: String = "fitcam", forced_bounds_world: Rect2 
 	var world_px: Vector2 = map_bounds.size if map_bounds.size.x > 1.0 and map_bounds.size.y > 1.0 else Vector2(float(grid_w_local) * cell_px, float(grid_h_local) * cell_px)
 	var vp: Viewport = cam.get_viewport()
 	if vp == null:
+		_startup_hitch_callback_completed("arena_deferred_main_camera_fit", started_usec, "missing_viewport")
 		return false
 	var vp_size: Vector2 = vp.get_visible_rect().size
 	var cam_vp: Viewport = cam.get_viewport()
@@ -9241,10 +9491,13 @@ func _fit_camera_to_viewport(tag: String = "fitcam", forced_bounds_world: Rect2 
 		if container_size.x > 0.0 and container_size.y > 0.0:
 			visible_vp_size = container_size
 	if arena_size.x <= 0.0 or arena_size.y <= 0.0:
+		_startup_hitch_callback_completed("arena_deferred_main_camera_fit", started_usec, "invalid_arena_size")
 		return false
 	if vp_size.x <= 0.0 or vp_size.y <= 0.0:
+		_startup_hitch_callback_completed("arena_deferred_main_camera_fit", started_usec, "invalid_viewport_size")
 		return false
 	if visible_vp_size.x <= 0.0 or visible_vp_size.y <= 0.0:
+		_startup_hitch_callback_completed("arena_deferred_main_camera_fit", started_usec, "invalid_visible_size")
 		return false
 	var ui_insets: Dictionary = _ui_vertical_insets_px()
 	var top_ui_inset_px: float = float(ui_insets.get("top", 0.0))
@@ -9305,6 +9558,7 @@ func _fit_camera_to_viewport(tag: String = "fitcam", forced_bounds_world: Rect2 
 				"z": z_h,
 				"cam_zoom_now": cam.zoom
 			})
+			_startup_hitch_callback_completed("arena_deferred_main_camera_fit", started_usec, "fit_height")
 			return true
 	var pad: float = maxf(0.0, cam_fit_pad_px)
 	var vp_fit: Vector2 = Vector2(
@@ -9400,6 +9654,7 @@ func _fit_camera_to_viewport(tag: String = "fitcam", forced_bounds_world: Rect2 
 		"z": zoom_scalar,
 		"cam_zoom_now": cam.zoom
 	})
+	_startup_hitch_callback_completed("arena_deferred_main_camera_fit", started_usec)
 	return true
 
 func _sf_camfit_late_probe(cam: Camera2D, expected: Vector2) -> void:
@@ -9428,7 +9683,10 @@ func _nearest_canvas_layer(n: Node) -> CanvasLayer:
 	return null
 
 func _debug_canvas_space() -> void:
+	_startup_hitch_mark_once("arena_deferred_canvas_scan_scheduled")
 	await get_tree().process_frame
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark_once("arena_deferred_canvas_scan_resumed")
 	var lr := $MapRoot/LaneRenderer
 	var hr := $MapRoot/HiveRenderer
 	var lr_cl := _nearest_canvas_layer(lr)
@@ -9441,6 +9699,7 @@ func _debug_canvas_space() -> void:
 		"under": hr_cl != null,
 		"layer": hr_cl.layer if hr_cl else -999
 	})
+	_startup_hitch_callback_completed("arena_deferred_canvas_scan", started_usec)
 
 func _log_fit_state(tag: String) -> void:
 	if debug_system == null:

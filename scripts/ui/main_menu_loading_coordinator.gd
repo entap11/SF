@@ -7,6 +7,23 @@ const DEFAULT_EYE_FADE_SECONDS: float = 0.55
 const DEFAULT_EYE_FINAL_BRIGHTEN_SECONDS: float = 0.1
 const EYE_CRUISE_ALPHA: float = 0.9
 const EYE_LOADING_HANDOFF_ALPHA: float = 0.5
+const PREPARATION_MESSAGE_SECONDS: float = 1.45
+const PREPARATION_MESSAGES: PackedStringArray = [
+	"Prepping the arena...",
+	"Charging the bees...",
+	"Lighting up the hives...",
+	"Calibrating flight paths...",
+	"Polishing the power grid...",
+	"Briefing the swarm...",
+	"Cutting the grass... just kidding, there is no grass.",
+	"Checking every tiny helmet...",
+]
+const PREPARATION_STAGE_MESSAGES: Dictionary = {
+	"scene": "Opening the arena gates...",
+	"map": "Laying out the battlefield...",
+	"render": "Lighting up the hives...",
+	"final": "Tightening the spring...",
+}
 
 @export_range(0.0, 5.0, 0.05) var minimum_visible_seconds: float = DEFAULT_MIN_VISIBLE_SECONDS
 @export_range(0.0, 2.0, 0.01) var fade_seconds: float = DEFAULT_FADE_SECONDS
@@ -17,32 +34,69 @@ const EYE_LOADING_HANDOFF_ALPHA: float = 0.5
 @onready var black: ColorRect = $Black
 @onready var signage: TextureRect = $Signage
 @onready var logo_eyes: TextureRect = $LogoEyes
+@onready var preparation_status: Label = $PreparationStatus
 
 var _active: bool = false
 var _shown_at_msec: int = 0
 var _transition_generation: int = 0
 var _fade_tween: Tween = null
 var _eye_fade_tween: Tween = null
+var _transition_kind: String = ""
+var _preparation_message_index: int = 0
+var _preparation_message_elapsed: float = 0.0
 
 func _ready() -> void:
 	process_mode = Node.PROCESS_MODE_ALWAYS
 	visible = false
 	_set_cover_alpha(1.0)
 	_set_logo_eyes_alpha(0.0)
+	_set_preparation_status_alpha(1.0)
+	preparation_status.visible = false
+	set_process(false)
+
+func _process(delta: float) -> void:
+	if not _active or _transition_kind != "match":
+		return
+	_preparation_message_elapsed += delta
+	if _preparation_message_elapsed < PREPARATION_MESSAGE_SECONDS:
+		return
+	_preparation_message_elapsed = 0.0
+	_preparation_message_index = (_preparation_message_index + 1) % PREPARATION_MESSAGES.size()
+	preparation_status.text = PREPARATION_MESSAGES[_preparation_message_index]
 
 func show_for_main_menu() -> void:
+	_show_transition("main_menu")
+
+func show_for_match_readiness() -> void:
+	_show_transition("match")
+
+func _show_transition(kind: String) -> void:
 	_transition_generation += 1
 	_cancel_fade()
 	_cancel_eye_fade()
 	_active = true
+	_transition_kind = kind
 	_shown_at_msec = Time.get_ticks_msec()
 	_set_cover_alpha(1.0)
 	_set_logo_eyes_alpha(0.0)
+	_set_preparation_status_alpha(1.0)
+	_preparation_message_index = 0
+	_preparation_message_elapsed = 0.0
+	preparation_status.text = PREPARATION_MESSAGES[0]
+	preparation_status.visible = kind == "match"
+	set_process(kind == "match")
 	visible = true
 	_begin_logo_eyes_fade(_transition_generation)
 
 func present_for_main_menu() -> void:
 	show_for_main_menu()
+	await _await_presented()
+
+func present_for_match_readiness() -> void:
+	show_for_match_readiness()
+	await _await_presented()
+
+func _await_presented() -> void:
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return
@@ -62,6 +116,12 @@ func present_for_main_menu() -> void:
 		await RenderingServer.frame_post_draw
 
 func release_after_main_menu_ready() -> void:
+	await _release_after_ready()
+
+func release_after_match_ready() -> void:
+	await _release_after_ready()
+
+func _release_after_ready() -> void:
 	if not _active:
 		return
 	var release_generation: int = _transition_generation
@@ -92,6 +152,7 @@ func release_after_main_menu_ready() -> void:
 	_fade_tween.tween_property(black, "modulate:a", 0.0, fade_seconds)
 	_fade_tween.tween_property(signage, "modulate:a", 0.0, fade_seconds)
 	_fade_tween.tween_property(logo_eyes, "modulate:a", 0.0, fade_seconds)
+	_fade_tween.tween_property(preparation_status, "modulate:a", 0.0, fade_seconds)
 	await _fade_tween.finished
 	if release_generation == _transition_generation:
 		hide_immediately()
@@ -101,12 +162,27 @@ func hide_immediately() -> void:
 	_cancel_fade()
 	_cancel_eye_fade()
 	_active = false
+	_transition_kind = ""
+	set_process(false)
 	visible = false
 	_set_cover_alpha(1.0)
 	_set_logo_eyes_alpha(0.0)
+	_set_preparation_status_alpha(1.0)
+	preparation_status.visible = false
 
 func is_transition_active() -> bool:
 	return _active and visible
+
+func is_match_transition_active() -> bool:
+	return _active and visible and _transition_kind == "match"
+
+func set_match_readiness_stage(stage: String) -> void:
+	if _transition_kind != "match":
+		return
+	var clean_stage: String = stage.strip_edges().to_lower()
+	if PREPARATION_STAGE_MESSAGES.has(clean_stage):
+		preparation_status.text = str(PREPARATION_STAGE_MESSAGES[clean_stage])
+		_preparation_message_elapsed = 0.0
 
 func _set_cover_alpha(alpha: float) -> void:
 	var resolved_alpha: float = clampf(alpha, 0.0, 1.0)
@@ -118,6 +194,10 @@ func _set_cover_alpha(alpha: float) -> void:
 func _set_logo_eyes_alpha(alpha: float) -> void:
 	if logo_eyes != null:
 		logo_eyes.modulate.a = clampf(alpha, 0.0, 1.0)
+
+func _set_preparation_status_alpha(alpha: float) -> void:
+	if preparation_status != null:
+		preparation_status.modulate.a = clampf(alpha, 0.0, 1.0)
 
 func _begin_logo_eyes_fade(generation: int) -> void:
 	var tree: SceneTree = get_tree()

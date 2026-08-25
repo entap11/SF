@@ -17,6 +17,7 @@ const BuffTargetingRuntimeGate := preload("res://scripts/shell_helpers/buff_targ
 const BuffTargetingPresentationConfig := preload("res://scripts/renderers/buff_targeting_presentation_config.gd")
 const BuffTargetingDeviceEvidenceCollectorScript := preload("res://scripts/dev/buff_targeting_device_evidence_collector.gd")
 const BuffTargetingDeviceHeavyFixtureScript := preload("res://scripts/dev/buff_targeting_device_heavy_fixture.gd")
+const StartupHitchDiagnosticScript := preload("res://scripts/dev/startup_hitch_diagnostic.gd")
 const TelemetryDashboardPanelScript := preload("res://scripts/ui/telemetry_dashboard_panel.gd")
 const PvpDebugOverlayScript: Script = preload("res://scripts/ui/pvp_debug_overlay.gd")
 const AdSurfaceScript: Script = preload("res://scripts/ui/ad_surface.gd")
@@ -48,6 +49,8 @@ const SOAK_DEFAULT_ROUND_SECONDS: int = 300
 const SOAK_DEFAULT_PAIR_COUNT: int = 2
 const SOAK_DEFAULT_REAPPLY_MS: int = 1000
 const SOAK_DEFAULT_START_TIMEOUT_MS: int = 15000
+const MATCH_RESOURCE_READINESS_TIMEOUT_MS: int = 5000
+const ARENA_STARTUP_READINESS_TIMEOUT_MS: int = 8000
 const CTF_BOT_STAGE_MAP_PATH: String = "res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
 const TUTORIAL_CONTROLS_ID: String = "controls_v1"
 const TUTORIAL_CONTROLS_MAP_PATH: String = "res://maps/tutorial/MAP_tutorial_controls_v1__1p.json"
@@ -154,6 +157,8 @@ static var _shell_ready_count: int = 0
 static var _shell_exit_count: int = 0
 
 var _arena_instance: Node = null
+var _startup_hitch_diagnostic: Node = null
+var _startup_hitch_analytics_isolated: bool = false
 var _dev_loader: CanvasItem = null
 var _dev_map_loader: CanvasItem = null
 var _last_power_bar_visible: int = -1
@@ -856,6 +861,7 @@ func _resolve_dev_map_loader_node() -> Node:
 	return _dev_loader
 
 func _exit_tree() -> void:
+	_finish_startup_hitch_diagnostic("shell_exit")
 	cancel_buff_pointer_session("shell_scene_exit")
 	_shell_exit_count += 1
 	_map_prewarm_generation += 1
@@ -1309,8 +1315,13 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 			tree.remove_meta("tutorial_controls_followup_launch_pending")
 		else:
 			_clear_tutorial_controls_followup_tree_meta(tree)
+	var loading_coordinator: Node = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null and loading_coordinator.has_method("present_for_match_readiness"):
+		await loading_coordinator.call("present_for_match_readiness")
+	_set_match_loading_stage("map")
 	var mode_validation: Dictionary = _validate_launch_map_mode_contract(map_path, tree)
 	if not bool(mode_validation.get("ok", false)):
+		_hide_match_loading_cover()
 		_set_shell_status("Launch blocked. %s does not support this mode." % _map_display_name(map_path), "error")
 		_report_map_mode_contract_violation(str(mode_validation.get("mode", "")), map_path, str(mode_validation.get("reason", "invalid_map_mode")))
 		return
@@ -1318,10 +1329,14 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 	if tree != null:
 		tree.set_meta(TREE_META_TUTORIAL_ACTIVE, not clean_tutorial_section.is_empty())
 		tree.set_meta(TREE_META_TUTORIAL_SECTION, clean_tutorial_section)
+	_set_match_loading_stage("scene")
 	_hide_arena_for_map_transition()
 	_request_match_scene_preload()
+	_startup_hitch_mark("map_prewarm_requested", {"map_path": map_path})
+	_set_match_loading_stage("map")
 	_request_map_prewarm(map_path)
-	await _wait_for_launch_prewarm(map_path, 900)
+	await _wait_for_launch_prewarm(map_path, MATCH_RESOURCE_READINESS_TIMEOUT_MS)
+	_set_match_loading_stage("render")
 	if _arena_instance == null:
 		SFLog.info("APPLY_MAP_THEN_START_DEFERRED_NO_ARENA", {"map_path": map_path})
 		_pending_map_path = map_path
@@ -1336,6 +1351,7 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 	SFLog.info("MAP_APPLY_ENTRY", {"map_path": map_path})
 	if not _apply_map_direct_to_arena(map_path):
 		_show_arena_after_failed_map_transition()
+		_hide_match_loading_cover()
 		_set_shell_status("Launch failed while applying %s." % _map_display_name(map_path), "error")
 		SFLog.warn("MAP_APPLY_FAIL_WARN", {"map_path": map_path, "err": "direct_apply_failed"})
 		SFLog.error("MAP_APPLY_FAIL", {"map_path": map_path, "err": "direct_apply_failed"})
@@ -1440,6 +1456,7 @@ func _show_arena_after_failed_map_transition() -> void:
 	if arena_root == null:
 		return
 	arena_root.modulate.a = 1.0
+	_hide_match_loading_cover()
 
 func _report_map_mode_contract_violation(mode: String, path: String, reason: String) -> void:
 	var map_id: String = MAP_REGISTRY.map_id_from_path(path)
@@ -1462,6 +1479,7 @@ func _apply_map_direct_to_arena(map_path: String) -> bool:
 		return false
 	var arena: Node2D = arena_node as Node2D
 	var result: Dictionary = _map_prewarm_result_for_path(map_path)
+	var model_source: String = "prewarmed" if not result.is_empty() else "synchronous_fallback"
 	if result.is_empty():
 		result = MAP_LOADER.load_map(map_path)
 	if not bool(result.get("ok", false)):
@@ -1474,8 +1492,14 @@ func _apply_map_direct_to_arena(map_path: String) -> bool:
 			"err": str(result.get("err", "unknown"))
 		})
 		return false
+	_startup_hitch_mark("map_model_ready", {"map_path": map_path, "source": model_source})
 	var model: Dictionary = result.get("data", {}) as Dictionary
+	_startup_hitch_mark("map_application_started", {"map_path": map_path})
 	MAP_APPLIER.apply_map(arena, model)
+	_startup_hitch_mark("map_application_completed", {
+		"map_path": map_path,
+		"hive_count": int((model.get("hives", []) as Array).size()) if typeof(model.get("hives", [])) == TYPE_ARRAY else -1
+	})
 	if arena.has_method("notify_map_built"):
 		arena.call("notify_map_built")
 	if arena.has_method("apply_camera_fit_next_frame"):
@@ -1509,21 +1533,26 @@ func _get_hive_count() -> int:
 func _ensure_game_instance() -> void:
 	if _arena_instance != null:
 		return
+	_startup_hitch_mark("match_scene_load_requested", {"path": game_scene_path, "source": "preload_or_cached"})
 	_request_match_scene_preload()
 	var packed := _get_preloaded_match_scene()
 	if packed == null:
+		_startup_hitch_mark("match_scene_load_requested", {"path": game_scene_path, "source": "synchronous_fallback"})
 		packed = load(game_scene_path) as PackedScene
 	if packed == null:
 		if SFLog.LOGGING_ENABLED:
 			push_error("SHELL: game_scene_path invalid: %s" % game_scene_path)
 		return
+	_startup_hitch_mark("match_scene_resource_loaded", {"path": game_scene_path})
 	var inst := packed.instantiate()
+	_startup_hitch_mark("match_scene_instantiated", {"path": game_scene_path})
 	_arena_instance = inst
 	if inst.has_method("start_game"):
 		inst.set("start_in_menu", true)
 		inst.set("enable_dev_map_loader", enable_dev_map_loader)
 		inst.set("show_dev_map_loader_in_game", show_dev_map_loader_in_game)
 	arena_root.add_child(inst)
+	_startup_hitch_mark("match_scene_added", {"path": game_scene_path})
 	var hud_layer: CanvasLayer = get_node_or_null("/root/Shell/HUDCanvasLayer") as CanvasLayer
 	var world_layer: CanvasLayer = inst.get_node_or_null("WorldCanvasLayer") as CanvasLayer
 	if hud_layer != null and world_layer != null and hud_layer.layer <= world_layer.layer:
@@ -1542,36 +1571,89 @@ func _ensure_game_instance() -> void:
 		" world=", world_layer.layer if world_layer != null else -1,
 		" wvp=", str(wvp.get_path()) if wvp != null else "<null>"
 	)
-	call_deferred("_sync_power_bar_buffer_placement")
+	call_deferred("_sync_power_bar_buffer_placement", "ensure_game")
 	_cache_dev_loader()
 
 func _enter_game() -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark("shell_enter_game_started")
 	if _arena_instance == null:
+		_startup_hitch_callback_completed("shell_enter_game", started_usec, "missing_arena")
 		return
 	_set_menu_state(false)
 	if arena_root != null:
 		arena_root.modulate.a = 0.0
 	_ensure_vs_frame_visible()
-	call_deferred("_sync_power_bar_buffer_placement")
-	call_deferred("_sync_buff_ui")
+	call_deferred("_sync_power_bar_buffer_placement", "enter_game")
+	call_deferred("_sync_buff_ui", "enter_game")
 	call_deferred("_stabilize_shell_camera_presentation")
 	if _arena_instance.has_method("start_game"):
 		_arena_instance.call_deferred("start_game")
+	_startup_hitch_callback_completed("shell_enter_game", started_usec)
 
 func _stabilize_shell_camera_presentation() -> void:
+	_startup_hitch_mark("shell_deferred_presentation_stabilize_scheduled")
 	if _arena_instance == null:
+		var missing_arena_started_usec: int = Time.get_ticks_usec()
 		if arena_root != null:
 			arena_root.modulate.a = 1.0
+		_hide_match_loading_cover()
+		_startup_hitch_callback_completed("shell_deferred_presentation_stabilize", missing_arena_started_usec, "missing_arena")
 		return
 	await get_tree().process_frame
+	_startup_hitch_mark("shell_deferred_presentation_stabilize_first_frame_resumed")
 	await get_tree().process_frame
+	var fit_started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark("shell_deferred_presentation_stabilize_second_frame_resumed")
 	_configure_shell_world_viewport_opening()
 	var arena_node: Node = _resolve_runtime_arena_node()
+	_set_match_loading_stage("render")
+	await _wait_for_arena_startup_readiness(arena_node, ARENA_STARTUP_READINESS_TIMEOUT_MS)
 	if arena_node != null and arena_node.has_method("apply_camera_fit"):
 		arena_node.call("apply_camera_fit", "shell_present")
+	_startup_hitch_callback_completed("shell_deferred_presentation_fit", fit_started_usec)
 	await get_tree().process_frame
+	var reveal_started_usec: int = Time.get_ticks_usec()
+	_startup_hitch_mark("shell_deferred_presentation_stabilize_third_frame_resumed")
+	_set_match_loading_stage("final")
 	if arena_root != null:
 		arena_root.modulate.a = 1.0
+	await _release_match_loading_cover()
+	_startup_hitch_mark("arena_presentation_visible")
+	_startup_hitch_callback_completed("shell_deferred_presentation_stabilize", reveal_started_usec)
+
+func _wait_for_arena_startup_readiness(arena_node: Node, timeout_ms: int) -> bool:
+	if arena_node == null or not arena_node.has_method("is_startup_readiness_complete"):
+		return false
+	if OS.has_feature("server") or DisplayServer.get_name() == "headless":
+		return bool(arena_node.call("is_startup_readiness_complete"))
+	var deadline_ms: int = Time.get_ticks_msec() + maxi(0, timeout_ms)
+	while Time.get_ticks_msec() <= deadline_ms:
+		if bool(arena_node.call("is_startup_readiness_complete")):
+			_startup_hitch_mark("arena_startup_readiness_completed", arena_node.call("startup_readiness_snapshot") if arena_node.has_method("startup_readiness_snapshot") else {})
+			return true
+		await get_tree().process_frame
+	SFLog.warn("ARENA_STARTUP_READINESS_TIMEOUT", arena_node.call("startup_readiness_snapshot") if arena_node.has_method("startup_readiness_snapshot") else {})
+	return false
+
+func _set_match_loading_stage(stage: String) -> void:
+	var loading_coordinator: Node = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null and loading_coordinator.has_method("set_match_readiness_stage"):
+		loading_coordinator.call("set_match_readiness_stage", stage)
+
+func _release_match_loading_cover() -> void:
+	var loading_coordinator: Node = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null and loading_coordinator.has_method("is_match_transition_active") \
+	and bool(loading_coordinator.call("is_match_transition_active")) \
+	and loading_coordinator.has_method("release_after_match_ready"):
+		await loading_coordinator.call("release_after_match_ready")
+
+func _hide_match_loading_cover() -> void:
+	var loading_coordinator: Node = get_node_or_null("/root/MainMenuLoadingCoordinator")
+	if loading_coordinator != null and loading_coordinator.has_method("is_match_transition_active") \
+	and bool(loading_coordinator.call("is_match_transition_active")) \
+	and loading_coordinator.has_method("hide_immediately"):
+		loading_coordinator.call("hide_immediately")
 
 func _configure_shell_world_viewport_opening() -> void:
 	if _arena_instance == null:
@@ -2072,6 +2154,8 @@ func _map_prewarm_result_for_path(map_path: String) -> Dictionary:
 	return _map_prewarm_result.duplicate(true)
 
 func _wait_for_launch_prewarm(map_path: String, timeout_ms: int) -> void:
+	if OS.has_feature("server") or DisplayServer.get_name() == "headless":
+		return
 	var deadline_ms: int = Time.get_ticks_msec() + maxi(0, timeout_ms)
 	while Time.get_ticks_msec() <= deadline_ms:
 		_finish_map_prewarm(false)
@@ -2079,7 +2163,7 @@ func _wait_for_launch_prewarm(map_path: String, timeout_ms: int) -> void:
 		var map_ready: bool = not _map_prewarm_result_for_path(map_path).is_empty()
 		if scene_ready and map_ready:
 			return
-		if not _map_prewarm_inflight and map_ready:
+		if scene_ready and not _map_prewarm_inflight:
 			return
 		await get_tree().process_frame
 
@@ -2204,17 +2288,24 @@ func _restart_arena_match_flow_for_shell_tutorial() -> void:
 	if arena_node != null and arena_node.has_method("restart_match_flow_for_shell_launch"):
 		arena_node.call("restart_match_flow_for_shell_launch")
 
-func _sync_buff_ui() -> void:
+func _sync_buff_ui(startup_probe_id: String = "") -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	var marker_prefix: String = "shell_deferred_%s_buff_ui" % startup_probe_id if not startup_probe_id.is_empty() else ""
+	if not marker_prefix.is_empty():
+		_startup_hitch_mark("%s_started" % marker_prefix)
 	if not _buff_targeting_runtime_enabled():
 		_set_buff_strip_visibility(false, false, false, false)
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "disabled")
 		return
 	if _player_buff_strip == null:
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "missing_player_strip")
 		return
 	if _arena_instance == null:
 		if _show_shell_async_prematch_buffers():
 			_show_buff_ui_placeholders()
 		else:
 			_set_buff_strip_visibility(false, false, false, false)
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "missing_arena")
 		return
 	var arena_node: Node = _resolve_runtime_arena_node()
 	if arena_node == null or not arena_node.has_method("get_buff_ui_snapshot"):
@@ -2222,15 +2313,18 @@ func _sync_buff_ui() -> void:
 			_show_buff_ui_placeholders()
 		else:
 			_set_buff_strip_visibility(false, false, false, false)
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "missing_snapshot_api")
 		return
 	var snap_v: Variant = arena_node.call("get_buff_ui_snapshot")
 	if typeof(snap_v) != TYPE_DICTIONARY:
 		if _show_shell_async_prematch_buffers():
 			_show_buff_ui_placeholders()
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "invalid_snapshot")
 		return
 	var snapshot: Dictionary = snap_v as Dictionary
 	if not bool(snapshot.get("buffs_enabled", false)):
 		_set_buff_strip_visibility(false, false, false, false)
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "buffs_disabled")
 		return
 	_player_buff_strip.visible = true
 	var active_pid: int = int(snapshot.get("active_player_id", 1))
@@ -2263,6 +2357,7 @@ func _sync_buff_ui() -> void:
 	else:
 		_hide_opponent_buff_strips()
 	_layout_buff_strip_positions()
+	_startup_hitch_callback_completed(marker_prefix, started_usec)
 
 func _show_buff_ui_placeholders() -> void:
 	_set_buff_strip_visibility(false, false, false, false)
@@ -3407,11 +3502,17 @@ func _hide_buff_drag_overlay(pointer_session_id: int = -1) -> void:
 		_buff_drag_overlay.texture = null
 	_buff_drag_overlay_session_id = 0
 
-func _sync_power_bar_buffer_placement() -> void:
+func _sync_power_bar_buffer_placement(startup_probe_id: String = "") -> void:
+	var started_usec: int = Time.get_ticks_usec()
+	var marker_prefix: String = "shell_deferred_%s_power_bar" % startup_probe_id if not startup_probe_id.is_empty() else ""
+	if not marker_prefix.is_empty():
+		_startup_hitch_mark("%s_started" % marker_prefix)
 	if _arena_instance == null:
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "missing_arena")
 		return
 	var power_bar: Control = get_node_or_null(SHELL_POWER_BAR_PATH) as Control
 	if power_bar == null:
+		_startup_hitch_callback_completed(marker_prefix, started_usec, "missing_power_bar")
 		return
 
 	# Editor-authoritative: PowerBarAnchor placement is authored in scene.
@@ -3422,6 +3523,7 @@ func _sync_power_bar_buffer_placement() -> void:
 		"bar_pos": power_bar.position,
 		"bar_size": power_bar.size
 	})
+	_startup_hitch_callback_completed(marker_prefix, started_usec)
 
 func _ensure_power_bar_anchor() -> Control:
 	if _arena_instance == null:
@@ -4098,8 +4200,95 @@ func _shell_display_name_for_seat(seat: int) -> String:
 			return local_name
 	return "P%d" % seat_id
 
+
+func _startup_hitch_mark(marker_name: String, detail: Dictionary = {}) -> void:
+	if _startup_hitch_diagnostic == null or not is_instance_valid(_startup_hitch_diagnostic):
+		return
+	if _startup_hitch_diagnostic.has_method("mark_once"):
+		_startup_hitch_diagnostic.call("mark_once", marker_name, detail)
+
+
+func _startup_hitch_callback_completed(marker_prefix: String, started_usec: int, outcome: String = "completed") -> void:
+	if marker_prefix.is_empty():
+		return
+	_startup_hitch_mark("%s_completed" % marker_prefix, {
+		"duration_ms": snappedf(float(Time.get_ticks_usec() - started_usec) / 1000.0, 0.001),
+		"outcome": outcome
+	})
+
+
+func _begin_startup_hitch_diagnostic(config: Dictionary, map_path: String) -> bool:
+	if not OS.is_debug_build() or _startup_hitch_diagnostic != null:
+		return false
+	var tree: SceneTree = get_tree()
+	if tree == null or tree.root == null:
+		return false
+	tree.set_meta("sf_perf_harness_active", true)
+	var analytics: Node = tree.root.get_node_or_null("/root/AnalyticsClient")
+	if analytics == null \
+	or not analytics.has_method("set_perf_harness_isolation") \
+	or not bool(analytics.call("set_perf_harness_isolation", true)):
+		tree.remove_meta("sf_perf_harness_active")
+		push_error("STARTUP_HITCH_DIAGNOSTIC_REFUSED reason=analytics_isolation_unavailable")
+		return false
+	var app_lifecycle: Node = tree.root.get_node_or_null("/root/AppLifecycle")
+	if app_lifecycle == null \
+	or not app_lifecycle.has_method("set_perf_harness_isolation") \
+	or not bool(app_lifecycle.call("set_perf_harness_isolation", true)):
+		tree.remove_meta("sf_perf_harness_active")
+		push_error("STARTUP_HITCH_DIAGNOSTIC_REFUSED reason=lifecycle_isolation_unavailable")
+		return false
+	_startup_hitch_analytics_isolated = true
+	var diagnostic: Node = StartupHitchDiagnosticScript.new()
+	diagnostic.name = "StartupHitchDiagnostic"
+	tree.root.add_child(diagnostic)
+	var diagnostic_config: Dictionary = {
+		"route": "Shell._run_soak_perf",
+		"map_path": map_path,
+		"window_seconds": float(config.get("startup_hitch_window_seconds", StartupHitchDiagnosticScript.DEFAULT_WINDOW_SECONDS)),
+		"output_path": str(config.get("startup_hitch_output", StartupHitchDiagnosticScript.DEFAULT_OUTPUT_PATH)),
+		"launch_classification": str(config.get("startup_hitch_launch", "unspecified")),
+		"source_commit": str(config.get("startup_hitch_source_commit", "unavailable")),
+		"build_label": str(config.get("startup_hitch_build_label", "unavailable")),
+		"git_clean_state": "record_externally_at_build_time",
+		"backend_policy": "deny_all_while_sf_perf_harness_active",
+		"analytics_isolation": true,
+		"app_lifecycle_isolation": true,
+		"attribution_variant": "production_timing"
+	}
+	if not bool(diagnostic.call("configure", diagnostic_config)):
+		diagnostic.queue_free()
+		if _startup_hitch_analytics_isolated:
+			analytics.call("set_perf_harness_isolation", false)
+		_startup_hitch_analytics_isolated = false
+		tree.remove_meta("sf_perf_harness_active")
+		return false
+	_startup_hitch_diagnostic = diagnostic
+	SFLog.allow_tag("STARTUP_HITCH_DIAGNOSTIC")
+	SFLog.info("STARTUP_HITCH_DIAGNOSTIC", {
+		"status": "armed",
+		"map_path": map_path,
+		"window_seconds": diagnostic_config.get("window_seconds"),
+		"launch_classification": diagnostic_config.get("launch_classification")
+	})
+	return true
+
+
+func _finish_startup_hitch_diagnostic(reason: String) -> void:
+	if _startup_hitch_diagnostic != null and is_instance_valid(_startup_hitch_diagnostic):
+		if _startup_hitch_diagnostic.has_method("complete"):
+			_startup_hitch_diagnostic.call("complete", reason)
+	# This route always terminates the dedicated process. Preserve backend and
+	# analytics isolation through match teardown and autoload exit.
+
 func _maybe_start_soak_perf() -> bool:
-	var config: Dictionary = _parse_soak_perf_config(OS.get_cmdline_user_args())
+	var user_args: Array = OS.get_cmdline_user_args()
+	var activation: Dictionary = StartupHitchDiagnosticScript.activation_check(OS.is_debug_build(), user_args)
+	if bool(activation.get("requested", false)) and not bool(activation.get("allowed", false)):
+		push_error("STARTUP_HITCH_DIAGNOSTIC_REFUSED reason=%s" % str(activation.get("reason", "unknown")))
+		get_tree().quit(2)
+		return true
+	var config: Dictionary = _parse_soak_perf_config(user_args)
 	if not bool(config.get("enabled", false)):
 		return false
 	call_deferred("_run_soak_perf", config)
@@ -4114,7 +4303,13 @@ func _parse_soak_perf_config(args: Array) -> Dictionary:
 		"pairs": SOAK_DEFAULT_PAIR_COUNT,
 		"reapply_ms": SOAK_DEFAULT_REAPPLY_MS,
 		"start_timeout_ms": SOAK_DEFAULT_START_TIMEOUT_MS,
-		"profile_sim": false
+		"profile_sim": false,
+		"startup_hitch_diagnostic": false,
+		"startup_hitch_output": StartupHitchDiagnosticScript.DEFAULT_OUTPUT_PATH,
+		"startup_hitch_window_seconds": StartupHitchDiagnosticScript.DEFAULT_WINDOW_SECONDS,
+		"startup_hitch_launch": "unspecified",
+		"startup_hitch_source_commit": "unavailable",
+		"startup_hitch_build_label": "unavailable"
 	}
 	for arg_any in args:
 		var arg: String = str(arg_any)
@@ -4134,6 +4329,19 @@ func _parse_soak_perf_config(args: Array) -> Dictionary:
 			config["start_timeout_ms"] = max(1000, int(arg.trim_prefix("--soak-start-timeout-ms=")))
 		elif arg == "--soak-sim-profile":
 			config["profile_sim"] = true
+		elif arg == "--startup-hitch-diagnostic":
+			config["startup_hitch_diagnostic"] = true
+		elif arg.begins_with("--startup-hitch-output="):
+			config["startup_hitch_output"] = arg.trim_prefix("--startup-hitch-output=").strip_edges()
+		elif arg.begins_with("--startup-hitch-window-seconds="):
+			config["startup_hitch_window_seconds"] = clampf(float(arg.trim_prefix("--startup-hitch-window-seconds=")), 5.0, 60.0)
+		elif arg.begins_with("--startup-hitch-launch="):
+			var launch_kind: String = arg.trim_prefix("--startup-hitch-launch=").strip_edges().to_lower()
+			config["startup_hitch_launch"] = launch_kind if launch_kind in ["cold", "warm"] else "unspecified"
+		elif arg.begins_with("--startup-hitch-source-commit="):
+			config["startup_hitch_source_commit"] = arg.trim_prefix("--startup-hitch-source-commit=").strip_edges()
+		elif arg.begins_with("--startup-hitch-build-label="):
+			config["startup_hitch_build_label"] = arg.trim_prefix("--startup-hitch-build-label=").strip_edges()
 	return config
 
 func _run_soak_perf(config: Dictionary) -> void:
@@ -4162,6 +4370,12 @@ func _run_soak_perf(config: Dictionary) -> void:
 		SFLog.force_enable(prev_logging_enabled)
 		get_tree().quit(1)
 		return
+	if bool(config.get("startup_hitch_diagnostic", false)):
+		if not _begin_startup_hitch_diagnostic(config, map_path):
+			SFLog.LOG_LEVEL = prev_log_level
+			SFLog.force_enable(prev_logging_enabled)
+			get_tree().quit(2)
+			return
 	var soak_seconds: int = int(config.get("seconds", SOAK_DEFAULT_SECONDS))
 	var round_seconds: int = int(config.get("round_seconds", SOAK_DEFAULT_ROUND_SECONDS))
 	var pair_count: int = int(config.get("pairs", SOAK_DEFAULT_PAIR_COUNT))
@@ -4178,6 +4392,7 @@ func _run_soak_perf(config: Dictionary) -> void:
 	var boot_running_ok: bool = await _mvp_wait_for_phase(int(OpsState.MatchPhase.RUNNING), start_timeout_ms)
 	if not boot_running_ok:
 		SFLog.warn("SOAK_ERROR", {"round": 0, "reason": "initial_match_not_running"})
+		_finish_startup_hitch_diagnostic("initial_match_not_running")
 		SFLog.LOG_LEVEL = prev_log_level
 		SFLog.force_enable(prev_logging_enabled)
 		get_tree().quit(1)
@@ -4209,6 +4424,7 @@ func _run_soak_perf(config: Dictionary) -> void:
 		"failed_rounds": failed_rounds,
 		"elapsed_s": snapped(float(elapsed_ms) / 1000.0, 0.1)
 	})
+	_finish_startup_hitch_diagnostic("soak_completed")
 	SFLog.LOG_LEVEL = prev_log_level
 	SFLog.force_enable(prev_logging_enabled)
 	_stop_game()

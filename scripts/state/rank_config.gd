@@ -4,7 +4,7 @@ extends Resource
 @export var enabled: bool = true
 
 # Starting wax for new players.
-@export var base_gain: float = 100.0
+@export var base_gain: float = 0.0
 
 # Legacy relative-gain knobs kept for compatibility; beta wax uses explicit tables below.
 @export var opponent_strength_exponent: float = 0.6
@@ -55,7 +55,7 @@ extends Resource
 # Decay controls.
 @export var inactivity_grace_days: int = 14
 @export var daily_decay_rate: float = 0.0075
-@export var wax_floor: float = 100.0
+@export var wax_floor: float = 0.0
 
 # Tier unlock + distribution controls.
 @export var players_per_tier_to_unlock: int = 300

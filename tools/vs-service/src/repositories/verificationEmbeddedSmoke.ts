@@ -171,6 +171,36 @@ async function main(): Promise<void> {
   }, { keyId, publicKeyPem: publicKey, workerBuildId });
   expect(retried.result?.resultId === completed.result?.resultId && retried.signedReceipt?.signature === signed.signature,
     "completion retry after restart did not return immutable receipt", retried);
+
+  const failedPlayerA = uuidV7();
+  const failedPlayerB = uuidV7();
+  const failedContract = await core.createContract(contractInput(failedPlayerA, failedPlayerB, nowIso));
+  await repository.submitClientReport({
+    matchId: failedContract.contract.matchId, playerId: failedPlayerA, requestId: "failed-report-a",
+    finalStateHash: "d".repeat(64), elapsedSimTicks: 10, claimedTerminalReason: "OBJECTIVE_COMPLETE",
+    claimedWinnerPlayerId: failedPlayerA, diagnostics: {}, submittedAt: nowIso
+  });
+  await repository.submitClientReport({
+    matchId: failedContract.contract.matchId, playerId: failedPlayerB, requestId: "failed-report-b",
+    finalStateHash: "e".repeat(64), elapsedSimTicks: 10, claimedTerminalReason: "OBJECTIVE_COMPLETE",
+    claimedWinnerPlayerId: failedPlayerA, diagnostics: {}, submittedAt: nowIso
+  });
+  const failedBundle = await repository.leaseNext("worker-failed", new Date().toISOString(), 60);
+  expect(failedBundle?.contract.matchId === failedContract.contract.matchId,
+    "permanent-failure fixture did not lease", failedBundle);
+  await repository.fail({
+    workerId: "worker-failed", leaseToken: failedBundle!.leaseToken, jobId: failedBundle!.jobId,
+    startedAt: nowIso, finishedAt: new Date().toISOString(), retryable: false,
+    errorCode: "CERT_PERMANENT_FAILURE", diagnostics: {}, retryDelaySec: 0
+  });
+  const cancelled = await core.getContractById(failedContract.contract.contractId);
+  const failureEvents = await pool.query<{ count: number }>(
+    `SELECT count(*)::int AS count FROM vs_match_lifecycle_events
+     WHERE match_id = $1 AND match_epoch = 1 AND event_type = 'MATCH_VERIFICATION_FAILED'`,
+    [failedContract.contract.matchId]
+  );
+  expect(cancelled?.status === "CANCELLED" && Number(failureEvents.rows[0]?.count ?? 0) === 1,
+    "permanent verification failure did not close without economy effects", { cancelled, failureEvents: failureEvents.rows });
   const counts = await pool.query<Record<string, unknown>>(
     `SELECT
       (SELECT count(*)::int FROM vs_match_client_terminal_reports) AS reports,
@@ -180,7 +210,8 @@ async function main(): Promise<void> {
       (SELECT count(*)::int FROM vs_verifier_signed_receipts) AS receipts`
   );
   console.log(JSON.stringify({ ok: true, smoke: "verification_embedded", restart_retry: true,
-    client_winner_ignored: true, signature_rejection: true, counts: counts.rows[0] }));
+    client_winner_ignored: true, signature_rejection: true, permanent_failure_closed: true,
+    counts: counts.rows[0] }));
   await db.close();
 }
 

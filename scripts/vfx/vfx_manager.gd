@@ -49,6 +49,8 @@ const AUTO_GPU_VFX_DISABLE_WINDOW_SEC: float = 6.0
 
 var _sim_events: Node = null
 var _prewarmed: bool = false
+var _impact_node_prewarmed: bool = false
+var _collision_node_prewarmed: bool = false
 var _pool_collision: Array[Node2D] = []
 var _pool_impact: Array[Node2D] = []
 var _line_pool: Array[Line2D] = []
@@ -114,9 +116,23 @@ func prewarm() -> void:
 	_line_pool_build()
 	_ensure_ion_pop_pool()
 	_pool_prewarm_duration_ms = float(Time.get_ticks_usec() - prewarm_t0_us) / 1000.0
-	call_deferred("_prewarm_vfx_nodes")
+
+func take_prematch_warmup_tasks() -> Array[Dictionary]:
+	prewarm()
+	var tasks: Array[Dictionary] = []
+	if not _impact_node_prewarmed:
+		tasks.append({"id": "vfx_impact_node", "callable": Callable(self, "_prewarm_vfx_impact_node")})
+	if not _collision_node_prewarmed:
+		tasks.append({"id": "vfx_collision_node", "callable": Callable(self, "_prewarm_vfx_collision_node")})
+	return tasks
 
 func _prewarm_vfx_nodes() -> void:
+	_prewarm_vfx_impact_node()
+	_prewarm_vfx_collision_node()
+
+func _prewarm_vfx_impact_node() -> void:
+	if _impact_node_prewarmed:
+		return
 	if not _vfx_enabled():
 		return
 	if not USE_VFX_POOL:
@@ -130,6 +146,15 @@ func _prewarm_vfx_nodes() -> void:
 			Color(1.0, 1.0, 1.0, 1.0),
 			0.2
 		)
+	_impact_node_prewarmed = true
+
+func _prewarm_vfx_collision_node() -> void:
+	if _collision_node_prewarmed:
+		return
+	if not _vfx_enabled():
+		return
+	if not USE_VFX_POOL:
+		return
 	var collision_node: Node2D = _acquire_collision_node()
 	if collision_node != null and collision_node.has_method("play"):
 		collision_node.call(
@@ -140,6 +165,7 @@ func _prewarm_vfx_nodes() -> void:
 			Color(1.0, 1.0, 1.0, 1.0),
 			0.2
 		)
+	_collision_node_prewarmed = true
 
 func _vfx_pool_build() -> void:
 	if not USE_VFX_POOL:

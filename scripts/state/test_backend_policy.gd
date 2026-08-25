@@ -2,6 +2,7 @@ class_name TestBackendPolicy
 extends RefCounted
 
 const ALLOW_LIVE_ENV: String = "SF_ALLOW_LIVE_BACKEND_TESTS"
+const STARTUP_HITCH_DIAGNOSTIC_ARG: String = "--startup-hitch-diagnostic"
 
 static func automated_test_process() -> bool:
 	for arg_any in OS.get_cmdline_args():
@@ -21,6 +22,8 @@ static func request_allowed(url: String) -> bool:
 
 static func performance_harness_active() -> bool:
 	var loop: MainLoop = Engine.get_main_loop()
+	if OS.is_debug_build() and OS.get_cmdline_user_args().has(STARTUP_HITCH_DIAGNOSTIC_ARG):
+		return true
 	return loop is SceneTree and bool((loop as SceneTree).get_meta("sf_perf_harness_active", false))
 
 static func request_allowed_for_runtime(url: String, is_automated_test: bool, allow_live_value: String) -> bool:

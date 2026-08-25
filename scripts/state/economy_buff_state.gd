@@ -427,6 +427,10 @@ func _activate_slot_internal(player_id: String, slot_index: int, buff_id: String
 	return {"ok": true, "event": event}
 
 func _award_nectar(player_id: String, amount: int, source: String) -> Dictionary:
+	var ops_config: Node = get_node_or_null("/root/OpsConfig")
+	if ops_config == null or not ops_config.has_method("local_nectar_rewards_enabled") \
+			or not bool(ops_config.call("local_nectar_rewards_enabled")):
+		return _error("platform_nectar_authority_required", "Nectar awards are committed by Platform.")
 	var safe_amount: int = maxi(0, amount)
 	var wallet: Dictionary = _wallet_for_player(player_id)
 	wallet["nectar"] = int(wallet.get("nectar", 0)) + safe_amount

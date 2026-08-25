@@ -1,0 +1,37 @@
+#!/usr/bin/env python
+
+import codecs
+import subprocess
+
+opts = Variables([], ARGUMENTS)
+env = DefaultEnvironment()
+opts.Add(EnumVariable("target", "Compilation target", "release_debug", ["release", "release_debug"]))
+opts.Add(EnumVariable("arch", "Compilation architecture", "arm64", ["arm64", "x86_64"]))
+opts.Add(BoolVariable("simulator", "Build for the iOS simulator", "no"))
+opts.Add(PathVariable("godot_headers", "Godot source/generated headers", "godot"))
+opts.Add(PathVariable("target_path", "Output directory", "bin"))
+opts.Update(env)
+
+sdk_name = "iphonesimulator" if env["simulator"] else "iphoneos"
+sdk_path = codecs.utf_8_decode(subprocess.check_output(
+    ["xcrun", "--sdk", sdk_name, "--show-sdk-path"]
+).strip())[0]
+minimum_flag = "-mios-simulator-version-min=12.0" if env["simulator"] else "-miphoneos-version-min=12.0"
+
+env.Append(CCFLAGS=[
+    "-arch", env["arch"], "-isysroot", sdk_path, minimum_flag,
+    "-fobjc-arc", "-fmodules", "-fcxx-modules", "-fblocks",
+    "-fvisibility=hidden", "-fno-exceptions", "-DPTRCALL_ENABLED",
+    "-DIOS_ENABLED", "-DUNIX_ENABLED", "-DVULKAN_ENABLED",
+])
+env.Append(CXXFLAGS=["-std=gnu++17"])
+if env["target"] == "release_debug":
+    env.Append(CCFLAGS=["-O2", "-DDEBUG_ENABLED"])
+else:
+    env.Append(CCFLAGS=["-O2", "-DNDEBUG"])
+env.Append(CPPPATH=[env["godot_headers"], env["godot_headers"] + "/platform/ios", "."])
+
+platform_name = env["arch"] + ("-simulator" if env["simulator"] else "-ios")
+output = env["target_path"] + "/libswarmfront_secure_credentials." + platform_name + "." + env["target"] + ".a"
+sources = Glob("*.cpp") + Glob("*.mm")
+Default(env.StaticLibrary(target=output, source=sources))

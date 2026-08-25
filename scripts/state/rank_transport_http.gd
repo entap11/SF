@@ -40,7 +40,20 @@ func call_action(action: String, payload: Dictionary) -> Dictionary:
 			"err": "invalid_action"
 		}
 	var url: String = "%s/%s" % [_base_url, action_path]
-	var response: Dictionary = _post_json(url, payload)
+	var response: Dictionary = _request_json(url, HTTPClient.METHOD_POST, payload)
+	return _parsed_response(response)
+
+func call_read(action: String) -> Dictionary:
+	if _unsafe_test_backend_blocked:
+		return {"ok": false, "err": "unsafe_test_backend", "code": "unsafe_test_backend", "network_attempted": false}
+	if not configured():
+		return {"ok": false, "transport_error": true, "err": "transport_not_configured"}
+	var action_path: String = action.strip_edges().trim_prefix("/")
+	if action_path.is_empty():
+		return {"ok": false, "transport_error": true, "err": "invalid_action"}
+	return _parsed_response(_request_json("%s/%s" % [_base_url, action_path], HTTPClient.METHOD_GET, {}))
+
+func _parsed_response(response: Dictionary) -> Dictionary:
 	if bool(response.get("transport_error", false)):
 		return response
 	var body: Variant = response.get("body", {})
@@ -55,7 +68,7 @@ func call_action(action: String, payload: Dictionary) -> Dictionary:
 		"err": "invalid_json_body"
 	}
 
-func _post_json(url: String, payload: Dictionary) -> Dictionary:
+func _request_json(url: String, method: int, payload: Dictionary) -> Dictionary:
 	var parsed: Dictionary = _parse_http_url(url)
 	if not bool(parsed.get("ok", false)):
 		return {
@@ -97,8 +110,8 @@ func _post_json(url: String, payload: Dictionary) -> Dictionary:
 	])
 	if not _auth_token.is_empty():
 		headers.append("Authorization: Bearer %s" % _auth_token)
-	var body_text: String = JSON.stringify(payload)
-	err = client.request(HTTPClient.METHOD_POST, path, headers, body_text)
+	var body_text: String = "" if method == HTTPClient.METHOD_GET else JSON.stringify(payload)
+	err = client.request(method, path, headers, body_text)
 	if err != OK:
 		client.close()
 		return {

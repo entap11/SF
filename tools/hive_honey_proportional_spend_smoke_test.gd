@@ -9,6 +9,7 @@ func _init() -> void:
 
 	var state: Node = HiveClanStateScript.new()
 	state.set("save_path", SAVE_PATH)
+	state.set("_allow_test_local_hive_economy", true)
 	get_root().add_child(state)
 	await process_frame
 
