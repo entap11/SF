@@ -46,6 +46,7 @@ type ActivitySpec = {
 
 const DAY_SEC = 24 * 60 * 60;
 const BASIS_POINTS_DENOMINATOR = 10_000;
+const COMPETITIVE_HONEY_MIN_SECONDS = 2 * 60;
 
 export const HONEY_REWARD_LADDER_CENTI = {
   community: 100,
@@ -62,12 +63,12 @@ const ACTIVITY_SPECS: Record<string, ActivitySpec> = {
   "engagement.daily_objectives": spec("engagement", 20 * 60, 5 * 60, false, true),
   "engagement.weekly_objectives": spec("competitive_participation", 90 * 60, 20 * 60, false, true),
   "engagement.weekly_all_modes": spec("competitive_participation", 90 * 60, 20 * 60, false, true),
-  "competitive.live_free": spec("competitive_participation", 10 * 60, 3 * 60, true, true),
-  "competitive.live_money": customSpec("competitive_participation", 600, 10 * 60, 3 * 60, true, true),
-  "competitive.async_free": spec("competitive_participation", 10 * 60, 3 * 60, true, true),
-  "competitive.async_money": customSpec("competitive_participation", 600, 10 * 60, 3 * 60, true, true),
-  "competitive.tournament_free": spec("competitive_participation", 10 * 60, 3 * 60, true, true),
-  "competitive.tournament_money": customSpec("competitive_participation", 600, 10 * 60, 3 * 60, true, true),
+  "competitive.live_free": spec("competitive_participation", 10 * 60, COMPETITIVE_HONEY_MIN_SECONDS, true, true),
+  "competitive.live_money": customSpec("competitive_participation", 600, 10 * 60, COMPETITIVE_HONEY_MIN_SECONDS, true, true),
+  "competitive.async_free": spec("competitive_participation", 10 * 60, COMPETITIVE_HONEY_MIN_SECONDS, true, true),
+  "competitive.async_money": customSpec("competitive_participation", 600, 10 * 60, COMPETITIVE_HONEY_MIN_SECONDS, true, true),
+  "competitive.tournament_free": spec("competitive_participation", 10 * 60, COMPETITIVE_HONEY_MIN_SECONDS, true, true),
+  "competitive.tournament_money": customSpec("competitive_participation", 600, 10 * 60, COMPETITIVE_HONEY_MIN_SECONDS, true, true),
   "competitive.placement_weekly": spec("competitive_success", 0, 0, false, true),
   "competitive.placement_monthly": customSpec("competitive_success", 1600, 0, 0, false, true),
   "competitive.placement_seasonal": customSpec("competitive_success", 3200, 0, 0, false, true),

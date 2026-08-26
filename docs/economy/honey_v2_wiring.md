@@ -28,6 +28,8 @@ Honey uses centi-Honey internally and whole Honey in the player profile/UI.
 
 Paid competitive activities currently award more than free activities, but stay within a moderate range so free players still progress.
 
+Competitive Honey requires 120 seconds of authoritative completed match time: 2:00 is eligible and 1:59 is not.
+
 ## Current Code
 
 - `scripts/state/honey_progression_state.gd`
