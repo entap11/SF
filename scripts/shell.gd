@@ -47,6 +47,7 @@ const MVP_SMOKE_DEFAULT_WIN_MAP: String = MVP_SMOKE_DEFAULT_MAP
 const SOAK_DEFAULT_SECONDS: int = 1800
 const SOAK_DEFAULT_ROUND_SECONDS: int = 300
 const SOAK_DEFAULT_PAIR_COUNT: int = 2
+const SOAK_DEFAULT_MODE: String = "1p"
 const SOAK_DEFAULT_REAPPLY_MS: int = 1000
 const SOAK_DEFAULT_START_TIMEOUT_MS: int = 15000
 const MATCH_RESOURCE_READINESS_TIMEOUT_MS: int = 5000
@@ -4298,6 +4299,7 @@ func _parse_soak_perf_config(args: Array) -> Dictionary:
 	var config: Dictionary = {
 		"enabled": false,
 		"map_path": "",
+		"mode": SOAK_DEFAULT_MODE,
 		"seconds": SOAK_DEFAULT_SECONDS,
 		"round_seconds": SOAK_DEFAULT_ROUND_SECONDS,
 		"pairs": SOAK_DEFAULT_PAIR_COUNT,
@@ -4317,6 +4319,8 @@ func _parse_soak_perf_config(args: Array) -> Dictionary:
 			config["enabled"] = true
 		elif arg.begins_with("--soak-map="):
 			config["map_path"] = arg.trim_prefix("--soak-map=")
+		elif arg.begins_with("--soak-mode="):
+			config["mode"] = arg.trim_prefix("--soak-mode=").strip_edges().to_lower()
 		elif arg.begins_with("--soak-seconds="):
 			config["seconds"] = max(10, int(arg.trim_prefix("--soak-seconds=")))
 		elif arg.begins_with("--soak-round-seconds="):
@@ -4343,6 +4347,18 @@ func _parse_soak_perf_config(args: Array) -> Dictionary:
 		elif arg.begins_with("--startup-hitch-build-label="):
 			config["startup_hitch_build_label"] = arg.trim_prefix("--startup-hitch-build-label=").strip_edges()
 	return config
+
+func _apply_soak_launch_mode(config: Dictionary) -> bool:
+	var soak_mode: String = str(config.get("mode", SOAK_DEFAULT_MODE)).strip_edges().to_lower()
+	# The legacy performance route is deliberately a 1P harness. Keep its
+	# authoritative team topology explicit instead of inheriting Shell's UI
+	# default (2v2) before the 1P map is applied.
+	if soak_mode != SOAK_DEFAULT_MODE:
+		return false
+	_set_team_mode_ui(soak_mode)
+	if not OpsState.has_method("get_team_mode_override"):
+		return false
+	return str(OpsState.call("get_team_mode_override")).strip_edges().to_lower() == soak_mode
 
 func _run_soak_perf(config: Dictionary) -> void:
 	var prev_logging_enabled: bool = SFLog.LOGGING_ENABLED
@@ -4382,13 +4398,23 @@ func _run_soak_perf(config: Dictionary) -> void:
 	var reapply_ms: int = int(config.get("reapply_ms", SOAK_DEFAULT_REAPPLY_MS))
 	var start_timeout_ms: int = int(config.get("start_timeout_ms", SOAK_DEFAULT_START_TIMEOUT_MS))
 	var profile_sim: bool = bool(config.get("profile_sim", false))
+	var soak_mode: String = str(config.get("mode", SOAK_DEFAULT_MODE)).strip_edges().to_lower()
+	if not _apply_soak_launch_mode(config):
+		SFLog.warn("SOAK_ERROR", {"reason": "unsupported_or_unapplied_mode", "mode": soak_mode})
+		_finish_startup_hitch_diagnostic("unsupported_or_unapplied_mode")
+		SFLog.LOG_LEVEL = prev_log_level
+		SFLog.force_enable(prev_logging_enabled)
+		get_tree().quit(2)
+		return
 	if profile_sim:
 		SFLog.allow_tag("SIM_TICK_COST")
 		SFLog.allow_tag("SIM_TICK_PHASE")
 	get_tree().set_meta("soak_sim_profile", profile_sim)
 	_stop_game()
 	await get_tree().process_frame
-	_apply_map_then_start(map_path)
+	# Map preparation is asynchronous. Start the RUNNING timeout only after the
+	# launch route has finished applying the map and requested game startup.
+	await _apply_map_then_start(map_path)
 	var boot_running_ok: bool = await _mvp_wait_for_phase(int(OpsState.MatchPhase.RUNNING), start_timeout_ms)
 	if not boot_running_ok:
 		SFLog.warn("SOAK_ERROR", {"round": 0, "reason": "initial_match_not_running"})
@@ -4407,6 +4433,7 @@ func _run_soak_perf(config: Dictionary) -> void:
 	var failed_rounds: int = 0
 	SFLog.info("SOAK_START", {
 		"map": map_path,
+		"mode": soak_mode,
 		"seconds": soak_seconds,
 		"round_seconds": round_seconds,
 		"pairs": pair_count
