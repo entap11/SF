@@ -8,6 +8,7 @@ SOAK_SECONDS="${SOAK_SECONDS:-1800}"
 ROUND_SECONDS="${SOAK_ROUND_SECONDS:-300}"
 PAIR_COUNT="${SOAK_PAIR_COUNT:-2}"
 SOAK_MAP="${SOAK_MAP:-res://maps/_future/quadfight/MAP_quadfight__SBASE__1p.json}"
+SOAK_MODE="${SOAK_MODE:-1p}"
 MAX_FRAME_MS="${MAX_FRAME_MS:-45.0}"
 MAX_PROCESS_MS="${MAX_PROCESS_MS:-45.0}"
 MAX_TICK_MS="${MAX_TICK_MS:-8.0}"
@@ -19,8 +20,12 @@ if [[ -z "${SOAK_MAP}" ]]; then
   echo "SOAK_GATE_FAIL no soak map provided (set SOAK_MAP or rely on default 1P quadfight map)"
   exit 1
 fi
+if [[ "${SOAK_MODE}" != "1p" ]]; then
+  echo "SOAK_GATE_FAIL unsupported soak mode: ${SOAK_MODE} (legacy perf soak currently requires 1p)"
+  exit 1
+fi
 
-echo "Running soak: seconds=${SOAK_SECONDS}, round_seconds=${ROUND_SECONDS}, pairs=${PAIR_COUNT}"
+echo "Running soak: mode=${SOAK_MODE}, seconds=${SOAK_SECONDS}, round_seconds=${ROUND_SECONDS}, pairs=${PAIR_COUNT}"
 echo "Log: ${LOG_FILE}"
 echo "Warmup samples skipped: ${WARMUP_SAMPLES}"
 
@@ -36,6 +41,7 @@ set +e
   --soak-seconds="${SOAK_SECONDS}" \
   --soak-round-seconds="${ROUND_SECONDS}" \
   --soak-pairs="${PAIR_COUNT}" \
+  --soak-mode="${SOAK_MODE}" \
   --soak-map="${SOAK_MAP}" \
   ${SOAK_PROFILE_ARG:+${SOAK_PROFILE_ARG}} >"${LOG_FILE}" 2>&1
 GODOT_RC=$?
