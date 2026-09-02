@@ -10,6 +10,7 @@ signal buff_loadout_changed(mode: String, loadout_ids: Array[String])
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
+const BuffLoadoutPolicy = preload("res://scripts/state/buff_loadout_policy.gd")
 const EconomyEpochScript = preload("res://scripts/state/economy_epoch.gd")
 
 const PROFILE_PATH: String = "user://profile.cfg"
@@ -40,7 +41,7 @@ const DISPLAY_NAME_MAX_LEN: int = 16
 const HANDLE_RENAME_COOLDOWN_SEC: int = 365 * 24 * 60 * 60
 const HANDLE_EXTRA_CHANGE_HONEY_COST: int = 25
 const HANDLE_POLICY_VERSION: int = 1
-const BUFF_LOADOUT_SIZE: int = 3
+const BUFF_LOADOUT_SIZE: int = BuffLoadoutPolicy.LOADOUT_SIZE
 const BUFF_MODE_VS: String = "vs"
 const BUFF_MODE_ASYNC: String = "async"
 const PERFORMANCE_MODE_QUALITY: String = "quality"
@@ -2284,6 +2285,9 @@ func _sanitize_loadout_ids_for_mode(raw: Variant, mode: String, owned_ids: Array
 				out.append("")
 				continue
 			if (not allow_duplicates) and out.has(buff_id):
+				out.append("")
+				continue
+			if not BuffLoadoutPolicy.allows_catalog_id(out, buff_id):
 				out.append("")
 				continue
 			var available: int = _count_buff_in_list(owned_ids, buff_id)

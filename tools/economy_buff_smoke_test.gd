@@ -8,6 +8,8 @@ const BUFF_PREMIUM: String = "buff_unit_speed_premium"
 const BUFF_ELITE: String = "buff_unit_speed_elite"
 const BUFF_ELITE_2: String = "buff_swarm_damage_elite"
 
+var _failed: bool = false
+
 func _init() -> void:
 	DirAccess.remove_absolute(ProjectSettings.globalize_path("user://economy_buff_state.json"))
 
@@ -71,19 +73,30 @@ func _init() -> void:
 	# D) Nectar is seasonal progression XP: it can be earned, never spent.
 	_assert_ok(state.intent_set_mode("STANDARD"), "back to standard for nectar checks")
 	var before_wallet: Dictionary = state.get_player_snapshot(PLAYER_ID).get("wallet", {}) as Dictionary
-	var free_award: Dictionary = state.intent_record_match_completion(PLAYER_ID, false)
-	var paid_award: Dictionary = state.intent_record_match_completion(PLAYER_ID, true)
-	_assert_true(int(paid_award.get("awarded", 0)) > int(free_award.get("awarded", 0)), "paid match awards more nectar")
-	var purchase_award: Dictionary = state.intent_record_store_purchase(PLAYER_ID, 10.0)
-	_assert_true(int(purchase_award.get("awarded", 0)) == 60, "purchase kickback is deterministic")
+	_assert_code(
+		state.intent_record_match_completion(PLAYER_ID, false),
+		"platform_nectar_authority_required",
+		"legacy local free-match Nectar award is suppressed"
+	)
+	_assert_code(
+		state.intent_record_match_completion(PLAYER_ID, true),
+		"platform_nectar_authority_required",
+		"legacy local paid-match Nectar award is suppressed"
+	)
+	_assert_code(
+		state.intent_record_store_purchase(PLAYER_ID, 10.0),
+		"platform_nectar_authority_required",
+		"legacy local purchase kickback is suppressed"
+	)
 	_assert_code(state.intent_pay_tournament_entry(PLAYER_ID), "nectar_not_currency", "reject nectar tournament entry")
 	_assert_code(state.intent_purchase_buff_access(PLAYER_ID, BUFF_PREMIUM, 20), "nectar_not_currency", "reject nectar buff purchase")
 	_assert_code(state.intent_spend_nectar(PLAYER_ID, 20, "legacy_test"), "nectar_not_currency", "reject direct nectar spending")
 	var after_wallet: Dictionary = state.get_player_snapshot(PLAYER_ID).get("wallet", {}) as Dictionary
-	_assert_true(int(after_wallet.get("nectar", 0)) > int(before_wallet.get("nectar", 0)), "nectar only increases through awards")
+	_assert_true(int(after_wallet.get("nectar", 0)) == int(before_wallet.get("nectar", 0)), "legacy state cannot mutate Platform-owned Nectar")
 
-	print("ECONOMY_BUFF_SMOKE: PASS")
-	quit(0)
+	if not _failed:
+		print("ECONOMY_BUFF_SMOKE: PASS")
+	quit(1 if _failed else 0)
 
 func _assert_ok(result: Dictionary, label: String) -> void:
 	if bool(result.get("ok", false)):
@@ -103,5 +116,5 @@ func _assert_true(condition: bool, label: String) -> void:
 	_fail(label)
 
 func _fail(message: String) -> void:
+	_failed = true
 	push_error("ECONOMY_BUFF_SMOKE: %s" % message)
-	quit(1)
