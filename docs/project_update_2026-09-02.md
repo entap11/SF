@@ -84,24 +84,27 @@ testing. It also found two integration/documentation issues:
    EconomyBuffState autoload path, but the current profile/Arena wiring did not
    enforce it. A shared loadout policy now restores the rule in the live path,
    with regression assertions.
-2. The legacy economy smoke could emit assertion errors and still finish with
-   exit code zero. Its stale local-Nectar expectations now match Platform
-   authority, and its final exit status reflects accumulated failures.
+2. The isolated legacy economy smoke could emit assertion errors and still
+   finish with exit code zero. A consumer audit confirmed that its state and UI
+   were unreachable compatibility code already classified for deletion by the
+   economy migration, so the legacy island was removed instead of retained as a
+   second rules source.
 
 The site also stopped implying that larger handshakes are merely unbuilt. They
 are implemented and tested; certification/public enablement is the remaining
 boundary. Team Crucible language was removed because the current contract is
 only `CRUCIBLE_1V1`.
 
-## Known cleanup
+## Completed cleanup
 
-- `ModeRulesConfig` and `EconomyBuffState` retain a legacy four-slot Standard
-  economy model. They are not the current Arena authority, but their naming can
-  mislead future audits. Inventory their remaining UI/test consumers, then
-  either remove them or label the compatibility boundary explicitly.
-- `data/buffs/buffs_v1.json` contains older duration/loadout data that is not the
-  current runtime source. Either retire it or generate it from the authoritative
-  policy to prevent apparent contradictions.
+- The unreachable four-slot `ModeRulesConfig`/`EconomyBuffState` implementation,
+  its standalone panels/scenes, and its isolated smoke test were removed after
+  confirming they had no current runtime consumers.
+- The unused `data/buffs/buffs_v1.json` snapshot was removed. BuffDefinitions,
+  BuffCatalog, BuffLoadoutPolicy, ProfileManager, and BuffState now form the
+  traceable current path without a contradictory data snapshot.
+- The current TestFlight checklist now points to the live buff inventory/wiring
+  smoke rather than the deleted legacy-state smoke.
 - Time-sensitive workstream documents should keep their historical decisions,
   with this rollup linking to the newest authoritative evidence.
 
@@ -113,19 +116,18 @@ only `CRUCIBLE_1V1`.
    automated tests alone.
 3. Run economy capability canaries in the documented order, reconciling each
    before advancing the next capability.
-4. Consolidate or retire the legacy four-slot economy-buff configuration and
-   stale buff JSON after confirming no current UI consumer still depends on it.
-5. Capture and approve genuine gameplay footage, then replace the website's hero
+4. Capture and approve genuine gameplay footage, then replace the website's hero
    and proof placeholders.
-6. Approve beta intake, privacy/retention language, contact address, and official
+5. Approve beta intake, privacy/retention language, contact address, and official
    community destinations before enabling collection or links.
 
 ## Focused verification for this update
 
 - `tools/buff_inventory_wiring_smoke_test.gd`: pass, including live profile and
   authoritative runtime tier-cap assertions.
-- `tools/economy_buff_smoke_test.gd`: pass with fail-closed Platform Nectar
-  expectations and honest accumulated failure exit status.
+- Legacy economy-buff consumer audit: no runtime consumers; redundant state,
+  panels, data, and isolated smoke removed as previously classified by the
+  authoritative economy migration.
 - `tools/crucible_ruleset_smoke_test.gd`: pass.
 - Focused CTF, HCTF, non-1v1 handshake, Free Roll Stage Race, and async
   money-ledger smoke tests: pass during the claim audit.
