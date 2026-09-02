@@ -1,10 +1,17 @@
 # TestFlight Beta Readiness
 
 ## Current State
-- iOS export preset exists locally in `export_presets.cfg` (gitignored by design).
-- Godot iOS export template is installed at:
-  - `~/Library/Application Support/Godot/export_templates/4.2.2.stable/ios.zip`
-- Export currently fails until Apple signing values are configured on the machine.
+- The repository contains an iOS preset in `export_presets.cfg`; signing
+  identities, provisioning material, and custom-template locations remain
+  machine-local concerns.
+- The exact custom Godot 4.2.2 debug/release template used for current iOS work
+  contains the documented deferred-audio-start and Xcode 26 compatibility
+  changes.
+- A current Release archive and development IPA build and pass strict signature
+  verification. The exact evidence and remaining distribution/device boundaries
+  are in
+  [P6 Signed Candidate Evidence — 2026-09-02](architecture/public_modes/p6-signed-candidate-evidence-2026-09-02.md).
+- App Store Connect/TestFlight distribution signing is not yet certified.
 - Crash reporting provider for TF beta is locked to **Sentry** (solo free tier).
 
 ## Apple/Xcode Prerequisites (Per Machine)
@@ -23,20 +30,18 @@
    - `short_version` (marketing version, e.g. `0.1.0`)
    - `version` (build number, increment every upload)
 
-## Beta Backend Mode (Recommendation)
-Recommended for closed TF beta: **Hybrid Local-Authoritative**
-- Match simulation remains local-authoritative for moment-to-moment gameplay.
-- Competitive progression writes (rank/pass/economy) are gated behind server/transport calls when available.
-- If backend unavailable, queue writes and mark them as provisional until confirmed.
+## Beta Backend Mode
 
-Why this mode:
-- Keeps current gameplay responsiveness.
-- Avoids blocking beta on full dedicated-match backend.
-- Prevents direct client trust for persistent competitive values.
+The former hybrid/local-authoritative recommendation is superseded for
+persistent competitive and economic state.
 
-Implemented visibility for beta users:
-- Runtime flags are exposed by `VsHandshake` (`transport_mode`, progression authority, provisional status).
-- A top-of-screen provisional banner is shown when competitive progression is local/provisional.
+- OpsState/SimState remain authoritative for gameplay simulation.
+- Platform services are authoritative for Honey, Wax, Nectar, entitlements, and
+  competitive progression.
+- The client may cache verified projections and emit intents, but it may not
+  commit a local fallback mutation when Platform authority is unavailable.
+- Unavailable authority fails closed. Presentation may show pending transport
+  state, but it must not label a client-calculated balance or award as committed.
 
 ## Persistence Policy (Recommendation)
 1. **Authoritative on server (or authoritative transport endpoint):**
@@ -79,3 +84,7 @@ scripts/dev/run_release_readiness_gate.sh --matrix-gate fast
 3. Export iOS project from Godot.
 4. Build/archive in Xcode.
 5. Upload to TestFlight.
+
+Do not treat a development-signed IPA as completion of step 5. The distribution
+archive, upload, processing result, and installed TestFlight build must all be
+recorded separately.

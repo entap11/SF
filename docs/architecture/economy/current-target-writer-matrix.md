@@ -1,6 +1,7 @@
 # Honey, Wax, and Nectar Current-to-Target Writer Matrix
 
-Status: Implemented in certification; capability canaries remain gated off
+Status: Implemented in certification; Honey earn/spend, Nectar, and Standard Wax
+are active there after bounded canaries; Crucible Wax remains gated off
 Inventory date: 2026-08-17
 Repository/branch: `project` / `codex/iphone-startup-hitch-diagnosis`
 
@@ -10,6 +11,9 @@ test were deleted after a repository-wide consumer audit. Current buff inventory
 loadout persistence, and authoritative match behavior remain in ProfileManager,
 BuffLoadoutPolicy, and BuffState. The unused `data/buffs/buffs_v1.json` snapshot
 was also removed so it cannot be mistaken for runtime authority.
+
+The post-canary capability and reconciliation state is recorded in
+[Economy Canary Rollout Evidence — 2026-09-02](canary-rollout-evidence-2026-09-02.md).
 
 ## How to read this inventory
 

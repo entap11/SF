@@ -37,7 +37,9 @@ service, and deterministic tests pass.
 
 - The implementation sprint and integrated automated certification completed.
 - The recorded staging posture remains `P5 PASS — P6 BLOCKED — P7 HOLD`.
-- P6 still requires the remaining physical-device/signed-client matrix.
+- A current signed iOS development IPA and Release archive now exist; the exact
+  candidate installs, launches, and remains alive on the paired iPhone. P6 still
+  requires interaction evidence and the remaining physical-device matrix.
 - P7 requires that evidence plus an explicit product-owner `GO` or `HOLD`.
 - Repository defaults keep public 1v1, Crucible, multiseat modes, CTF/HCTF,
   public contests, bot fallback, and public leaderboards off.
@@ -48,10 +50,12 @@ service, and deterministic tests pass.
 
 - Platform economy authority, reset/recovery, session scopes, entitlements, and
   delivery infrastructure are implemented in the certification environment.
-- The August 17 recorded decision is GO for the read-only beta baseline only.
-- Nectar, Honey earn/spend, Standard Wax, and Crucible Wax mutations remain
-  independently capability-gated until their ordered canaries and reconciliation
-  evidence pass.
+- The August 17 report remains the pre-canary read-only baseline.
+- Bounded August 25 canaries subsequently enabled Nectar, Honey earn/spend, and
+  Standard Wax in the protected certification environment. A fresh September 2
+  read-only reconciliation is green.
+- Crucible Wax remains independently disabled. The certification capability
+  state does not enable public modes or constitute overall release approval.
 - Legacy local economy code remains for compatibility/testing but is not the
   authoritative mutation path. Tests must assert that it fails closed when
   Platform authority is required.
@@ -62,8 +66,9 @@ service, and deterministic tests pass.
   and removed measured synchronous texture-readback work.
 - The custom Godot 4.2.2 iOS audio-start boundary passed the focused warm-device
   run.
-- Broader accepted device/build matrices remain unfinished and are still a
-  release gate.
+- A current Release archive and development IPA now build and verify under
+  signing. The exact app installs and launches on the paired iPhone; broader
+  accepted device/build matrices remain unfinished and are still a release gate.
 - iPhone, iPad, and Android are target platforms; this is not yet a claim of
   completed cross-platform public certification.
 
@@ -110,12 +115,12 @@ only `CRUCIBLE_1V1`.
 
 ## Proposed next steps
 
-1. Complete the Public Modes P6 physical-device matrix with the required signed
-   client builds and append observed evidence.
+1. Exercise the installed signed iOS candidate and retain interaction/match
+   evidence, then complete the rest of the Public Modes P6 physical-device matrix.
 2. Record the P7 product-owner `GO` or `HOLD`; do not infer public readiness from
    automated tests alone.
-3. Run economy capability canaries in the documented order, reconciling each
-   before advancing the next capability.
+3. Monitor and reconcile the four active certification economy capabilities;
+   keep Crucible Wax disabled until its separate canary is authorized and passes.
 4. Capture and approve genuine gameplay footage, then replace the website's hero
    and proof placeholders.
 5. Approve beta intake, privacy/retention language, contact address, and official
@@ -134,3 +139,10 @@ only `CRUCIBLE_1V1`.
 
 This focused verification supports the claims above; it is not a substitute for
 the remaining release-readiness and physical-device gates.
+
+## September 2 execution supplement
+
+- Signed-candidate details:
+  [P6 Signed Candidate Evidence](architecture/public_modes/p6-signed-candidate-evidence-2026-09-02.md).
+- Current economy state:
+  [Economy Canary Rollout Evidence](architecture/economy/canary-rollout-evidence-2026-09-02.md).
