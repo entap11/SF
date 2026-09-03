@@ -1,6 +1,35 @@
 # Current Project Status
 
-Date: August 18, 2026
+Date: September 2, 2026
+
+## September 2 Android/iOS private PvP regression
+
+An Android-host/iPhone-joiner physical-device match on the matching `844d9db`
+private-certification clients completed with a consistent winning side and no
+HTTP error response, but it did not pass the determinism/latency cell. The
+product owner observed Android more than one second behind iPhone. Phone-local
+timing showed starts only 103 ms apart and the iPhone result 3,546 ms before the
+Android result.
+
+Both clients independently reported the same persistent state-hash divergence:
+first mismatch tick 1300, first emitted violation at checkpoint 1310, and 170
+consecutive mismatched samples through tick 2225. Their coarse map, player,
+hive-count, active-lane, and swarm summaries agreed, so the current evidence
+does not identify the differing authoritative field. No gameplay or input rule
+has been changed. Private PvP certification remains open. The next diagnostic
+pair enables the existing one-second tick/wall-clock telemetry and defers one
+full authoritative checkpoint snapshot per phone when the first persistent
+hash mismatch is detected. See
+[android_ios_private_pvp_regression_2026-09-02.md](android_ios_private_pvp_regression_2026-09-02.md).
+
+The follow-up diagnostic match isolated the first split to a gameplay command
+that iPhone executed at its canonical tick 48 but Android received and applied
+at tick 50. The runtime currently treats that two-tick delay as acceptable
+because it is inside an eight-tick tolerance; the resulting 200 ms lane timing
+difference persisted for the match. Simulation rates themselves were nearly
+identical, so there is no evidence of accumulating clock-rate drift in this
+run. No gameplay fix has been applied pending discussion of strict late-command
+handling versus deterministic pause/recovery/rollback.
 
 ## August 18 performance diagnosis and remediation
 

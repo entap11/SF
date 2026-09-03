@@ -27,6 +27,7 @@ func _init() -> void:
 	failed = _test_http_state_hash_publish_is_async_source_guard() or failed
 	failed = _test_async_state_hash_queue_coalesces() or failed
 	failed = _test_runtime_telemetry_file_disabled_by_default() or failed
+	failed = await _test_first_mismatch_snapshot_is_deferred_and_single_shot() or failed
 	if not failed:
 		print("VS_SWARM_REPLICATION_SMOKE: PASS")
 	quit(1 if failed else 0)
@@ -141,6 +142,61 @@ func _test_runtime_telemetry_file_disabled_by_default() -> bool:
 	ProjectSettings.set_setting(SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED, false)
 	if bool(runtime.call("_runtime_telemetry_file_enabled")):
 		return _fail("runtime telemetry JSONL should be disabled unless explicitly opted in")
+	return false
+
+func _test_first_mismatch_snapshot_is_deferred_and_single_shot() -> bool:
+	var runtime: Node = get_root().get_node_or_null("/root/VsPvpRuntime")
+	if runtime == null:
+		return _fail("VsPvpRuntime autoload missing")
+	if runtime.has_method("clear"):
+		runtime.call("clear")
+	ProjectSettings.set_setting(SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED, true)
+	runtime.set("_active", true)
+	runtime.set("_session_id", "diagnostic_snapshot_smoke")
+	runtime.set("_local_uid", "diagnostic_local")
+	runtime.set("_remote_uid", "diagnostic_remote")
+	runtime.set("_local_seat", 1)
+	runtime.set("_remote_seat", 2)
+	var authority_snapshot: Dictionary = {
+		"version": 2,
+		"hash": "diagnostic_hash",
+		"tick": 35,
+		"state": {"tick": 35, "hives": [{"id": 1, "owner_id": 1, "power": 7}]}
+	}
+	runtime.set("_authority_snapshots_by_tick", {35: authority_snapshot})
+	runtime.call("_defer_first_mismatch_authority_snapshot", 35)
+	runtime.call("_defer_first_mismatch_authority_snapshot", 35)
+	if not bool(runtime.get("_first_mismatch_snapshot_queued")):
+		ProjectSettings.set_setting(SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED, false)
+		return _fail("first mismatch snapshot was not queued")
+	if not str(runtime.get("_runtime_telemetry_log_path")).is_empty():
+		ProjectSettings.set_setting(SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED, false)
+		return _fail("first mismatch evidence wrote synchronously inside the simulation path")
+	await process_frame
+	var log_path: String = str(runtime.get("_runtime_telemetry_log_path"))
+	if log_path.is_empty() or not FileAccess.file_exists(log_path):
+		ProjectSettings.set_setting(SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED, false)
+		return _fail("deferred first mismatch evidence file was not created")
+	var event_count: int = 0
+	for line in FileAccess.get_file_as_string(log_path).split("\n", false):
+		var parsed_any: Variant = JSON.parse_string(line)
+		if typeof(parsed_any) != TYPE_DICTIONARY:
+			continue
+		var event: Dictionary = parsed_any as Dictionary
+		if str(event.get("event", "")) != "first_hash_mismatch_authority_snapshot":
+			continue
+		event_count += 1
+		var payload: Dictionary = event.get("payload", {}) as Dictionary
+		var retained_snapshot: Dictionary = payload.get("authority_snapshot", {}) as Dictionary
+		if int(payload.get("hash_tick", -1)) != 35 \
+			or str(retained_snapshot.get("hash", "")) != "diagnostic_hash":
+			ProjectSettings.set_setting(SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED, false)
+			return _fail("deferred mismatch evidence did not retain the authoritative checkpoint")
+	ProjectSettings.set_setting(SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED, false)
+	if runtime.has_method("clear"):
+		runtime.call("clear")
+	if event_count != 1:
+		return _fail("first mismatch snapshot should be written exactly once: %d" % event_count)
 	return false
 
 func _test_successful_swarm_intent_replicates() -> bool:

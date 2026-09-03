@@ -18,6 +18,7 @@ const SETTINGS_CRASH_ON_CONTRACT_VIOLATION: String = "swarmfront/vs/crash_on_con
 const SETTINGS_HASH_RECOVERY_PAUSE_ENABLED: String = "swarmfront/vs/hash_recovery_pause_enabled"
 const SETTINGS_RUNTIME_TELEMETRY_FILE_ENABLED: String = "swarmfront/vs/runtime_telemetry_file_enabled"
 const ENV_RUNTIME_TELEMETRY_FILE_ENABLED: String = "SF_VS_RUNTIME_TELEMETRY_JSONL"
+const FEATURE_PRIVATE_PVP_DIAGNOSTICS: String = "private_pvp_diagnostics"
 const DEFAULT_BACKEND_TIMEOUT_SEC: float = 6.0
 const CRASH_ON_CONTRACT_VIOLATION_DEFAULT: bool = false
 const HASH_RECOVERY_PAUSE_ENABLED_DEFAULT: bool = false
@@ -142,6 +143,7 @@ var _runtime_telemetry_last_sample_ms: int = 0
 var _runtime_telemetry_write_ms_last: float = 0.0
 var _runtime_telemetry_write_ms_max: float = 0.0
 var _runtime_telemetry_write_count: int = 0
+var _first_mismatch_snapshot_queued: bool = false
 
 func _exit_tree() -> void:
 	_poll_generation += 1
@@ -221,6 +223,7 @@ func clear() -> void:
 	_runtime_telemetry_write_ms_last = 0.0
 	_runtime_telemetry_write_ms_max = 0.0
 	_runtime_telemetry_write_count = 0
+	_first_mismatch_snapshot_queued = false
 	_reset_contract_diagnostics()
 	_reset_telemetry()
 
@@ -826,6 +829,7 @@ func _record_hash_mismatch(hash_tick: int, local_hash: String, remote_hash: Stri
 		_push_debug_event(event_type, payload)
 		_write_runtime_telemetry_event(event_type, payload)
 		return
+	_defer_first_mismatch_authority_snapshot(hash_tick)
 	if not _hash_recovery_pause_enabled():
 		payload["recovery_suppressed"] = true
 		_push_debug_event("state_hash_mismatch_recovery_suppressed", payload)
@@ -834,6 +838,26 @@ func _record_hash_mismatch(hash_tick: int, local_hash: String, remote_hash: Stri
 		return
 	_mark_peer_desync_or_lagging("state_hash_mismatch", payload)
 	_contract_violation("state_hash_mismatch", payload)
+
+func _defer_first_mismatch_authority_snapshot(hash_tick: int) -> void:
+	if _first_mismatch_snapshot_queued or not _runtime_telemetry_file_enabled():
+		return
+	var snapshot_any: Variant = _authority_snapshots_by_tick.get(int(hash_tick), {})
+	if typeof(snapshot_any) != TYPE_DICTIONARY or (snapshot_any as Dictionary).is_empty():
+		return
+	_first_mismatch_snapshot_queued = true
+	var evidence: Dictionary = {
+		"hash_tick": int(hash_tick),
+		"authority_snapshot": (snapshot_any as Dictionary).duplicate(true)
+	}
+	# Full recovery snapshots are diagnostic evidence, not gameplay work. Keep
+	# serialization and file I/O outside the authoritative simulation tick.
+	call_deferred(
+		"_write_runtime_telemetry_event",
+		"first_hash_mismatch_authority_snapshot",
+		evidence,
+		false
+	)
 
 func _reset_hash_mismatch_tracking() -> void:
 	_hash_mismatch_consecutive_count = 0
@@ -1501,6 +1525,8 @@ func _hash_recovery_pause_enabled() -> bool:
 	return HASH_RECOVERY_PAUSE_ENABLED_DEFAULT
 
 func _runtime_telemetry_file_enabled() -> bool:
+	if OS.has_feature(FEATURE_PRIVATE_PVP_DIAGNOSTICS):
+		return true
 	var env_value: String = OS.get_environment(ENV_RUNTIME_TELEMETRY_FILE_ENABLED).strip_edges().to_lower()
 	if env_value == "1" or env_value == "true" or env_value == "yes" or env_value == "on":
 		return true
@@ -1968,6 +1994,7 @@ func _reset_telemetry() -> void:
 	_runtime_telemetry_write_ms_last = 0.0
 	_runtime_telemetry_write_ms_max = 0.0
 	_runtime_telemetry_write_count = 0
+	_first_mismatch_snapshot_queued = false
 	_update_runtime_telemetry()
 
 func _record_transport_result(kind: String, result: Dictionary, t0_us: int) -> bool:
