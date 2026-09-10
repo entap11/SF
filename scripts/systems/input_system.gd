@@ -454,11 +454,17 @@ func _clear_enemy_first_for_player(player_id: int) -> void:
 
 func _set_enemy_first_visual(arena_api: ArenaAPI, hive_id: int, player_id: int) -> void:
 	if selection != null:
-		selection.selected_hive_id = -1
+		selection.selected_hive_id = hive_id
 		selection.selected_lane_id = -1
+	if arena_api != null:
+		arena_api.set_selected_hive_id(hive_id)
 	_set_selected_visual_for_player(arena_api, player_id, hive_id)
 
 func _clear_enemy_first_visual(arena_api: ArenaAPI, player_id: int) -> void:
+	if selection != null:
+		selection.selected_hive_id = -1
+	if arena_api != null:
+		arena_api.clear_selection()
 	if _visual_selected_player_id == player_id:
 		_clear_selected_visual(arena_api)
 
@@ -834,8 +840,7 @@ func _should_route_hive_click_to_lane(prev_selected_id: int, clicked_id: int, la
 	var hive: HiveData = arena_api.find_hive_by_id(clicked_id)
 	if hive == null:
 		return false
-	if int(hive.owner_id) != player_id:
-		return true
+	# Hive cores take the same picking priority for every owner.
 	return _tap_is_outside_hive_core(clicked_id, local_pos, arena_api)
 
 func _tap_is_outside_hive_core(hive_id: int, local_pos: Vector2, arena_api: ArenaAPI) -> bool:
@@ -2008,11 +2013,10 @@ func _handle_click_hive(prev_selected_id: int, clicked_id: int, player_id: int, 
 	SFLog.info("INPUT_CLICK", {"player_id": player_id, "hid": clicked_id, "world": world_pos})
 	var enemy_first_id: int = _get_enemy_first_for_player(player_id)
 	var clicked_owned: bool = hive.owner_id == player_id
-	var clicked_ally: bool = _are_allied_seats(player_id, hive.owner_id)
 	if enemy_first_id > 0:
 		_clear_enemy_first_for_player(player_id)
 		_clear_enemy_first_visual(arena_api, player_id)
-		SFLog.info("ENEMY_FIRST_CLEAR", {"enemy_id": enemy_first_id, "reason": "enemy_unselectable"})
+		SFLog.info("ENEMY_FIRST_CLEAR", {"enemy_id": enemy_first_id, "reason": "inspection_changed"})
 		clear_tap_state()
 	if prev_selected_id != -1 and prev_selected_id != clicked_id:
 		_apply_hive_to_hive_action(prev_selected_id, clicked_id, player_id, dev_pid, arena_api)
@@ -2025,13 +2029,11 @@ func _handle_click_hive(prev_selected_id: int, clicked_id: int, player_id: int, 
 		return
 	if not clicked_owned:
 		_clear_selected_for_player(arena_api, player_id)
+		if enemy_first_id != clicked_id:
+			_set_enemy_first_for_player(player_id, clicked_id)
+			_set_enemy_first_visual(arena_api, clicked_id, player_id)
 		clear_tap_state()
-		SFLog.info("HIVE_CLICK_UNSELECTABLE", {
-			"hive_id": clicked_id,
-			"owner_id": int(hive.owner_id),
-			"player_id": player_id,
-			"ally": clicked_ally
-		})
+		SFLog.info("HIVE_INSPECT", {"hive_id": clicked_id, "owner_id": int(hive.owner_id), "player_id": player_id})
 		return
 	if clicked_owned:
 		_set_selected_for_player(arena_api, player_id, clicked_id)

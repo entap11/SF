@@ -14,6 +14,9 @@ const EdgeGeometry := preload("res://scripts/geo/edge_geometry.gd")
 const EdgeVisual := preload("res://scripts/renderers/edge_visual.gd")
 const EdgeEndpoints := preload("res://scripts/renderers/edge_endpoints.gd")
 const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
+const CombatReadability := preload("res://scripts/renderers/combat_readability.gd")
+const ReadableLane := preload("res://scripts/renderers/readable_lane.gd")
+const HiveConnectionMarkers := preload("res://scripts/renderers/hive_connection_markers.gd")
 const LaneOverlapGapsScript := preload("res://scripts/renderers/lane_overlap_gaps.gd")
 const LaneVisualHierarchyScript: Script = preload("res://scripts/renderers/lane_visual_hierarchy.gd")
 const COLORKEY_SHADER := preload("res://shaders/sf_colorkey_alpha.gdshader")
@@ -114,6 +117,9 @@ var state: GameState = null
 var sel: Object = null
 var arena: Node2D = null
 
+var readability_context: Dictionary = {}
+var _readability_dirty: bool = true
+var _readability_focus: Vector2i = Vector2i(-2, -2)
 var model: Dictionary = {}
 var hive_nodes_by_id: Dictionary = {}
 var _bootstrap_next_ms: int = 0
@@ -731,6 +737,7 @@ func set_model(rm: Dictionary) -> void:
 		_startup_hitch_model_probe_count = probe_index
 	var probe_started_usec: int = Time.get_ticks_usec() if probe_model else 0
 	model = rm
+	_readability_dirty = true
 	var sample_sim_us: int = int(round(float(model.get("sim_time_s", 0.0)) * 1000000.0))
 	var map_id_for_cache: String = str(rm.get("map_id", rm.get("id", "")))
 	var hives_count_for_cache: int = 0
@@ -798,6 +805,7 @@ func set_hive_nodes(dict: Dictionary) -> void:
 		return
 	_hive_nodes_sig = next_sig
 	hive_nodes_by_id = dict
+	_readability_dirty = true
 	_hive_cache_dirty = true
 	_anchor_snapshot_ready = false
 	_schedule_anchor_snapshot_rebuild("hive_nodes_changed")
@@ -1814,6 +1822,10 @@ func _hide_lane_sprite_parts(entry: Dictionary, side: String, from_index: int = 
 			sprite.visible = false
 
 func _free_lane_entry_sprites(entry: Dictionary) -> void:
+	for side in ["a", "b"]:
+		var readable: Node = entry.get("readable_" + side) as Node
+		if is_instance_valid(readable):
+			readable.queue_free()
 	var freed: Dictionary = {}
 	for side in ["a", "b"]:
 		var parts_any: Variant = entry.get("sprites_%s" % side, [])
@@ -1843,6 +1855,7 @@ func _apply_lane_visual_profile_to_color(color: Color, profile: Dictionary) -> C
 	return LaneVisualHierarchyScript.call("apply_profile_to_color", color, profile, Time.get_ticks_msec()) as Color
 
 func _update_lane_visuals(delta: float) -> void:
+	_refresh_readability_context()
 	if _lane_nodes_by_key.is_empty():
 		_clear_buff_target_lane_probes("no_rendered_lanes")
 		return
@@ -1893,9 +1906,14 @@ func _update_lane_visuals(delta: float) -> void:
 		var lane_basis_dir: Vector2 = b_pos - a_pos
 		var lane_z_index: int = _lane_visual_z_index(send_a, send_b, a_id, b_id)
 		var profile: Dictionary = _resolve_lane_visual_profile(entry, delta, lane_z_index, target_px)
-		var profile_width_px: float = _lane_visual_width_px(float(profile.get("width", target_px)), send_a, send_b, a_id, b_id)
+		if CombatReadability.is_enabled():
+			profile = LaneVisualHierarchyScript.profile_for_context(entry, readability_context)
+		var profile_width_px: float = float(profile.width) if CombatReadability.is_enabled() else _lane_visual_width_px(float(profile.get("width", target_px)), send_a, send_b, a_id, b_id)
 		color_a = _apply_lane_visual_profile_to_color(color_a, profile)
 		color_b = _apply_lane_visual_profile_to_color(color_b, profile)
+		if CombatReadability.is_enabled():
+			color_a = Color(_owner_color(_owner_id_for_lane(a_id, model)), float(profile.alpha))
+			color_b = Color(_owner_color(_owner_id_for_lane(b_id, model)), float(profile.alpha))
 		color_a = _lane_grab_preview_color(lane_id, "a", color_a)
 		color_b = _lane_grab_preview_color(lane_id, "b", color_b)
 		lane_z_index = int(profile.get("z_index", lane_z_index))
@@ -1913,7 +1931,9 @@ func _update_lane_visuals(delta: float) -> void:
 			"color_b": color_b,
 			"lane_basis_dir": lane_basis_dir,
 			"z_index": lane_z_index,
-			"width": profile_width_px
+			"width": profile_width_px,
+			"overlap_width": profile_width_px + (13.0 if send_a and send_b else 4.0) if CombatReadability.is_enabled() else profile_width_px,
+			"focused": bool(profile.get("focused", false))
 		}
 		if lane_id > 0:
 			buff_probe_ids_seen[lane_id] = true
@@ -1952,6 +1972,13 @@ func _update_lane_visuals(delta: float) -> void:
 		var lane_basis_dir: Vector2 = prepared.get("lane_basis_dir", Vector2.ZERO) as Vector2
 		var lane_z_index: int = int(prepared.get("z_index", LANE_FRIENDLY_Z_INDEX))
 		var profile_width_px: float = float(prepared.get("width", target_px))
+		if CombatReadability.is_enabled():
+			_update_readable_route(entry, prepared, prepared_by_key, key_any)
+			continue
+		for side in ["a", "b"]:
+			var readable: Node2D = entry.get("readable_" + side) as Node2D
+			if is_instance_valid(readable):
+				readable.hide()
 		if send_a and send_b:
 			var raw_front_t: float = float(entry.get("front_t", 0.5))
 			var front_t: float = _clamped_contested_front_t(a_pos, b_pos, _lane_front_visual_t(lane_id, raw_front_t, Time.get_ticks_usec()))
@@ -2978,3 +3005,96 @@ func _should_show_candidates() -> bool:
 	if not _sim_running:
 		return show_lane_candidates_pre_game
 	return show_lane_candidates_while_running
+
+# Readability consumes render samples; it cannot issue gameplay commands.
+func _refresh_readability_context() -> void:
+	var focus_hive: int = int(sel.get("selected_hive_id")) if sel != null else -1
+	var focus_lane: int = int(sel.get("selected_lane_id")) if sel != null else -1
+	if not _lane_grab_preview.is_empty():
+		focus_lane = int(_lane_grab_preview.get("lane_id", -1))
+		focus_hive = -1
+	var focus := Vector2i(focus_hive, focus_lane)
+	if not _readability_dirty and focus == _readability_focus:
+		return
+	_readability_focus = focus
+	_readability_dirty = false
+	var teams: Dictionary = OpsState.get_team_by_seat_snapshot() if OpsState != null else {}
+	readability_context = CombatReadability.build_context(model, focus_hive, focus_lane, teams)
+	_update_readability_hive_markers()
+
+func _update_readability_hive_markers() -> void:
+	var enabled: bool = CombatReadability.is_enabled()
+	var connections: Dictionary = readability_context.get("connections", {})
+	var threats: Dictionary = readability_context.get("threats", {})
+	for id_any in hive_nodes_by_id:
+		var id: int = int(id_any)
+		var hive: Node2D = hive_nodes_by_id[id_any] as Node2D
+		if not is_instance_valid(hive):
+			continue
+		var marker: Node2D = hive.get_node_or_null("ConnectionMarkers") as Node2D
+		var visual: CanvasItem = hive.get_node_or_null("Visual") as CanvasItem
+		if visual != null:
+			var has_focus: bool = int(readability_context.get("focus_hive", -1)) > 0 or int(readability_context.get("focus_lane", -1)) > 0
+			var focus_self: bool = int(readability_context.get("focus_hive", -1)) == id
+			if visual.has_method("set_connection_opacity"):
+				visual.call("set_connection_opacity", 0.48 if enabled and has_focus and not focus_self and not connections.has(id) else 1.0)
+		if not enabled:
+			if marker != null:
+				marker.hide()
+			continue
+		if marker == null:
+			marker = HiveConnectionMarkers.new()
+			marker.name = "ConnectionMarkers"
+			marker.z_index = 25
+			hive.add_child(marker)
+		marker.show()
+		var entries: Array = []
+		var incoming: Dictionary = threats.get(id, {})
+		for threat in incoming.values():
+			var source: Node2D = hive_nodes_by_id.get(int(threat.source)) as Node2D
+			if not is_instance_valid(source):
+				continue
+			var outward: Vector2 = (source.global_position - hive.global_position).normalized()
+			var anchor: Vector2 = HiveNodeScript.lane_shell_anchor_world(hive.global_position, outward, float(hive.get("radius_px")), int(hive.get("power")))
+			entries.append({"point": hive.to_local(anchor + outward * 18.0), "direction": -outward, "color": _owner_color(int(threat.owner))})
+		marker.call("configure", entries, connections.has(id), int(readability_context.get("focus_hive", -1)) == id,
+			float(hive.get("radius_px")) * 1.8, _owner_color(_owner_id_for_lane(id, model)))
+
+func _update_readable_route(entry: Dictionary, prepared: Dictionary, all: Dictionary, key: Variant) -> void:
+	var a: Vector2 = prepared.a_pos
+	var b: Vector2 = prepared.b_pos
+	var trim: Vector2 = (b - a).normalized() * minf(18.0, a.distance_to(b) * 0.1)
+	a += trim
+	b -= trim
+	var two_way: bool = bool(prepared.send_a) and bool(prepared.send_b)
+	var intervals: Array = LaneOverlapGapsScript.visible_intervals(a, b, int(prepared.lane_id), int(prepared.a_id), int(prepared.b_id),
+		int(prepared.z_index), float(prepared.overlap_width), all, key, 3.0, 0.04, 5.0)
+	for side in ["a", "b"]:
+		var node: Node2D = entry.get("readable_" + side) as Node2D
+		if not is_instance_valid(node):
+			node = ReadableLane.new()
+			node.name = "ReadableLane_%s_%s" % [str(prepared.lane_id), side]
+			_lane_sprite_root.add_child(node)
+			entry["readable_" + side] = node
+		var sending: bool = bool(prepared.send_a) if side == "a" else bool(prepared.send_b)
+		_hide_lane_sprite_parts(entry, side)
+		if not sending:
+			node.hide()
+			continue
+		var color: Color = prepared.color_a if side == "a" else prepared.color_b
+		if _lane_grab_side_is_selected(int(prepared.lane_id), side):
+			node.hide()
+			_apply_lane_sprite_visual_with_gaps(entry, side, a, b, color, int(prepared.lane_id), int(prepared.a_id), int(prepared.b_id),
+				4, 9.0, 20.0, b - a, a, b, side == "a", all, key)
+			continue
+		var directed_intervals: Array = intervals
+		if side == "b":
+			directed_intervals = []
+			for interval: Vector2 in intervals:
+				directed_intervals.append(Vector2(1.0 - interval.y, 1.0 - interval.x))
+		var start: Vector2 = a if side == "a" else b
+		var end: Vector2 = b if side == "a" else a
+		# Both directions use +normal in their own coordinate system, separating tracks.
+		node.call("set_route", {"a": start, "b": end, "color": color, "width": float(prepared.width),
+			"z_index": int(prepared.z_index), "focused": bool(prepared.focused), "intervals": directed_intervals,
+			"offset": 4.5 if two_way else 0.0})

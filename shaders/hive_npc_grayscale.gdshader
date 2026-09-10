@@ -1,5 +1,7 @@
 shader_type canvas_item;
 
+uniform float global_alpha = 1.0;
+
 uniform float contrast = 1.05;
 uniform float brightness = 0.90;
 uniform float pulse_strength = 0.0;
@@ -28,5 +30,5 @@ void fragment() {
 	vec3 hot_metal = mix(out_rgb, hot_base, metal_gate * selected_metal_lift);
 	float hot_edge = smoothstep(0.30, 0.98, max(tex.r, max(tex.g, tex.b))) * metal_gate;
 	out_rgb = mix(out_rgb, hot_metal + (selected_hot_color.rgb * hot_edge * selected_hot_edge), selected_hot);
-	COLOR = vec4(out_rgb, tex.a);
+	COLOR = vec4(out_rgb, tex.a * global_alpha);
 }

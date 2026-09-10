@@ -1,6 +1,8 @@
 extends RefCounted
 class_name LaneVisualHierarchy
 
+const Readability = preload("res://scripts/renderers/combat_readability.gd")
+
 const SETTINGS_ENABLED: String = "swarmfront/arena/lane_visual_hierarchy_enabled"
 const STATE_EMBEDDED: String = "embedded"
 const STATE_ACTIVE: String = "active"
@@ -129,3 +131,26 @@ static func apply_profile_to_color(color: Color, profile: Dictionary, now_ms: in
 		clampf((b * brighten) + (glow * 0.04), 0.0, 1.0),
 		color.a * alpha
 	)
+
+# Selection, friendly feeds and incoming threats establish stable priorities.
+static func profile_for_context(lane: Dictionary, context: Dictionary) -> Dictionary:
+	var a: int = int(lane.get("a_id", 0))
+	var b: int = int(lane.get("b_id", 0))
+	var id: int = int(lane.get("lane_id", -1))
+	var hives: Dictionary = context.get("hives", {})
+	var teams: Dictionary = context.get("teams", {})
+	var ao: int = Readability.owner_of(hives.get(a, {}))
+	var bo: int = Readability.owner_of(hives.get(b, {}))
+	var feed: bool = Readability.allied(ao, bo, teams)
+	var focused: bool = (context.get("focused_lanes", {}) as Dictionary).has(id)
+	var has_focus: bool = int(context.get("focus_hive", -1)) > 0 or int(context.get("focus_lane", -1)) > 0
+	var viewer: int = int(context.get("viewer", 1))
+	var threat: bool = not feed and ((bool(lane.get("send_a", false)) and Readability.allied(bo, viewer, teams)) or (bool(lane.get("send_b", false)) and Readability.allied(ao, viewer, teams)))
+	if not is_enabled():
+		return {"focused": false, "alpha": 0.78, "width": 3.5, "z_index": -4}
+	var alpha: float = 0.44 if feed else 0.78
+	if has_focus and not focused:
+		alpha = 0.48 if threat else 0.16
+	return {"focused": focused, "feed": feed, "threat": threat,
+		"alpha": 1.0 if focused else alpha, "width": 5.5 if focused else (2.5 if feed else 3.5),
+		"z_index": 4 if focused else (-3 if threat else (-6 if feed else -4))}

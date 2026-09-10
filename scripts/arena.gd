@@ -8855,6 +8855,12 @@ func _snap_power_bar_to_map_top(reason: String = "") -> void:
 	var target_top_y: float = arena_top_y + POWER_BAR_ARENA_TOP_GAP_PX
 	var power_rect: Rect2 = power_bar.get_global_rect()
 	var delta_y: float = target_top_y - power_rect.position.y
+	if bool(ProjectSettings.get_setting("swarmfront/arena/combat_readability_enabled", false)):
+		# The frame texture has transparent vertical padding. Dock the visible
+		# fill above the world viewport, leaving room for the metal frame.
+		var fill_dock: Control = power_bar.get_node_or_null("Rig/BarDock") as Control
+		if fill_dock != null:
+			delta_y = arena_top_y - 24.0 - fill_dock.get_global_rect().end.y
 	if absf(delta_y) <= 0.5:
 		return
 	anchor.offset_top += delta_y

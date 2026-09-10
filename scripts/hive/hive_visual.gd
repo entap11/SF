@@ -1,5 +1,7 @@
 extends Node2D
 
+const CombatReadability := preload("res://scripts/renderers/combat_readability.gd")
+var _connection_opacity: float = 1.0
 const P1_TEXT_COLOR := Color(0.0, 0.0, 0.0)
 const P2_TEXT_COLOR := Color(1.0, 1.0, 1.0)
 const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
@@ -438,6 +440,14 @@ func set_selected_visual(on: bool, color: Color = Color.WHITE) -> void:
 	_update_selected_hot_shader()
 	_update_phase3_polish()
 
+func set_connection_opacity(alpha: float) -> void:
+	_connection_opacity = clampf(alpha, 0.0, 1.0)
+	# The body shaders write their own alpha. Keep the power badge opaque.
+	if _shader_mat != null:
+		_shader_mat.set_shader_parameter("global_alpha", _connection_opacity)
+	if _npc_shader_mat != null:
+		_npc_shader_mat.set_shader_parameter("global_alpha", _connection_opacity)
+
 func preview_state_idle() -> void:
 	if not _preview_helpers_allowed():
 		return
@@ -619,7 +629,7 @@ func _style_power_backing() -> void:
 	var accent: Color = _owner_accent_color()
 	accent.a = POWER_BADGE_BORDER_ALPHA
 	var style: StyleBoxFlat = StyleBoxFlat.new()
-	style.bg_color = POWER_BADGE_BG
+	style.bg_color = Color(0.025, 0.03, 0.045, 0.96) if CombatReadability.is_enabled() else POWER_BADGE_BG
 	style.border_color = accent
 	style.border_width_left = 0
 	style.border_width_top = 0
@@ -643,7 +653,7 @@ func _apply_power_label_settings() -> void:
 	_ensure_power_label_aux_layers()
 	_apply_power_layer_settings(_power_accent_label, POWER_LABEL_INVISIBLE_FILL, Color(1.0, 1.0, 1.0, POWER_LABEL_ACCENT_ALPHA), 5, 0)
 	_apply_power_layer_settings(_power_stroke_label, POWER_LABEL_INVISIBLE_FILL, POWER_LABEL_STROKE_COLOR, 3, 0)
-	_apply_power_layer_settings(_power_label, POWER_LABEL_FILL_COLOR, Color(0.0, 0.0, 0.0, 0.0), 0, 0)
+	_apply_power_layer_settings(_power_label, Color(0.96, 0.97, 1.0) if CombatReadability.is_enabled() else POWER_LABEL_FILL_COLOR, Color(0.0, 0.0, 0.0, 0.0), 0, 0)
 
 func _apply_power_layer_settings(label: Label, fill_color: Color, outline_color: Color, outline_size: int, shadow_size: int) -> void:
 	if label == null or not is_instance_valid(label):
@@ -728,7 +738,7 @@ func _update_power_label(owner_id_value: int, power_value: int, snap: bool = fal
 		_power_stroke_label.text = _power_label.text
 	_apply_power_layer_settings(_power_accent_label, POWER_LABEL_INVISIBLE_FILL, accent_color, 5, 0)
 	_apply_power_layer_settings(_power_stroke_label, POWER_LABEL_INVISIBLE_FILL, POWER_LABEL_STROKE_COLOR, 3, 0)
-	_apply_power_layer_settings(_power_label, POWER_LABEL_FILL_COLOR, Color(0.0, 0.0, 0.0, 0.0), 0, 0)
+	_apply_power_layer_settings(_power_label, Color(0.96, 0.97, 1.0) if CombatReadability.is_enabled() else POWER_LABEL_FILL_COLOR, Color(0.0, 0.0, 0.0, 0.0), 0, 0)
 	_power_label.modulate = Color.WHITE
 	if _power_accent_label != null and is_instance_valid(_power_accent_label):
 		_power_accent_label.modulate = Color.WHITE
@@ -783,7 +793,8 @@ func _power_label_offset() -> Vector2:
 	if _current_size.y <= 0.0:
 		return POWER_LABEL_OFFSET + label_rise
 	if _uses_flat_top_label_layout():
-		return _sprite_offset + Vector2(0.0, _current_size.y * FLAT_TOP_LABEL_Y_RATIO) + label_rise
+		var y_ratio: float = -0.23 if CombatReadability.is_enabled() else FLAT_TOP_LABEL_Y_RATIO
+		return _sprite_offset + Vector2(0.0, _current_size.y * y_ratio) + label_rise
 	var slot_count: int = _lane_budget_display_slot_count()
 	var rise: float = POWER_HOLOGRAM_BASE_RISE + (float(slot_count - 1) * POWER_HOLOGRAM_SLOT_RISE)
 	return _sprite_offset + Vector2(0.0, -(_current_size.y * 0.5) - rise) + POWER_PROJECTION_LAYOUT_NUDGE + label_rise
@@ -1716,6 +1727,7 @@ func _ensure_shader_material() -> void:
 	if _shader_mat == null:
 		_shader_mat = ShaderMaterial.new()
 		_shader_mat.shader = TEAM_GLOW_SHADER
+	_shader_mat.set_shader_parameter("global_alpha", _connection_opacity)
 	if _sprite != null and is_instance_valid(_sprite):
 		_sprite.material = _shader_mat
 
@@ -1723,6 +1735,7 @@ func _ensure_npc_shader_material() -> void:
 	if _npc_shader_mat == null:
 		_npc_shader_mat = ShaderMaterial.new()
 		_npc_shader_mat.shader = NPC_GRAYSCALE_SHADER
+	_npc_shader_mat.set_shader_parameter("global_alpha", _connection_opacity)
 	_configure_npc_shader_material(
 		_npc_shader_mat,
 		NPC_HIVE_COLOR,
@@ -1835,11 +1848,11 @@ func _apply_tint(owner_id_value: int, power_value: int) -> void:
 			_sprite.modulate = Color(1.0, 1.0, 1.0, 1.0)
 	if _shader_mat != null and not is_neutral_owner:
 		_shader_mat.set_shader_parameter("team_color", team_color)
-		_shader_mat.set_shader_parameter("glow_strength", lerp(0.95, 1.62, t))
+		_shader_mat.set_shader_parameter("glow_strength", lerp(0.60, 0.90, t) if CombatReadability.is_enabled() else lerp(0.95, 1.62, t))
 		TeamVisuals.apply_white_projection_params(_shader_mat)
-		_shader_mat.set_shader_parameter("additive_glow", lerp(0.30, 0.48, t))
+		_shader_mat.set_shader_parameter("additive_glow", lerp(0.14, 0.22, t) if CombatReadability.is_enabled() else lerp(0.30, 0.48, t))
 		_shader_mat.set_shader_parameter("detail_preserve", 0.92)
-		_shader_mat.set_shader_parameter("pulse_strength", hive_sprite_pulse_strength)
+		_shader_mat.set_shader_parameter("pulse_strength", 0.02 if CombatReadability.is_enabled() else hive_sprite_pulse_strength)
 		_shader_mat.set_shader_parameter("pulse_speed", hive_sprite_pulse_speed)
 		_shader_mat.set_shader_parameter("pulse_phase", _hive_sprite_pulse_phase())
 		_update_selected_hot_shader()
@@ -1936,6 +1949,8 @@ func _apply_sprite() -> void:
 		_resolve_tier(power)
 	)
 	var uniform_scale := target_height / tex_size.y
+	if CombatReadability.is_enabled():
+		uniform_scale *= 0.86
 	_current_size = Vector2(tex_size.x * uniform_scale * HIVE_WIDTH_SCALE, tex_size.y * uniform_scale)
 	_sprite.scale = Vector2(uniform_scale * HIVE_WIDTH_SCALE, uniform_scale)
 	_update_core_layout()

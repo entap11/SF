@@ -15,6 +15,7 @@ const TEAM_GLOW_RECOLOR_SHADER := preload("res://shaders/team_glow_recolor.gdsha
 const UNIT_EMISSION_SHADER := preload("res://shaders/unit_emission.gdshader")
 const BeeClipControllerScript := preload("res://scripts/vfx/bee_clip_controller.gd")
 const BEE_CLIP_SHADER := preload("res://shaders/BeeClip.gdshader")
+const CombatReadability := preload("res://scripts/renderers/combat_readability.gd")
 const SwarmBeeRenderer := preload("res://scripts/renderers/swarm_bee_renderer.gd")
 
 var model: Dictionary = {}
@@ -3332,7 +3333,7 @@ func _update_unit_sprite(
 		var emission_tint: Color = _owner_color(owner_id).lightened(0.10)
 		if owner_id <= 0:
 			emission_tint = Color(1.0, 0.82, 0.22, 1.0)
-		emission_tint.a = 1.0
+		emission_tint.a = 0.24 if CombatReadability.is_enabled() else 1.0
 		emission_sprite.self_modulate = emission_tint
 		if unit_id > 0:
 			_ensure_bee_clip_emission_controller(unit_id, emission_sprite)
@@ -4166,8 +4167,10 @@ func _render_units(now_us: int) -> void:
 func _apply_swarm_absorb_visual(node: Node2D, unit_id: int, unit_data: Dictionary, render_pos: Vector2, hive_by_id: Dictionary) -> Vector2:
 	if node == null:
 		return render_pos
-	node.scale = Vector2.ONE
-	node.modulate = Color(1.0, 1.0, 1.0, 1.0)
+	var readability_alpha: float = _readability_unit_alpha(unit_data)
+	var readability_scale: float = 0.78 if CombatReadability.is_enabled() else 1.0
+	node.scale = Vector2.ONE * readability_scale
+	node.modulate = Color(1.0, 1.0, 1.0, readability_alpha)
 	if not SWARM_ABSORB_VISUAL_ENABLED or unit_data.is_empty() or swarm_nodes_by_id.is_empty():
 		return render_pos
 	var absorb: Dictionary = _nearest_swarm_absorb_target(unit_id, unit_data, render_pos, hive_by_id)
@@ -4177,8 +4180,8 @@ func _apply_swarm_absorb_visual(node: Node2D, unit_id: int, unit_data: Dictionar
 	var raw_t: float = clampf(1.0 - ((dist - SWARM_ABSORB_CORE_RADIUS_PX) / maxf(1.0, SWARM_ABSORB_RADIUS_PX - SWARM_ABSORB_CORE_RADIUS_PX)), 0.0, 1.0)
 	var pull_t: float = raw_t * raw_t * (3.0 - 2.0 * raw_t)
 	var target_pos: Vector2 = absorb.get("pos", render_pos)
-	node.scale = Vector2.ONE * lerpf(1.0, SWARM_ABSORB_MIN_SCALE, pull_t)
-	node.modulate = Color(1.0, 1.0, 1.0, lerpf(1.0, SWARM_ABSORB_MIN_ALPHA, pull_t))
+	node.scale = Vector2.ONE * readability_scale * lerpf(1.0, SWARM_ABSORB_MIN_SCALE, pull_t)
+	node.modulate = Color(1.0, 1.0, 1.0, readability_alpha * lerpf(1.0, SWARM_ABSORB_MIN_ALPHA, pull_t))
 	var pulled_pos: Vector2 = render_pos.lerp(target_pos, minf(SWARM_ABSORB_MAX_PULL, pull_t))
 	if unit_id > 0:
 		var state_any: Variant = _unit_visual_by_id.get(unit_id, null)
@@ -4597,6 +4600,8 @@ func _unit_pos(u: Variant, hive_by_id: Dictionary) -> Array:
 	return [false, Vector2.ZERO]
 
 func _unit_bobble_offset(ud: Dictionary, hive_by_id: Dictionary, sim_time_s: float) -> Vector2:
+	if CombatReadability.is_enabled():
+		return Vector2.ZERO
 	var unit_id: int = int(ud.get("id", 0))
 	if unit_id <= 0:
 		return Vector2.ZERO
@@ -4849,3 +4854,11 @@ func _get_sprite_registry() -> SpriteRegistry:
 	if _sprite_registry == null:
 		_sprite_registry = SpriteRegistry.get_instance()
 	return _sprite_registry
+
+func _readability_unit_alpha(unit_data: Dictionary) -> float:
+	if not CombatReadability.is_enabled():
+		return 1.0
+	var lanes: Node = get_node_or_null("../../MapRoot/LaneRenderer")
+	if lanes == null:
+		return 1.0
+	return CombatReadability.unit_alpha(unit_data, lanes.get("readability_context") as Dictionary)

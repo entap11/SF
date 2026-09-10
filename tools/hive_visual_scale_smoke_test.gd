@@ -21,6 +21,17 @@ func _run() -> void:
 	if int(label.label_settings.font_size) != 84:
 		_fail("power label font should use the current 84px hive label size")
 		return
+	if bool(ProjectSettings.get_setting("swarmfront/arena/combat_readability_enabled", false)):
+		# Power updates used to overwrite the readable fill with the legacy black.
+		node.call("apply_render", 1, 50, 27.0, Color(0.9, 0.7, 0.2, 1.0), 14, "Hive", 1, 3)
+		await process_frame
+		if label.label_settings.font_color.r < 0.9:
+			_fail("readable power numbers must stay white after power changes")
+			return
+		var backing: PanelContainer = label.get_parent() as PanelContainer
+		if backing == null or (backing.get_theme_stylebox("panel") as StyleBoxFlat).bg_color.a < 0.9:
+			_fail("readable power numbers require an opaque backing")
+			return
 	var visual: Node = node.get_node_or_null("Visual")
 	if visual == null:
 		_fail("visual missing")
