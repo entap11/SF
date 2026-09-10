@@ -27,7 +27,7 @@ services:
       - key: RANK_ECONOMY_RESET_ENABLED
         value: "false"
       - key: RANK_ECONOMY_EPOCH
-        value: beta_2026071301
+        value: beta_launch_0001
       - key: RANK_VERIFIED_MATCH_MUTATIONS_ENABLED
         value: "false"
       - key: RANK_PUBLIC_LEADERBOARDS_ENABLED
@@ -48,6 +48,22 @@ services:
         value: "600"
       - key: ENTAP_DEVICE_CHALLENGE_TTL_SEC
         value: "300"
+      - key: RANK_SERVICE_TOKEN_ISSUER
+        value: swarmfront-vs
+      - key: RANK_SERVICE_TOKEN_AUDIENCE
+        value: swarmfront-rank
+      - key: RANK_SERVICE_TOKEN_SUBJECT
+        value: vs-settlement-worker
+      - key: RANK_SERVICE_TOKEN_KEY_ID
+        value: vs-rank-service-v1
+      - key: RANK_SERVICE_TOKEN_PUBLIC_KEY_PEM
+        sync: false
+      - key: RANK_VERIFIER_KEY_ID
+        sync: false
+      - key: RANK_VERIFIER_PUBLIC_KEY_PEM
+        sync: false
+      - key: RANK_VERIFIER_WORKER_BUILD_ID
+        sync: false
 
 databases:
   - name: entap-identity-rank-staging-db

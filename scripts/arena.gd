@@ -13,6 +13,7 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const MapApplier := preload("res://scripts/maps/map_applier.gd")
 const MapRegistry := preload("res://scripts/maps/map_registry.gd")
+const MatchSetupRandomizer := preload("res://scripts/state/match_setup_randomizer.gd")
 const WallRenderer := preload("res://scripts/renderers/wall_renderer.gd")
 const GridSpec := preload("res://scripts/maps/grid_spec.gd")
 const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
@@ -153,6 +154,7 @@ const VS_MODE_HIDDEN_CAPTURE_FLAG: String = "HIDDEN_CAPTURE_FLAG"
 const VS_MODE_ASYNC_SINGLE_MAP_TIMED: String = "ASYNC_SINGLE_MAP_TIMED"
 const CTF_PLAYER_SELECT_PCT_DEFAULT: int = 35
 const CTF_SELECTION_GRACE_MS: int = 5000
+const NETWORK_REMATCH_POLL_INTERVAL_MS: int = 750
 const TREE_META_VS_MODE: String = "vs_mode"
 const TREE_META_VS_STAGE_MAP_PATHS: String = "vs_stage_map_paths"
 const TREE_META_VS_STAGE_CURRENT_INDEX: String = "vs_stage_current_index"
@@ -451,6 +453,9 @@ var game_over := false
 var _match_end_handled := false
 var _post_match_action_taken := false
 var _post_match_render_frozen := false
+var _network_rematch_parent_session_id: String = ""
+var _network_rematch_local_uid: String = ""
+var _network_rematch_poll_next_ms: int = 0
 var towers: Array = []
 var barracks: Array = []
 var current_map_path := ""
@@ -6272,6 +6277,9 @@ func _on_post_match_action(action: String) -> void:
 			voter_id = 1
 		if _paid_vs_rematch_funding_blocked(voter_id):
 			return
+		if _uses_network_fresh_rematch():
+			_request_network_fresh_rematch()
+			return
 		var accepted: bool = OpsState.request_rematch(voter_id)
 		SFLog.info("REMATCH_VOTE_INTENT", {
 			"voter_id": voter_id,
@@ -7190,6 +7198,168 @@ func _handle_rematch() -> void:
 		outcome_overlay.hide_overlay()
 	_reset_sim_state()
 	MapApplier.apply_map(self, current_map_data.duplicate(true))
+
+func _uses_network_fresh_rematch() -> bool:
+	if _vs_pvp_runtime == null or not _vs_pvp_runtime.has_method("is_active"):
+		return false
+	if not bool(_vs_pvp_runtime.call("is_active")):
+		return false
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	return not str(tree.get_meta("vs_handshake_session_id", "")).strip_edges().is_empty()
+
+func _request_network_fresh_rematch() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		_set_network_rematch_status("failed", "Rematch service unavailable.")
+		return
+	var local_profile_any: Variant = tree.get_meta("vs_local_profile", {})
+	var local_profile: Dictionary = local_profile_any as Dictionary if typeof(local_profile_any) == TYPE_DICTIONARY else {}
+	var local_uid: String = str(local_profile.get("uid", "")).strip_edges()
+	var parent_session_id: String = str(tree.get_meta("vs_handshake_session_id", "")).strip_edges()
+	if local_uid.is_empty() or parent_session_id.is_empty():
+		_set_network_rematch_status("failed", "Rematch identity unavailable.")
+		return
+	_network_rematch_parent_session_id = parent_session_id
+	_network_rematch_local_uid = local_uid
+	_network_rematch_poll_next_ms = 0
+	_set_network_rematch_status("waiting", "Waiting for opponent...")
+	_poll_network_fresh_rematch(true)
+
+func _poll_network_fresh_rematch(force: bool = false) -> void:
+	if _network_rematch_parent_session_id.is_empty() or _network_rematch_local_uid.is_empty():
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	if not force and now_ms < _network_rematch_poll_next_ms:
+		return
+	_network_rematch_poll_next_ms = now_ms + NETWORK_REMATCH_POLL_INTERVAL_MS
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	if handshake == null or not handshake.has_method("request_fresh_rematch"):
+		_set_network_rematch_status("failed", "Rematch service unavailable.")
+		_clear_network_rematch_poll()
+		return
+	var result: Dictionary = handshake.call(
+		"request_fresh_rematch",
+		_network_rematch_parent_session_id,
+		_network_rematch_local_uid
+	) as Dictionary
+	if bool(result.get("ok", false)):
+		var status: String = str(result.get("status", "")).strip_edges().to_lower()
+		if status == "ready":
+			var child_session: Dictionary = result.get("session", {}) as Dictionary
+			_start_network_fresh_rematch(child_session)
+			return
+		_set_network_rematch_status("waiting", "Waiting for opponent...")
+		return
+	var code: String = str(result.get("code", result.get("err", "rematch_failed"))).strip_edges().to_lower()
+	if code == "rematch_expired":
+		_set_network_rematch_status("expired", "Rematch expired.")
+		_clear_network_rematch_poll()
+		return
+	if code == "insufficient_funds":
+		_show_money_payment_required_prompt(result)
+		_set_network_rematch_status("failed", "Rematch payment required.")
+		_clear_network_rematch_poll()
+		return
+	if bool(result.get("transport_error", false)):
+		_set_network_rematch_status("waiting", "Connection interrupted; retrying rematch...")
+		return
+	_set_network_rematch_status("failed", "Unable to create a fresh rematch session.")
+	_clear_network_rematch_poll()
+
+func _start_network_fresh_rematch(child_session: Dictionary) -> void:
+	var child_session_id: String = str(child_session.get("id", "")).strip_edges()
+	if child_session_id.is_empty() or child_session_id == _network_rematch_parent_session_id:
+		_set_network_rematch_status("failed", "Fresh rematch session was not created.")
+		_clear_network_rematch_poll()
+		return
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	if handshake == null or not handshake.has_method("resolve_runtime_setup_for_session"):
+		_set_network_rematch_status("failed", "Fresh rematch setup unavailable.")
+		_clear_network_rematch_poll()
+		return
+	var setup: Dictionary = handshake.call("resolve_runtime_setup_for_session", child_session) as Dictionary
+	if not bool(setup.get("ok", false)):
+		SFLog.warn("FRESH_REMATCH_SETUP_FAILED", setup)
+		_set_network_rematch_status("failed", "No valid map was available for the rematch.")
+		_clear_network_rematch_poll()
+		return
+	var stage_maps: Array[String] = []
+	var stage_maps_any: Variant = setup.get("stage_map_paths", [])
+	if typeof(stage_maps_any) == TYPE_ARRAY:
+		for path_any in stage_maps_any as Array:
+			var path: String = str(path_any).strip_edges()
+			if not path.is_empty():
+				stage_maps.append(path)
+	if stage_maps.is_empty():
+		_set_network_rematch_status("failed", "No valid map was available for the rematch.")
+		_clear_network_rematch_poll()
+		return
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		_set_network_rematch_status("failed", "Rematch scene unavailable.")
+		_clear_network_rematch_poll()
+		return
+	_apply_fresh_rematch_session_to_tree(tree, child_session, setup, stage_maps)
+	_set_network_rematch_status("starting", "Starting fresh rematch...")
+	_post_match_action_taken = true
+	_clear_network_rematch_poll()
+	if _vs_pvp_runtime != null and _vs_pvp_runtime.has_method("clear"):
+		_vs_pvp_runtime.call("clear")
+	var shell: Node = get_node_or_null("/root/Shell")
+	if shell == null or not shell.has_method("_apply_map_then_start"):
+		_set_network_rematch_status("failed", "Rematch launcher unavailable.")
+		_post_match_action_taken = false
+		return
+	SFLog.info("FRESH_REMATCH_SESSION_START", {
+		"session_id": child_session_id,
+		"map_path": stage_maps[0],
+		"rematch_index": int((child_session.get("context", {}) as Dictionary).get("rematch_index", 0))
+	})
+	shell.call_deferred("_apply_map_then_start", stage_maps[0])
+
+func _apply_fresh_rematch_session_to_tree(
+	tree: SceneTree,
+	child_session: Dictionary,
+	setup: Dictionary,
+	stage_maps: Array[String]
+) -> void:
+	var context: Dictionary = child_session.get("context", {}) as Dictionary
+	for key in [
+		"vs_money_settlement_result", "vs_money_transaction_ids", "canonical_wax_result",
+		"contest_result_commit_signature", "vs_stage_run_id"
+	]:
+		if tree.has_meta(key):
+			tree.remove_meta(key)
+	for key_any in context.keys():
+		tree.set_meta(str(key_any), context[key_any])
+	tree.set_meta("vs_handshake_session_id", str(child_session.get("id", "")))
+	tree.set_meta("vs_handshake_invite_code", str(child_session.get("invite_code", "")))
+	tree.set_meta("vs_session_contract_version", int(child_session.get("contract_version", 0)))
+	tree.set_meta("vs_session_contract_hash", str(child_session.get("contract_hash", "")))
+	tree.set_meta("vs_roster", (child_session.get("roster", []) as Array).duplicate(true))
+	tree.set_meta(TREE_META_VS_MODE, str(context.get("mode", tree.get_meta(TREE_META_VS_MODE, ""))))
+	tree.set_meta(TREE_META_VS_STAGE_MAP_PATHS, stage_maps.duplicate())
+	tree.set_meta(TREE_META_VS_STAGE_CURRENT_INDEX, 0)
+	tree.set_meta(TREE_META_VS_STAGE_ROUND_RESULTS, [])
+	tree.set_meta("vs_paid_entry", bool(context.get("paid_entry", false)))
+	tree.set_meta("vs_free_roll", bool(context.get("free_roll", true)))
+	tree.set_meta("vs_price_usd", int(context.get("price_usd", 0)))
+	tree.set_meta("vs_wager_cents", int(context.get("wager_cents", 0)))
+	tree.set_meta("vs_money_ledger_status", str(context.get("ledger_status", "")))
+	var randomizer: Dictionary = setup.get("match_randomizer", {}) as Dictionary
+	tree.set_meta(MatchSetupRandomizer.TREE_META_KEY, randomizer.duplicate(true))
+	tree.set_meta(MatchSetupRandomizer.CONTEXT_KEY, randomizer.duplicate(true))
+
+func _set_network_rematch_status(status: String, message: String) -> void:
+	if outcome_overlay != null and outcome_overlay.has_method("set_network_rematch_status"):
+		outcome_overlay.call("set_network_rematch_status", status, message)
+
+func _clear_network_rematch_poll() -> void:
+	_network_rematch_parent_session_id = ""
+	_network_rematch_local_uid = ""
+	_network_rematch_poll_next_ms = 0
 
 func _paid_vs_rematch_funding_blocked(owner_id: int) -> bool:
 	var tree: SceneTree = get_tree()
@@ -8185,6 +8355,7 @@ func _tick_arena_runtime(delta: float) -> void:
 		input_system.tick(delta, api)
 		_sync_inputs_locked_from_state()
 	_pump_vs_pvp_runtime(delta)
+	_poll_network_fresh_rematch()
 	_maybe_publish_spectator_snapshot(delta)
 	_update_timer_ui()
 	_update_progressive_counter_ui()

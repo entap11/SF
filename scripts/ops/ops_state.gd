@@ -3177,7 +3177,12 @@ func add_units_killed(killer_id: int, count: int) -> void:
 	if killer_id <= 0 or count <= 0:
 		return
 	var team_id: int = get_team_for_seat(killer_id)
+	add_team_units_killed(team_id, count)
+
+func add_team_units_killed(team_id: int, count: int) -> void:
 	if team_id <= 0:
+		return
+	if count <= 0:
 		return
 	var stats := _ensure_team_stats(team_id)
 	stats["units_killed"] = int(stats.get("units_killed", 0)) + count

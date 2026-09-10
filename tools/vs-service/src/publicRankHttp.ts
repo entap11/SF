@@ -2,6 +2,7 @@ import type { Request, Response } from "express";
 import { config } from "./config.js";
 import { DurableCoreError, type JsonRecord } from "./repositories/durableCore.js";
 import { requirePublicRollout } from "./publicModesOpsHttp.js";
+import { fetchDependency } from "./httpDependency.js";
 
 let cache: { board: JsonRecord; fetchedAtMs: number; baseAgeSeconds: number } | null = null;
 
@@ -19,7 +20,8 @@ export async function handlePublicRankAction(action: string, req: Request, res: 
   }
   const limit = Math.max(1, Math.min(100, integer(req.body?.limit, 25)));
   try {
-    const response = await fetch(`${config.rankServiceUrl}/v1/public/leaderboard/global?limit=${limit}`);
+    const response = await fetchDependency("rank.public_leaderboard",
+      `${config.rankServiceUrl}/v1/public/leaderboard/global?limit=${limit}`, {}, config.rankServiceTimeoutMs);
     const payload = await response.json() as JsonRecord;
     if (!response.ok || payload.ok !== true || !Array.isArray(record(payload.board).rows)) {
       throw new Error("rank_primary_unavailable");

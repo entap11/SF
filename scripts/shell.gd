@@ -5009,20 +5009,7 @@ func _run_tutorial_controls_smoke(config: Dictionary) -> void:
 	passes += int(check_result.get("passes", 0))
 	fails += int(check_result.get("fails", 0))
 	_tutorial_controls_smoke_clear_swarms()
-	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "swarm_double_tap", run_timeout_ms, "tutorial_controls_advances_after_overlap_hit", {"src": neutral_id, "dst": enemy_id})
-	passes += int(check_result.get("passes", 0))
-	fails += int(check_result.get("fails", 0))
-	var swarm_lane_id: int = _tutorial_controls_smoke_lane_id_between(start_id, enemy_id)
-	if _tutorial_controls_smoke_lane_double_tap_press_constrained(arena_node, swarm_lane_id, enemy_id):
-		passes += _mvp_smoke_pass("tutorial_controls_red_half_double_tap_routes_to_lane", {"lane_id": swarm_lane_id})
-	else:
-		fails += _mvp_smoke_fail("tutorial_controls_red_half_double_tap_routes_to_lane", _tutorial_controls_smoke_snapshot(arena_node))
-
-	_tutorial_controls_smoke_boost_hive(start_id, 30)
-	check_result = _tutorial_controls_smoke_apply_intent("tutorial_controls_double_tap_swarm_intent", start_id, enemy_id, "swarm")
-	passes += int(check_result.get("passes", 0))
-	fails += int(check_result.get("fails", 0))
-	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "finish_fight", run_timeout_ms, "tutorial_controls_advances_after_double_tap_swarm", {"src": start_id, "dst": enemy_id})
+	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "finish_fight", run_timeout_ms, "tutorial_controls_skips_mothballed_double_tap", {"src": friend_id, "dst": enemy_id})
 	passes += int(check_result.get("passes", 0))
 	fails += int(check_result.get("fails", 0))
 
@@ -5300,19 +5287,7 @@ func _tutorial_controls_smoke_boost_hive(hive_id: int, power: int) -> void:
 func _tutorial_controls_smoke_add_team_units_killed(team_id: int, count: int) -> bool:
 	if team_id <= 0 or count <= 0:
 		return false
-	var stats_by_team: Dictionary = OpsState.stats_by_team
-	var stats: Dictionary = stats_by_team.get(team_id, {}) as Dictionary
-	if stats.is_empty():
-		stats = {
-			"max_total_hive_power": 0,
-			"units_killed": 0,
-			"units_landed": 0,
-			"units_landed_enemy": 0,
-			"units_fed_friendly": 0
-		}
-	stats["units_killed"] = int(stats.get("units_killed", 0)) + count
-	stats_by_team[team_id] = stats
-	OpsState.stats_by_team = stats_by_team
+	OpsState.add_team_units_killed(team_id, count)
 	return true
 
 func _tutorial_controls_smoke_clear_swarms() -> void:

@@ -491,39 +491,13 @@ func _refresh_admin_tools() -> void:
 	admin_status_label.visible = false
 
 func _refresh_admin_credentials() -> void:
-	var username: String = ADMIN_DASHBOARD_USERNAME_DEFAULT
-	var password: String = ADMIN_DASHBOARD_PASSWORD_DEFAULT
-	if ProfileManager.has_method("get_admin_dashboard_username"):
-		username = str(ProfileManager.call("get_admin_dashboard_username"))
-	if ProfileManager.has_method("get_admin_dashboard_password"):
-		password = str(ProfileManager.call("get_admin_dashboard_password"))
-	admin_username_input.text = username
-	admin_password_input.text = password
+	admin_username_input.text = ADMIN_DASHBOARD_USERNAME_DEFAULT
+	admin_password_input.text = ADMIN_DASHBOARD_PASSWORD_DEFAULT
 
 func _persist_admin_credentials() -> void:
-	if not ProfileManager.has_method("set_admin_dashboard_credentials"):
-		return
-	var username: String = admin_username_input.text.strip_edges()
-	var password: String = admin_password_input.text
-	ProfileManager.call("set_admin_dashboard_credentials", username, password)
-
-func _build_auth_dashboard_url(base_url: String, username: String, password: String) -> String:
-	var clean_username: String = username.strip_edges()
-	if clean_username == "" or password == "":
-		return base_url
-	var scheme_sep_index: int = base_url.find("://")
-	if scheme_sep_index < 0:
-		return base_url
-	var scheme_prefix: String = base_url.substr(0, scheme_sep_index + 3)
-	var remainder: String = base_url.substr(scheme_sep_index + 3, base_url.length() - (scheme_sep_index + 3))
-	var slash_index: int = remainder.find("/")
-	var authority: String = remainder if slash_index < 0 else remainder.substr(0, slash_index)
-	var suffix: String = "" if slash_index < 0 else remainder.substr(slash_index, remainder.length() - slash_index)
-	var at_index: int = authority.rfind("@")
-	if at_index >= 0:
-		authority = authority.substr(at_index + 1, authority.length() - (at_index + 1))
-	var credential_block: String = "%s:%s@" % [clean_username.uri_encode(), password.uri_encode()]
-	return scheme_prefix + credential_block + authority + suffix
+	# Admin credentials are intentionally never persisted by the game client.
+	admin_username_input.text = ""
+	admin_password_input.text = ""
 
 func _on_admin_open_pressed() -> void:
 	var enabled: bool = OS.is_debug_build() or admin_tools_enabled_in_release
@@ -535,21 +509,15 @@ func _on_admin_open_pressed() -> void:
 		admin_status_label.text = "Dashboard URL missing."
 		return
 	_persist_admin_credentials()
-	var username: String = admin_username_input.text.strip_edges()
-	var password: String = admin_password_input.text
-	var open_url: String = _build_auth_dashboard_url(url, username, password)
-	var err: Error = OS.shell_open(open_url)
+	var err: Error = OS.shell_open(url)
 	if err == OK:
-		if username == "" or password == "":
-			admin_status_label.text = "Opened dashboard. Browser prompt expected (missing saved credentials)."
-		else:
-			admin_status_label.text = "Opened dashboard with saved credentials."
+		admin_status_label.text = "Opened dashboard. Enter credentials in the browser prompt."
 	else:
 		admin_status_label.text = "Failed to open dashboard (%d)." % int(err)
 
 func _on_admin_credentials_submitted(_text: String) -> void:
 	_persist_admin_credentials()
-	admin_status_label.text = "Admin credentials saved."
+	admin_status_label.text = "Credentials are not stored in the game. Use the browser prompt."
 
 func _on_admin_credentials_focus_exited() -> void:
 	_persist_admin_credentials()

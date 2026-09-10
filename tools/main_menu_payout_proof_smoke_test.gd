@@ -21,15 +21,16 @@ func _run() -> void:
 	get_root().add_child(menu)
 	await process_frame
 	await process_frame
-	var button: Button = menu.get_node_or_null("PayoutProofButton") as Button
+	var button: Button = menu.get_node_or_null("DashPanel/DashRoot/DashTabs/PayoutProofButton") as Button
 	if button == null:
-		_fail("payout proof icon missing")
+		_fail("payout proof dash button missing")
 		return
 	if button.text != "$":
-		_fail("payout proof icon should be compact")
+		_fail("payout proof dash button should remain compact")
 		return
-	if button.modulate.a > 0.8:
-		_fail("payout proof icon should be semi-transparent")
+	var friends_button: Button = menu.get_node_or_null("DashPanel/DashRoot/DashTabs/FriendsTab") as Button
+	if friends_button == null or button.get_index() != friends_button.get_index() + 1:
+		_fail("payout proof dash button should sit next to Friends")
 		return
 	button.pressed.emit()
 	await process_frame

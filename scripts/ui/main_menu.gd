@@ -31,16 +31,13 @@ Tap and hold the source hive, drag to the destination hive, then release.
 
 If both hives are yours, sending from the opposite hive back to the original source reverses the lane direction.
 
-To remove a lane completely, double tap the source half of the lane. That is the half closest to the sending hive. The lane will immediately disappear.
+To remove a lane completely, press its source side, pull it sideways, and release to throw it away.
 
 Swarms
 
 Swarms are one of the most powerful mechanics in the game, but they come with a cost.
 
-You can launch a swarm in one of two ways:
-
-- Repeat source-to-destination on an existing active lane.
-- Double tap the destination half of an existing lane.
+To launch a swarm, repeat source-to-destination on an existing active lane.
 
 A swarm begins with 5 attack power. As it travels down the lane, it absorbs every friendly bee it encounters. For example, if it starts at 5 and picks up 3 more bees along the way, it will strike the enemy hive with 8 power.
 
@@ -153,21 +150,21 @@ const HONEY_SHADOW_COLOR: Color = Color(0.10, 0.04, 0.01, 0.88)
 const HONEY_WIDGET_PANEL_WIDTH: float = 300.0
 const HONEY_WIDGET_PANEL_HEIGHT: float = 200.0
 const HONEY_WIDGET_RIGHT_MARGIN: float = 22.0
-const HONEY_WIDGET_TOP_OFFSET: float = 10.0
+const HONEY_WIDGET_TOP_OFFSET: float = 35.0
 const TIER_WIDGET_LEFT_MARGIN: float = 8.0
-const TIER_WIDGET_TOP_OFFSET: float = 10.0
+const TIER_WIDGET_TOP_OFFSET: float = 35.0
 const TIER_WIDGET_PANEL_WIDTH: float = 415.0
 const TIER_WIDGET_PANEL_HEIGHT: float = 200.0
 const MM_BACKGROUND_Y_SHIFT: float = -615.0
 const MM_BACKGROUND_X_SCALE: float = 0.88
-const MM_BACKGROUND_EXTRA_SIDE_PX: float = 90.0
+const MM_BACKGROUND_EXTRA_SIDE_PX: float = 40.0
 const MM_BACKGROUND_STRETCH_MODE: int = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 const MM_PLATFORM_DIMMER_ALPHA: float = 0.19
 const MM_HERO_PANEL_ANCHOR_LEFT: float = 0.14
 const MM_HERO_PANEL_ANCHOR_RIGHT: float = 0.86
 const MM_HERO_PANEL_ANCHOR_TOP: float = 0.30
 const MM_HERO_PANEL_ANCHOR_BOTTOM: float = 0.66
-const MM_WELCOME_HANDLE_TOP_PX: float = 350.0
+const MM_WELCOME_HANDLE_TOP_PX: float = 420.0
 const MM_WELCOME_HANDLE_HEIGHT_PX: float = 96.0
 const MATCH_REPLAY_SAVE_DIR: String = "user://matches"
 const MM_BOOT_SOUND_ENABLED: bool = false
@@ -183,10 +180,10 @@ const MENU_AUDIO_FADE_OUT_DB: float = -60.0
 const SHELL_SCENE_PATH: String = "res://scenes/Shell.tscn"
 const TREE_META_TUTORIAL_CONTROLS_BOOT_LAUNCH: String = "tutorial_controls_boot_launch"
 const HIVE_TAB_KEY := "ui.mm.hive.normal"
-const HIVE_BUTTON_SCALE: float = 1.5
+const HIVE_BUTTON_SCALE: float = 1.65
 const HIVE_BUTTON_BASE_WIDTH: float = 140.0
 const HIVE_BUTTON_BASE_HEIGHT: float = 70.0
-const HIVE_BUTTON_CENTER_Y: float = 45.0
+const HIVE_BUTTON_CENTER_Y: float = 70.0
 const DASH_TAB_KEY_RIGHT := "ui.mm.dash.left"
 const DASH_TAB_KEY_LEFT := "ui.mm.dash.right"
 const UI_SURFACE_DASH := "dash"
@@ -775,7 +772,8 @@ const BOTTOM_NAV_HEIGHT_SCALE: float = 1.0
 const BOTTOM_NAV_BASE_BUTTON_SIZE: Vector2 = Vector2(64.0, 36.0)
 const BOTTOM_NAV_OUTER_PADDING: float = 8.0
 const BOTTOM_NAV_BUTTON_SEPARATION: int = 8
-const BOTTOM_NAV_ROW_SEPARATION: float = 12.0
+const BOTTOM_NAV_ROW_SEPARATION: float = 32.0
+const BOTTOM_NAV_BOTTOM_LIFT: float = 45.0
 const HIVE_DROPDOWN_WIDTH: float = 720.0
 const HIVE_DROPDOWN_HEIGHT: float = 640.0
 const HIVE_DROPDOWN_TOP_GAP: float = 8.0
@@ -2806,8 +2804,8 @@ func _style_dash_top_tabs() -> void:
 	_ensure_beta_help_tab()
 	if dash_tabs != null:
 		dash_tabs.alignment = BoxContainer.ALIGNMENT_CENTER
-		dash_tabs.add_theme_constant_override("separation", 12)
-	for button in [dash_garage_tab, dash_buffs_tab, dash_achievements_tab, _dash_friends_tab, _dash_help_tab, _dash_scholastic_tab, dash_settings_tab]:
+		dash_tabs.add_theme_constant_override("separation", 8)
+	for button in [dash_garage_tab, dash_buffs_tab, dash_achievements_tab, _dash_friends_tab, _dash_help_tab, _dash_scholastic_tab, dash_settings_tab, _payout_proof_button]:
 		if button == null:
 			continue
 		button.toggle_mode = button != _dash_help_tab
@@ -8659,7 +8657,7 @@ func _apply_bottom_nav_layout() -> void:
 	var status_top: float = menu_buttons_row.offset_bottom + 6.0
 	status_label.offset_top = status_top
 	status_label.offset_bottom = status_top + 30.0
-	bottom_bar.offset_top = -(status_label.offset_bottom + 8.0)
+	bottom_bar.offset_top = -(status_label.offset_bottom + 8.0 + BOTTOM_NAV_BOTTOM_LIFT)
 
 func _usd_skin_candidates(amount: int) -> PackedStringArray:
 	var candidates: PackedStringArray = PackedStringArray()
@@ -15253,33 +15251,29 @@ func _build_entry_overlay(title: String, subtitle: String, size: Vector2 = Vecto
 func _ensure_payout_proof_button() -> void:
 	if _payout_proof_button != null and is_instance_valid(_payout_proof_button):
 		return
+	if dash_tabs == null:
+		return
 	_payout_proof_button = Button.new()
 	_payout_proof_button.name = "PayoutProofButton"
 	_payout_proof_button.text = "$"
 	_payout_proof_button.tooltip_text = "Payout proof"
 	_payout_proof_button.focus_mode = Control.FOCUS_NONE
-	_payout_proof_button.custom_minimum_size = Vector2(44.0, 44.0)
-	_payout_proof_button.modulate = Color(1.0, 1.0, 1.0, 0.68)
-	_payout_proof_button.z_index = 90
+	_payout_proof_button.custom_minimum_size = Vector2(64.0, DASH_TOP_TAB_SIZE.y)
+	_payout_proof_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_payout_proof_button.pressed.connect(_open_payout_proof_panel)
-	add_child(_payout_proof_button)
+	dash_tabs.add_child(_payout_proof_button)
 	_apply_font(_payout_proof_button, _font_semibold, 18)
-	_style_button(_payout_proof_button, Color(0.05, 0.07, 0.08, 0.34), Color(0.87, 0.70, 0.25, 0.58), Color(1.0, 0.88, 0.46, 0.92))
+	_apply_dash_top_tab_style(_payout_proof_button, false)
 	_layout_payout_proof_button()
 
 func _layout_payout_proof_button() -> void:
 	if _payout_proof_button == null or not is_instance_valid(_payout_proof_button):
 		return
-	_payout_proof_button.layout_mode = 1
-	_payout_proof_button.anchor_left = 1.0
-	_payout_proof_button.anchor_right = 1.0
-	_payout_proof_button.anchor_top = 1.0
-	_payout_proof_button.anchor_bottom = 1.0
-	_payout_proof_button.offset_left = -74.0
-	_payout_proof_button.offset_right = -24.0
-	_payout_proof_button.offset_top = -148.0
-	_payout_proof_button.offset_bottom = -98.0
-	_payout_proof_button.move_to_front()
+	_payout_proof_button.custom_minimum_size = Vector2(64.0, DASH_TOP_TAB_SIZE.y)
+	_payout_proof_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	if dash_tabs != null and _payout_proof_button.get_parent() == dash_tabs and _dash_friends_tab != null:
+		var target_index: int = mini(_dash_friends_tab.get_index() + 1, dash_tabs.get_child_count() - 1)
+		dash_tabs.move_child(_payout_proof_button, target_index)
 
 func _open_payout_proof_panel() -> void:
 	_close_top_level_windows(UI_SURFACE_ENTRY)

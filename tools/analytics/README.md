@@ -98,9 +98,11 @@ docker compose up -d
 npm run migrate
 ```
 
-4. Generate admin user (optional override)
+4. Set bootstrap credentials in the untracked `.env` file or the deployment
+secret store, then generate the admin user. Passwords are not accepted on the
+command line because process listings and shell history can expose them.
 ```bash
-npm run create-admin-user -- --username=Mattballou --password='$warmFr0nt'
+npm run create-admin-user
 ```
 
 5. Start dev server
@@ -138,7 +140,7 @@ Scheduler (enabled by default):
 - `ROLLUP_HOURLY_ENABLED` (optional, default `true`)
 - `ROLLUP_DAILY_ENABLED` (optional, default `true`)
 
-Bootstrap admin (defaults are pre-set for local beta):
+Bootstrap admin (required only when running `create-admin-user`; no repository defaults):
 - `ADMIN_BOOTSTRAP_USERNAME`
 - `ADMIN_BOOTSTRAP_PASSWORD`
 

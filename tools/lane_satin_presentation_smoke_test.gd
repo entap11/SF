@@ -10,7 +10,7 @@ func _init() -> void:
 	var renderer_source := FileAccess.get_file_as_string(LANE_RENDERER_PATH)
 	var shader_source := LaneBandShader.code
 	_expect(renderer_source.contains("mat.set_shader_parameter(\"team_saturation\", 1.0)"), "lane material must preserve the owning team hue")
-	_expect(renderer_source.contains("const LANE_BASE_BRIGHTNESS: float = 0.68"), "lane material must retain the calibrated satin brightness")
+	_expect(renderer_source.contains("const LANE_BASE_BRIGHTNESS: float = 0.75"), "lane material must retain the calibrated satin brightness")
 	_expect(renderer_source.contains("mat.set_shader_parameter(\"highlight_boost\", 0.05)"), "lane highlights must remain shallow")
 	_expect(renderer_source.contains("mat.set_shader_parameter(\"glow_boost\", 0.0)"), "lane material must disable additive glow")
 	_expect(renderer_source.contains("mat.set_shader_parameter(\"surface_variation\", 0.10)"), "lane surface must use compressed eggshell variation")

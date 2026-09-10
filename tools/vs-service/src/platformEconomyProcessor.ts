@@ -7,6 +7,7 @@ import {
 } from "./repositories/platformEconomyDelivery.js";
 import { signServiceJwt } from "./serviceJwt.js";
 import type { JsonRecord } from "./repositories/durableCore.js";
+import { fetchDependency } from "./httpDependency.js";
 
 const ROUTES: Record<PlatformEconomyOperation, { path: string; scope: string }> = {
   HONEY_ACTIVITY: { path: "/v1/service/economy/honey-activity", scope: "economy:produce" },
@@ -42,11 +43,12 @@ export async function processOnePlatformEconomyDelivery(workerId: string, nowIso
       subject: config.rankServiceSubject, keyId: config.rankServiceKeyId,
       privateKeyPem: config.rankServicePrivateKeyPem
     }, route.scope);
-    const http = await fetch(`${config.rankServiceUrl}${route.path}`, {
+    const http = await fetchDependency(`rank.platform_economy.${job.operation.toLowerCase()}`,
+      `${config.rankServiceUrl}${route.path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(platformDeliveryEnvelope(job))
-    });
+    }, config.rankServiceTimeoutMs);
     response = await safeJson(http);
     if (!http.ok || response.ok !== true) {
       const code = String(response.err ?? `PLATFORM_HTTP_${http.status}`);

@@ -132,7 +132,7 @@ static func step_contracts() -> Array:
 		_contract(STEP_ATTACK_ENEMY_FROM_START_GUIDED, "Attack from this hive.", "OK, let's attack from this hive.", ANCHOR_START_HIVE, "", ["tap"], "paused", "tutorial_attack_enemy_from_start_guided"),
 		_contract(STEP_TAKE_NEUTRAL_HIVE, "Take the gray hive.", "So, it's time to win this game. Take that small NPC gray hive.", ANCHOR_START_HIVE, ANCHOR_NEUTRAL_HIVE, ["tap", "drag"], "normal", "tutorial_take_neutral"),
 		_contract(STEP_ATTACK_ENEMY_FROM_NEUTRAL, "Attack from gray.", "Now, make a lane to attack that enemy hive and I'll show you a trick.", ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE, ["tap", "drag"], "paused", "tutorial_attack_enemy_from_neutral"),
-		_contract(STEP_SWARM_INTRO, "Time to swarm.", "You want to win now? It's time to swarm. There are two ways to swarm and we will try them both.", "", "", ["wait"], "paused", "tutorial_swarm_intro"),
+		_contract(STEP_SWARM_INTRO, "Time to swarm.", "You want to win now? It's time to swarm. Repeat source to destination over an active lane to launch one.", "", "", ["wait"], "paused", "tutorial_swarm_intro"),
 		_contract(STEP_SWARM_BY_OVERLAP, "Create over the lane.", "First, create a lane over the top of an existing lane.\n\nUse any of your three hives: tap your hive, then tap the enemy hive, or drag a lane to it.", "", ANCHOR_ENEMY_HIVE, ["tap", "drag"], "paused", "tutorial_swarm_overlap"),
 		_contract(STEP_WAIT_OVERLAP_SWARM_HIT, "Watch the swarm hit.", "Watch the swarm hit.", ANCHOR_NEUTRAL_HIVE, ANCHOR_ENEMY_HIVE, ["wait"], "normal", "tutorial_swarm_overlap_wait"),
 		_contract(STEP_SWARM_DOUBLE_TAP, "Double tap to swarm.", "Perfect. Now let's double tap him!\n\nSimply double tap the lane near the enemy hive you want to swarm. Try either the middle or bottom lane this time.", ANCHOR_START_HIVE, ANCHOR_ENEMY_HIVE, ["lane_double_tap"], "paused", "tutorial_swarm_double_tap"),
@@ -593,7 +593,9 @@ func _next_step_for_state(state: GameState) -> String:
 			_overlap_swarm_seen = true
 			return ""
 		if _overlap_swarm_seen:
-			return STEP_SWARM_DOUBLE_TAP
+			# Lane double-tap is mothballed because overlaps cannot reliably
+			# communicate which source lane the player intends.
+			return STEP_FINISH_FIGHT
 		return ""
 	if _current_step == STEP_SWARM_DOUBLE_TAP:
 		if _has_swarm_between(state, ANCHOR_START_HIVE, ANCHOR_ENEMY_HIVE) or _has_swarm_between(state, ANCHOR_FRIEND_HIVE, ANCHOR_ENEMY_HIVE):
@@ -1194,7 +1196,8 @@ func _refresh_overlay_copy() -> void:
 
 func _step_status_text() -> String:
 	var step_index: int = _step_index(_current_step)
-	var total: int = step_contracts().size() - 1
+	# Exclude completion and the unreachable mothballed double-tap lesson.
+	var total: int = step_contracts().size() - 2
 	if _current_step == STEP_WELCOME:
 		return "Tap anywhere to begin"
 	if _current_step == STEP_COMPLETE:
@@ -2014,11 +2017,14 @@ func _is_local_swarm_between(state: GameState, actual_src_id: int, actual_dst_id
 func _step_index(step_id: String) -> int:
 	var index: int = 0
 	for contract_any in step_contracts():
-		index += 1
 		if typeof(contract_any) != TYPE_DICTIONARY:
 			continue
 		var contract: Dictionary = contract_any as Dictionary
-		if str(contract.get("id", "")) == step_id:
+		var contract_id: String = str(contract.get("id", ""))
+		if contract_id == STEP_SWARM_DOUBLE_TAP:
+			continue
+		index += 1
+		if contract_id == step_id:
 			return index
 	return 0
 

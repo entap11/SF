@@ -70,7 +70,7 @@ const LANE_SCALE_CLAMP := Vector2(10.0, 10.0)
 const LANE_GROW_TIME_MS: float = 260.0
 const LANE_FRONT_INTERP_DELAY_TICKS: float = 0.75
 const LANE_FRONT_MAX_EXTRAP_SEC: float = 0.05
-const LANE_BASE_BRIGHTNESS: float = 0.68
+const LANE_BASE_BRIGHTNESS: float = 0.75
 const LANE_ENDPOINT_TAPER_FRACTION: float = 0.15
 const LANE_ENDPOINT_WIDTH_SCALE: float = 0.75
 const DRAG_PREVIEW_MIN_LEN_PX := 2.0
@@ -2533,6 +2533,14 @@ func _edge_to_edge_segment(a_id: int, b_id: int, a_pos: Vector2, b_pos: Vector2,
 	return PackedVector2Array([a_edge, b_edge])
 
 func pick_lane_at_world_pos(world_pos: Vector2, max_dist: float) -> Dictionary:
+	return _pick_lane_at_world_pos(world_pos, max_dist)
+
+func pick_lane_by_id_at_world_pos(world_pos: Vector2, lane_id: int, max_dist: float) -> Dictionary:
+	if lane_id <= 0:
+		return {"hit": false}
+	return _pick_lane_at_world_pos(world_pos, max_dist, lane_id)
+
+func _pick_lane_at_world_pos(world_pos: Vector2, max_dist: float, required_lane_id: int = -1) -> Dictionary:
 	if max_dist <= 0.0:
 		return {"hit": false}
 	var lanes: Array = _lane_entries_from_model()
@@ -2550,6 +2558,9 @@ func pick_lane_at_world_pos(world_pos: Vector2, max_dist: float) -> Dictionary:
 		if typeof(lane_any) != TYPE_DICTIONARY:
 			continue
 		var d := lane_any as Dictionary
+		var lane_id: int = int(d.get("lane_id", d.get("id", -1)))
+		if required_lane_id > 0 and lane_id != required_lane_id:
+			continue
 		var send_a: bool = bool(d.get("send_a", false))
 		var send_b: bool = bool(d.get("send_b", false))
 		if not send_a and not send_b:
@@ -2572,7 +2583,7 @@ func pick_lane_at_world_pos(world_pos: Vector2, max_dist: float) -> Dictionary:
 			best_dist = dist
 			best = {
 				"hit": true,
-				"lane_id": int(d.get("lane_id", d.get("id", -1))),
+				"lane_id": lane_id,
 				"t": float(hit.get("t", 0.0)),
 				"dist": dist,
 				"a_id": a_id,

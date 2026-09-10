@@ -44,6 +44,8 @@ var _buttons_row: HBoxContainer = null
 var _buttons_stack: VBoxContainer = null
 var _layout_refresh_queued: bool = false
 var _layout_viewport_size_override: Vector2 = Vector2.ZERO
+var _network_rematch_status: String = ""
+var _network_rematch_message: String = ""
 
 const PANEL_MAX_SIZE: Vector2 = Vector2(888.0, 1180.0)
 const PANEL_MARGIN_PX: float = 28.0
@@ -106,6 +108,8 @@ func show_outcome(
 	_ensure_outcome_layer()
 	local_player_id = maxi(1, player_id)
 	_action_taken = false
+	_network_rematch_status = ""
+	_network_rematch_message = ""
 	clear_post_match_summary()
 	visible = true
 	panel.visible = true
@@ -250,8 +254,15 @@ func show_tutorial_welcome_pack(winner_id: int, reason: String, player_id: int, 
 func hide_overlay() -> void:
 	clear_post_match_summary()
 	_tutorial_followup_auto_at_ms = 0
+	_network_rematch_status = ""
+	_network_rematch_message = ""
 	visible = false
 	set_process(false)
+
+func set_network_rematch_status(status: String, message: String = "") -> void:
+	_network_rematch_status = status.strip_edges().to_lower()
+	_network_rematch_message = message.strip_edges()
+	_update_status()
 
 func _ensure_post_match_layout_structure() -> void:
 	if vbox == null:
@@ -881,6 +892,21 @@ func _update_status() -> void:
 		status_label.text = "Ready for next round?"
 		return
 	var tree: SceneTree = get_tree()
+	if not _network_rematch_status.is_empty():
+		rematch_button.disabled = true
+		if not _network_rematch_message.is_empty():
+			status_label.text = _network_rematch_message
+			return
+		match _network_rematch_status:
+			"waiting":
+				status_label.text = "Waiting for opponent..."
+			"starting":
+				status_label.text = "Starting fresh rematch..."
+			"expired":
+				status_label.text = "Rematch expired."
+			_:
+				status_label.text = "Unable to start rematch."
+		return
 	if tree != null and bool(tree.get_meta("durable_contract", false)) \
 			and not bool(tree.get_meta("practice", tree.get_meta("vs_practice", false))):
 		var verification: Dictionary = tree.get_meta("vs_verification_status", {}) as Dictionary if typeof(tree.get_meta("vs_verification_status", {})) == TYPE_DICTIONARY else {}
