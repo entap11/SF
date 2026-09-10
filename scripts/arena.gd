@@ -1126,6 +1126,9 @@ func _ensure_jukebox_back_button() -> void:
 		button.pressed.connect(_on_jukebox_back_pressed)
 	button.visible = _is_jukebox_run()
 	_jukebox_back_button = button
+	var shell: Node = get_node_or_null("/root/Shell")
+	if shell != null and shell.has_method("_configure_shell_world_viewport_opening"):
+		shell.call_deferred("_configure_shell_world_viewport_opening")
 
 func _capture_jukebox_restore_state() -> Dictionary:
 	var tree: SceneTree = get_tree()
@@ -3470,6 +3473,13 @@ func _ensure_in_game_ad_surface() -> void:
 
 func _layout_in_game_ad_surface() -> void:
 	if _in_game_ad_surface == null:
+		return
+	var shell: Node = get_node_or_null("/root/Shell")
+	if shell != null and shell.has_method("get_match_hud_layout"):
+		var layout: Dictionary = shell.call("get_match_hud_layout")
+		var ad_rect: Rect2 = layout.ad
+		_in_game_ad_surface.position = ad_rect.position
+		_in_game_ad_surface.size = ad_rect.size
 		return
 	var vp: Viewport = get_viewport()
 	if vp == null:
@@ -7813,6 +7823,7 @@ func _on_viewport_size_changed() -> void:
 	if _prematch_identity_card != null and _prematch_identity_card.visible:
 		_layout_prematch_identity_card()
 	_snap_power_bar_to_map_top("viewport_resize")
+	apply_camera_fit_next_frame("viewport_resize")
 
 func _resize_world_viewport() -> void:
 	var started_usec: int = Time.get_ticks_usec()
@@ -7879,6 +7890,7 @@ func _configure_grid_spec(grid_w_in: int, grid_h_in: int) -> void:
 		_ensure_floor_influence_system()
 	if floor_renderer != null:
 		floor_renderer.margin_px = maxf(0.0, floor_side_visual_projection_px)
+		floor_renderer.vertical_overscan_px = get_floor_vertical_visual_padding_px()
 		floor_renderer.configure(grid_w, grid_h, cell_px, origin)
 	if floor_influence_system != null and floor_renderer != null:
 		floor_influence_system.configure_floor_bounds(floor_renderer.get_floor_bounds_rect())
@@ -8849,13 +8861,21 @@ func _snap_power_bar_to_map_top(reason: String = "") -> void:
 	var anchor: Control = power_bar.get_parent() as Control
 	if anchor == null or not anchor.is_inside_tree():
 		return
+	var shell: Node = get_node_or_null("/root/Shell")
+	var uses_shell_layout: bool = shell != null and shell.has_method("get_match_hud_layout")
+	if uses_shell_layout:
+		var layout: Dictionary = shell.call("get_match_hud_layout")
+		var safe: Rect2 = layout.safe
+		var width: float = minf(1000.0, maxf(1.0, safe.size.x - 68.0))
+		anchor.size.x = width
+		anchor.global_position.x = safe.get_center().x - width * 0.5
 	var arena_top_y: float = _arena_playfield_top_screen_y()
 	if not is_finite(arena_top_y):
 		return
 	var target_top_y: float = arena_top_y + POWER_BAR_ARENA_TOP_GAP_PX
 	var power_rect: Rect2 = power_bar.get_global_rect()
 	var delta_y: float = target_top_y - power_rect.position.y
-	if bool(ProjectSettings.get_setting("swarmfront/arena/combat_readability_enabled", false)):
+	if uses_shell_layout or bool(ProjectSettings.get_setting("swarmfront/arena/combat_readability_enabled", false)):
 		# The frame texture has transparent vertical padding. Dock the visible
 		# fill above the world viewport, leaving room for the metal frame.
 		var fill_dock: Control = power_bar.get_node_or_null("Rig/BarDock") as Control
@@ -9287,6 +9307,11 @@ func cam_fit_height_to_bounds(
 	z = clampf(z, 0.02, 50.0)
 	var y_scale: float = 1.0 if cam_fit_lock_map_edges_to_container else clampf(cam_fit_height_y_scale, 0.75, 1.25)
 	var z_y: float = clampf(z * y_scale, 0.02, 50.0)
+	var shell: Node = get_node_or_null("/root/Shell")
+	if cam_fit_lock_map_edges_to_container and shell != null and shell.has_method("get_match_hud_layout"):
+		# Shell reserves the HUD first. Fill the remaining height while keeping
+		# the complete map width; this changes only the screen projection.
+		z_y = clampf(usable_h / bh, 0.02, 50.0)
 	var center: Vector2 = padded_bounds.position + padded_bounds.size * 0.5
 	if z_y > 0.0:
 		# Keep world centered in the remaining playable strip when top/bottom reserves differ.
@@ -9443,12 +9468,19 @@ func _resolve_camera_fit_bounds_world() -> Rect2:
 
 func _with_side_visual_projection(bounds: Rect2) -> Rect2:
 	var side_px: float = maxf(0.0, floor_side_visual_projection_px)
-	if side_px <= 0.0 or bounds.size.x <= 1.0 or bounds.size.y <= 1.0:
+	var vertical_px: float = get_floor_vertical_visual_padding_px()
+	if bounds.size.x <= 1.0 or bounds.size.y <= 1.0:
 		return bounds
 	return Rect2(
-		bounds.position - Vector2(side_px, 0.0),
-		bounds.size + Vector2(side_px * 2.0, 0.0)
+		bounds.position - Vector2(side_px, vertical_px),
+		bounds.size + Vector2(side_px * 2.0, vertical_px * 2.0)
 	)
+
+func get_floor_vertical_visual_padding_px() -> float:
+	# Edge hives and their power labels extend beyond the active grid. Reserve
+	# one visual cell at each end, independent of current power or ownership.
+	var shell: Node = get_node_or_null("/root/Shell")
+	return CELL_SIZE if shell != null and shell.has_method("get_match_hud_layout") else 0.0
 
 func _resolve_camera_fit_bounds_world_with_source() -> Dictionary:
 	if use_node_bounds_camfit:
@@ -9494,7 +9526,7 @@ func _camera_fit_signature(
 
 func _camera_fit_reason_allowed(reason: String) -> bool:
 	match reason:
-		"shell_present", "shell_map_apply", "main_map_build", "dev_map_loader_load", "map_builder_node_build", "fitcam_once":
+		"shell_present", "shell_map_apply", "main_map_build", "dev_map_loader_load", "map_builder_node_build", "fitcam_once", "viewport_resize":
 			return true
 		_:
 			return false
