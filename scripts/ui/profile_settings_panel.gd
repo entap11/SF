@@ -82,6 +82,7 @@ func _ready() -> void:
 	ProfileManager.ensure_loaded()
 	_apply_readability_layout()
 	_build_category_tabs()
+	_build_account_deletion_controls()
 	profile_dropdown.item_selected.connect(_on_profile_selected)
 	new_button.pressed.connect(_on_new_profile_pressed)
 	rename_button.pressed.connect(_on_rename_pressed)
@@ -663,6 +664,7 @@ func _set_active_category(category_id: String) -> void:
 	_set_section_visible(root_vbox, "ProfileRow", category_id == CATEGORY_ACCOUNT)
 	_set_section_visible(root_vbox, "UserIdSection", category_id == CATEGORY_ACCOUNT)
 	_set_section_visible(root_vbox, "RenamePolicyLabel", category_id == CATEGORY_ACCOUNT)
+	_set_section_visible(root_vbox, "AccountDeletionSection", category_id == CATEGORY_ACCOUNT)
 	_set_section_visible(root_vbox, "AudioSection", category_id == CATEGORY_AUDIO)
 	_set_section_visible(root_vbox, "VideoSection", category_id == CATEGORY_GRAPHICS)
 	_set_section_visible(root_vbox, "PerformanceSection", category_id == CATEGORY_GRAPHICS)
@@ -686,6 +688,40 @@ func _set_section_visible(root_vbox: VBoxContainer, path: String, visible: bool)
 	var control: Control = root_vbox.get_node_or_null(path) as Control
 	if control != null:
 		control.visible = visible
+
+func _build_account_deletion_controls() -> void:
+	var root_vbox := get_node_or_null("SettingsScroll/VBox") as VBoxContainer
+	if root_vbox == null:
+		return
+	var section := VBoxContainer.new()
+	section.name = "AccountDeletionSection"
+	section.add_theme_constant_override("separation", 16)
+	root_vbox.add_child(section)
+	var description := Label.new()
+	description.text = "Permanently delete your Swarmfront account and game data. Your ENTaP account is unaffected."
+	description.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	UITypography.apply_token(description, _font_regular, "body", 2.0)
+	section.add_child(description)
+	var button := Button.new()
+	button.name = "DeleteAccountButton"
+	button.text = "Delete Account"
+	UITypography.apply_button_token(button, _font_semibold, "button", 2.0, 88.0)
+	button.add_theme_color_override("font_color", Color(1.0, 0.48, 0.43))
+	button.pressed.connect(_open_account_deletion)
+	section.add_child(button)
+	var support := root_vbox.get_node_or_null("SupportSection")
+	if support != null:
+		var help := Button.new()
+		help.name = "AccountDeletionHelpButton"
+		help.text = "Account and data deletion"
+		UITypography.apply_button_token(help, _font_semibold, "button", 2.0, 88.0)
+		help.pressed.connect(_open_account_deletion)
+		support.add_child(help)
+
+func _open_account_deletion() -> void:
+	var runtime := get_node_or_null("/root/AccountDeletionRuntime")
+	if runtime != null:
+		runtime.call("open_deletion")
 
 func _style_category_button(button: Button, selected: bool) -> void:
 	var style := StyleBoxFlat.new()

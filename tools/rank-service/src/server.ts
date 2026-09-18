@@ -44,6 +44,8 @@ import {
   verifyPlayerAccessToken
 } from "./identity/playerToken.js";
 import { IdentitySessionError, IdentitySessionStore } from "./identity/sessionStore.js";
+import { AccountDeletionStore } from "./identity/accountDeletion.js";
+import { installAccountDeletionRoutes } from "./identity/accountDeletionHttp.js";
 import { bearerToken, ServiceTrustError, verifyServiceJwt } from "./serviceTrust.js";
 import { parseSignedVerifierReceipt, VerifiedReceiptError, verifyStandard1v1Receipt } from "./verifiedReceipt.js";
 
@@ -405,10 +407,14 @@ async function main(): Promise<void> {
   await store.init();
   const platformEconomy = new PlatformEconomyRepository(pool);
   const identitySessions = new IdentitySessionStore(pool, config.identity, config.identity.challengeTtlSec);
+  const accountDeletion = new AccountDeletionStore(pool,
+    process.env.ENTAP_ACCOUNT_DELETION_ENABLED?.trim().toLowerCase() === "true"
+      && (process.env.ENTAP_DELETION_OPERATOR_TOKEN?.trim().length ?? 0) >= 32);
   const identityConfigured = playerTokenConfigured(config.identity);
 
   const app = express();
   app.use(express.json({ limit: "1mb" }));
+  installAccountDeletionRoutes(app, accountDeletion, config.identity);
 
   app.get(
     "/health",
@@ -420,6 +426,7 @@ async function main(): Promise<void> {
       res.status(dbOk ? 200 : 503).json({
         ok: dbOk,
         service: "swarmfront-rank-service",
+        account_deletion_requests_enabled: accountDeletion.acceptingRequests,
         build: SERVICE_BUILD,
         platform_economy_authority: true,
         economy_mutations_enabled: economyMutationsEnabled(),
@@ -595,6 +602,7 @@ async function main(): Promise<void> {
         const token = bearerTokenFromHeader(req.header("authorization"));
         if (!token) throw new PlayerTokenError("token_missing");
         const claims = verifyPlayerAccessToken(token, config.identity, { requiredScope: "economy:read" });
+        await accountDeletion.assertActiveSession(claims);
         res.json(await platformEconomy.getPlayerBalances(claims.sub));
       } catch (error) { platformFailure(res, error); }
     })
@@ -687,6 +695,7 @@ async function main(): Promise<void> {
         const token = bearerTokenFromHeader(req.header("authorization"));
         if (!token) throw new PlayerTokenError("token_missing");
         const claims = verifyPlayerAccessToken(token, config.identity, { requiredScope: "economy:spend" });
+        await accountDeletion.assertActiveSession(claims);
         const body = isRecord(req.body) ? req.body : {};
         const currentEpoch = await platformEconomy.getCurrentEpoch();
         if (!currentEpoch) throw new PlatformEconomyError("active_epoch_missing", 503);

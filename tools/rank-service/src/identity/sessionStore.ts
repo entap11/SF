@@ -33,6 +33,7 @@ type ChallengeRow = {
   player_id: string;
   public_key_jwk: JsonWebKey;
   device_status: string;
+  account_status: string;
   entap_id: string;
   call_sign: string;
 };
@@ -80,7 +81,7 @@ function publicKeyFingerprint(jwk: JsonWebKey): string {
   return crypto.createHash("sha256").update(canonical).digest("hex");
 }
 
-function verifyDeviceSignature(publicJwk: JsonWebKey, message: string, encodedSignature: string): boolean {
+export function verifyDeviceSignature(publicJwk: JsonWebKey, message: string, encodedSignature: string): boolean {
   let signature: Buffer;
   try {
     signature = Buffer.from(encodedSignature, "base64url");
@@ -124,16 +125,18 @@ export class IdentitySessionStore {
         `
           SELECT d.id, d.player_id, d.public_key_jwk, d.public_key_sha256, d.platform,
             d.device_label, d.status, d.registration_request_id,
-            p.id AS player_identity_id, p.entap_id, p.call_sign, p.region
+            p.id AS player_identity_id, p.entap_id, p.call_sign, p.region, p.account_status
           FROM entap_player_devices d
           JOIN rank_players p ON p.id = d.player_id
-          WHERE d.registration_request_id = $1
+          WHERE d.registration_request_id = $1 AND d.application_id = 'swarmfront'
           FOR UPDATE
         `,
         [input.requestId]
       );
       if ((existing.rowCount ?? 0) > 0) {
-        const row = existing.rows[0] as DeviceRow & IdentityPlayer & { player_identity_id?: string };
+        const row = existing.rows[0] as DeviceRow & IdentityPlayer & { player_identity_id?: string; account_status: string };
+        if (row.account_status !== "active") throw new IdentitySessionError("account_deletion_pending", 403);
+        if (row.status !== "active") throw new IdentitySessionError("device_revoked", 403);
         if (row.public_key_sha256 !== fingerprint || row.call_sign.toLowerCase() !== input.callSign.toLowerCase()) {
           throw new IdentitySessionError("idempotency_conflict", 409);
         }
@@ -179,8 +182,8 @@ export class IdentitySessionStore {
         `
           INSERT INTO entap_player_devices (
             player_id, public_key_jwk, public_key_sha256, platform, device_label,
-            registration_request_id
-          ) VALUES ($1::uuid, $2::jsonb, $3, $4, $5, $6)
+            registration_request_id, application_id
+          ) VALUES ($1::uuid, $2::jsonb, $3, $4, $5, $6, 'swarmfront')
           RETURNING id::text, player_id::text, public_key_jwk, public_key_sha256,
             platform, device_label, status, registration_request_id
         `,
@@ -233,12 +236,17 @@ export class IdentitySessionStore {
     const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const device = await client.query<{ status: string }>(
-        "SELECT status FROM entap_player_devices WHERE id = $1::uuid FOR UPDATE",
+      const device = await client.query<{ status: string; account_status: string }>(
+        `SELECT d.status, p.account_status FROM entap_player_devices d
+          LEFT JOIN rank_players p ON p.id = d.player_id
+          WHERE d.id = $1::uuid AND d.application_id = 'swarmfront' FOR UPDATE OF d`,
         [deviceId]
       );
       if ((device.rowCount ?? 0) === 0) {
         throw new IdentitySessionError("device_not_found", 404);
+      }
+      if (device.rows[0].account_status !== "active") {
+        throw new IdentitySessionError("account_deletion_pending", 403);
       }
       if (device.rows[0].status !== "active") {
         throw new IdentitySessionError("device_revoked", 403);
@@ -264,11 +272,11 @@ export class IdentitySessionStore {
         `
           SELECT c.id::text, c.device_id::text, c.nonce, c.request_key, c.purpose,
             c.expires_at, c.used_at, d.player_id::text, d.public_key_jwk,
-            d.status AS device_status, p.entap_id, p.call_sign
+            d.status AS device_status, p.entap_id, p.call_sign, p.account_status
           FROM entap_device_challenges c
           JOIN entap_player_devices d ON d.id = c.device_id
           JOIN rank_players p ON p.id = d.player_id
-          WHERE c.id = $1::uuid
+          WHERE c.id = $1::uuid AND c.application_id = 'swarmfront' AND d.application_id = 'swarmfront'
           FOR UPDATE OF c, d
         `,
         [challengeId]
@@ -283,6 +291,7 @@ export class IdentitySessionStore {
       if (new Date(challenge.expires_at).getTime() <= Date.now()) {
         throw new IdentitySessionError("challenge_expired", 410);
       }
+      if (challenge.account_status !== "active") throw new IdentitySessionError("account_deletion_pending", 403);
       if (challenge.device_status !== "active") {
         throw new IdentitySessionError("device_revoked", 403);
       }
@@ -291,10 +300,10 @@ export class IdentitySessionStore {
       }
       const sessionResult = await client.query<{ id: string; player_id: string; device_id: string }>(
         `
-          INSERT INTO entap_player_sessions (player_id, device_id, scopes, expires_at)
+          INSERT INTO entap_player_sessions (player_id, device_id, scopes, expires_at, application_id)
           VALUES ($1::uuid, $2::uuid,
             ARRAY['contest:play', 'economy:read', 'economy:spend', 'match:queue', 'progression:claim']::text[],
-            now() + ($3 * interval '1 second'))
+            now() + ($3 * interval '1 second'), 'swarmfront')
           RETURNING id::text, player_id::text, device_id::text
         `,
         [challenge.player_id, challenge.device_id, this.tokenConfig.accessTokenTtlSec]
@@ -347,7 +356,7 @@ export class IdentitySessionStore {
         `
           UPDATE entap_player_sessions
           SET revoked_at = now(), revoke_reason = $3
-          WHERE id = $1::uuid AND player_id = $2::uuid AND revoked_at IS NULL
+          WHERE id = $1::uuid AND player_id = $2::uuid AND application_id = 'swarmfront' AND revoked_at IS NULL
           RETURNING id::text, device_id::text, revoked_at, revoke_reason
         `,
         [sessionId, playerId, reason || "player_request"]
@@ -367,7 +376,7 @@ export class IdentitySessionStore {
         return true;
       }
       const existing = await client.query<{ id: string }>(
-        "SELECT id::text FROM entap_player_sessions WHERE id = $1::uuid AND player_id = $2::uuid AND revoked_at IS NOT NULL",
+        "SELECT id::text FROM entap_player_sessions WHERE id = $1::uuid AND player_id = $2::uuid AND application_id = 'swarmfront' AND revoked_at IS NOT NULL",
         [sessionId, playerId]
       );
       await client.query("COMMIT");
@@ -383,7 +392,7 @@ export class IdentitySessionStore {
   private async readOrCreateChallenge(client: PoolClient, deviceId: string, requestKey: string,
     purpose: string): Promise<Record<string, unknown>> {
     const existing = await client.query<{ id: string; nonce: string; expires_at: Date | string; used_at: Date | string | null }>(
-      "SELECT id::text, nonce, expires_at, used_at FROM entap_device_challenges WHERE request_key = $1",
+      "SELECT id::text, nonce, expires_at, used_at FROM entap_device_challenges WHERE request_key = $1 AND application_id = 'swarmfront'",
       [requestKey]
     );
     let row = existing.rows[0];
@@ -391,8 +400,8 @@ export class IdentitySessionStore {
       const nonce = crypto.randomBytes(32).toString("base64url");
       const created = await client.query<{ id: string; nonce: string; expires_at: Date | string; used_at: null }>(
         `
-          INSERT INTO entap_device_challenges (device_id, nonce, request_key, purpose, expires_at)
-          VALUES ($1::uuid, $2, $3, $4, now() + ($5 * interval '1 second'))
+          INSERT INTO entap_device_challenges (device_id, nonce, request_key, purpose, expires_at, application_id)
+          VALUES ($1::uuid, $2, $3, $4, now() + ($5 * interval '1 second'), 'swarmfront')
           RETURNING id::text, nonce, expires_at, used_at
         `,
         [deviceId, nonce, requestKey, purpose, this.challengeTtlSec]

@@ -3,6 +3,7 @@ import express, { type NextFunction, type Request, type Response } from "express
 import crypto from "node:crypto";
 import http from "node:http";
 import { config } from "./config.js";
+import { playerSessionStatusMiddleware } from "./playerSessionStatus.js";
 import {
   contestDashInfo,
   handleContestDashDelete,
@@ -2677,6 +2678,8 @@ export function createApp(): express.Express {
     app.use(cors());
   }
   app.use(express.json({ limit: "256kb" }));
+  app.use(playerSessionStatusMiddleware(
+    process.env.VS_PLAYER_SESSION_STATUS_URL?.trim() || "", config.productionMode));
   app.use((req: Request, res: Response, next: NextFunction) => {
     const started = Date.now();
     res.locals.startedMs = started;

@@ -72,7 +72,16 @@ func refresh_platform_snapshot() -> Dictionary:
 	return result
 
 func _authenticate() -> void:
-	if _auth_in_progress or is_authenticated():
+	var deletion := get_node_or_null("/root/AccountDeletionRuntime")
+	if FileAccess.file_exists("user://account_deletion_receipt.json") \
+		or (deletion != null and bool(deletion.call("blocks_account_use"))):
+		return
+	if _auth_in_progress:
+		return
+	if is_authenticated():
+		var status_result: Dictionary = _transport.call_action("identity/session/status", {})
+		if str(status_result.get("err", "")) == "account_deletion_pending":
+			get_node("/root/AccountDeletionRuntime").call("account_deleted_on_another_device")
 		return
 	_auth_in_progress = true
 	_last_error = ""
@@ -80,6 +89,9 @@ func _authenticate() -> void:
 	_auth_in_progress = false
 	if not bool(result.get("ok", false)):
 		_last_error = str(result.get("err", "player_authentication_failed"))
+		if _last_error == "account_deletion_pending":
+			get_node("/root/AccountDeletionRuntime").call("account_deleted_on_another_device")
+			return
 		SFLog.warn("PLAYER_IDENTITY", {"status": "unavailable", "err": _last_error}, "", 30000)
 		authentication_changed.emit(debug_snapshot())
 		return
@@ -155,6 +167,20 @@ func _apply_backend_identity(identity: Dictionary) -> void:
 	var profile: Node = get_node_or_null("/root/ProfileManager")
 	if profile != null and profile.has_method("apply_backend_identity"):
 		profile.call("apply_backend_identity", identity)
+
+func sign_account_deletion_challenge(challenge: String) -> Dictionary:
+	if not is_authenticated() or _credential_store == null \
+		or not challenge.begins_with("swarmfront:account-delete:v1:%s:%s:" % [_session.player_id(), _device_id]):
+		return {"ok": false, "err": "deletion_challenge_invalid"}
+	return _credential_store.call("sign_challenge", KEY_ALIAS, challenge) as Dictionary
+
+func sign_out_for_account_deletion() -> void:
+	_session.revoke_local()
+	_transport.configure(str(ProjectSettings.get_setting(SETTINGS_IDENTITY_URL, DEFAULT_IDENTITY_URL)), 6.0)
+	var handshake := get_node_or_null("/root/VsHandshake")
+	if handshake != null and handshake.has_method("set_player_access_token"):
+		handshake.call("set_player_access_token", "")
+	authentication_changed.emit(debug_snapshot())
 
 func _new_request_id(scope: String) -> String:
 	var bytes: PackedByteArray = Crypto.new().generate_random_bytes(16)
