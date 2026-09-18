@@ -95,6 +95,10 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 			var dst_is_ally: bool = _are_allies(team_by_seat, seat, dst_owner)
 			var outgoing_active: bool = state_ref.is_outgoing_lane_active(src_id, dst_id)
 			if outgoing_active:
+				if now_ms * 1000 < int(state_ref.swarm_cooldown_until_us.get(src_id, state_ref.swarm_cooldown_until_us.get(str(src_id), 0))):
+					continue
+				if _intent_blocked(profile, src_id, dst_id, "swarm", now_ms):
+					continue
 				if allow_swarm and dst_owner > 0 and not dst_is_ally and src_power >= min_swarm_power:
 					var swarm_score: float = _score_swarm(
 						src,
@@ -111,12 +115,14 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 						"dst": dst_id,
 						"intent": "swarm",
 						"score": swarm_score,
-						"policy": "baseline_v2",
+						"policy": "baseline_v3",
 						"style": style_id,
 						"tier": tier_id
 					})
 				continue
 
+			if _intent_blocked(profile, src_id, dst_id, "feed" if dst_is_ally else "attack", now_ms):
+				continue
 			if active_outgoing >= outgoing_budget:
 				continue
 			if _should_sloppy_forget_extra_lane(
@@ -161,7 +167,7 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 					"score": feed_score,
 					"dst_owner": dst_owner,
 					"dst_power": dst_power,
-					"policy": "baseline_v2",
+					"policy": "baseline_v3",
 					"style": style_id,
 					"tier": tier_id
 				})
@@ -210,7 +216,7 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 					"dst_owner": dst_owner,
 					"dst_power": dst_power,
 					"enemy_owned": dst_owner > 0,
-					"policy": "baseline_v2",
+					"policy": "baseline_v3",
 					"style": style_id,
 					"tier": tier_id
 				})
@@ -620,8 +626,16 @@ func _deterministic_roll(tick: int, seat: int, now_ms: int, salt: int) -> float:
 	var seed: int = abs((tick + 1) * 1103515245 + seat * 12345 + now_ms + salt * 265443576)
 	return float(seed % 10000) / 10000.0
 
+func _intent_blocked(profile: Dictionary, src: int, dst: int, intent: String, now_ms: int) -> bool:
+	var blocked: Dictionary = profile.get("blocked_intents_until_ms", {})
+	return now_ms < int(blocked.get("%d|%d|%s" % [src, dst, intent], 0))
+
 func _score_desc(a: Dictionary, b: Dictionary) -> bool:
-	return float(a.get("score", 0.0)) > float(b.get("score", 0.0))
+	if float(a.get("score", 0.0)) != float(b.get("score", 0.0)):
+		return float(a.get("score", 0.0)) > float(b.get("score", 0.0))
+	if int(a.get("src", 0)) != int(b.get("src", 0)):
+		return int(a.get("src", 0)) < int(b.get("src", 0))
+	return int(a.get("dst", 0)) < int(b.get("dst", 0))
 
 func _best_candidate_score(candidates: Array) -> float:
 	if candidates.is_empty():

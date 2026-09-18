@@ -128,6 +128,9 @@ var edge_cache: Dictionary = {}
 var edge_cache_version: int = -1
 var blocked_wall_pairs: Array = []
 var bot_profiles: Dictionary = {}
+# Simulation-owned cognition/scheduling, separate from immutable profile configuration.
+var bot_runtime_by_seat: Dictionary = {}
+var bot_match_seed: int = 1
 var _remote_replication_apply_depth: int = 0
 var victory_mode: String = VICTORY_MODE_CONQUEST
 var victory_rules: Dictionary = {}
@@ -422,6 +425,9 @@ func get_authority_snapshot() -> Dictionary:
 		"stats_by_team": stats_by_team.duplicate(true),
 		"team_mode_override": team_mode_override,
 		"match_roster": match_roster.duplicate(true),
+		"bot_profiles": bot_profiles.duplicate(true),
+		"bot_runtime_by_seat": bot_runtime_by_seat.duplicate(true),
+		"bot_match_seed": bot_match_seed,
 		"lane_front_by_lane_id": lane_front_by_lane_id.duplicate(true),
 		"state": {
 			"buff_match_id": st.buff_match_id,
@@ -499,6 +505,10 @@ func restore_authority_snapshot(snapshot: Dictionary) -> bool:
 	stats_by_team = (snapshot.get("stats_by_team", {}) as Dictionary).duplicate(true) if typeof(snapshot.get("stats_by_team", {})) == TYPE_DICTIONARY else {}
 	team_mode_override = str(snapshot.get("team_mode_override", team_mode_override))
 	match_roster = (snapshot.get("match_roster", []) as Array).duplicate(true) if typeof(snapshot.get("match_roster", [])) == TYPE_ARRAY else []
+	bot_profiles = _restore_bot_seat_dictionary(snapshot.get("bot_profiles", {}))
+	bot_runtime_by_seat = _restore_bot_seat_dictionary(snapshot.get("bot_runtime_by_seat", {}))
+	bot_match_seed = int(snapshot.get("bot_match_seed", 1))
+	_invalidate_intent_telemetry_cache()
 	lane_front_by_lane_id = (snapshot.get("lane_front_by_lane_id", {}) as Dictionary).duplicate(true) if typeof(snapshot.get("lane_front_by_lane_id", {})) == TYPE_DICTIONARY else {}
 	st.hives = _authority_restore_hives(state_snapshot.get("hives", []))
 	st.lanes = _authority_restore_lanes(state_snapshot.get("lanes", []))
@@ -1231,6 +1241,8 @@ func reset_match_state() -> void:
 	lane_front_by_lane_id.clear()
 	match_roster.clear()
 	bot_profiles.clear()
+	bot_runtime_by_seat.clear()
+	bot_match_seed = 1
 	_hud_snapshot = {}
 	reset_runtime_telemetry()
 	victory_mode = VICTORY_MODE_CONQUEST
@@ -1315,11 +1327,22 @@ func _default_bot_style_for_seat(seat: int) -> String:
 		_:
 			return BOT_STYLE_BALANCER
 
+func _restore_bot_seat_dictionary(value: Variant) -> Dictionary:
+	var restored: Dictionary = {}
+	if typeof(value) != TYPE_DICTIONARY:
+		return restored
+	for key in value:
+		var seat := int(key)
+		if seat >= 1 and seat <= 4 and typeof(value[key]) == TYPE_DICTIONARY:
+			restored[seat] = value[key].duplicate(true)
+	return restored
+
 func _base_bot_profile_for_seat(seat: int) -> Dictionary:
 	return {
 		"seat": seat,
 		"enabled": true,
-		"policy": "baseline_v2",
+		"policy": "baseline_v3",
+		"profile_version": 3,
 		"style": BOT_STYLE_BALANCER,
 		"persona": BOT_STYLE_BALANCER,
 		"tier": BOT_TIER_MEDIUM,
@@ -1832,6 +1855,15 @@ func _build_bot_profile_for_seat(seat: int, style: String, tier: String) -> Dict
 	profile["tier"] = normalized_tier
 	profile["opening_delay_ms"] = int(profile.get("opening_delay_ms", 1600)) + BOT_REACTION_DELAY_EXTRA_MS
 	profile["think_interval_ms"] = int(profile.get("think_interval_ms", 900)) + BOT_REACTION_DELAY_EXTRA_MS
+	if normalized_style == BOT_STYLE_BALANCER and normalized_tier == BOT_TIER_MEDIUM:
+		# First behavior pilot; BotSystem restricts it to two-seat conquest matches.
+		profile["human_policy"] = "human_balancer_v2"
+		profile["human_behavior_enabled"] = false
+		profile["human_timing"] = {"notice_delay_ms": 450,
+			"notice_jitter_ms": 200, "motor_delay_ms": 200, "motor_jitter_ms": 100,
+			"think_interval_ms": 1100, "think_jitter_ms": 350,
+			"global_intent_cooldown_ms": 450, "post_intent_delay_ms": 0,
+			"plan_stall_ms": 8000, "plan_retry_ms": 8000}
 	return profile
 
 func _default_bot_profile_for_seat(seat: int) -> Dictionary:
@@ -4337,6 +4369,7 @@ func reset_state_from_map(map_dict: Dictionary) -> GameState:
 		return state
 	_state_serial += 1
 	reset_match_state()
+	bot_match_seed = int(map_dict.get("bot_seed", map_dict.get("seed", 1)))
 	edge_cache = {}
 	edge_cache_version = -1
 	blocked_wall_pairs = []

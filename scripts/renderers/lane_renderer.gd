@@ -2602,8 +2602,13 @@ func _pick_lane_at_world_pos(world_pos: Vector2, max_dist: float, required_lane_
 		var b_pos_any: Variant = hive_anchor_local_by_id.get(b_id, null)
 		if not (a_pos_any is Vector2 and b_pos_any is Vector2):
 			continue
-		var a_pos: Vector2 = a_pos_any as Vector2
-		var b_pos: Vector2 = b_pos_any as Vector2
+		# Pick the same shell/cap-adjusted segment used by lane drawing and grab
+		# metrics. Hive-center lines can sit outside the visible route's hit band.
+		var endpoints: Dictionary = get_edge_geo(lane_id, a_id, b_id)
+		if not bool(endpoints.get("ok", false)):
+			continue
+		var a_pos: Vector2 = endpoints.start_local
+		var b_pos: Vector2 = endpoints.end_local
 		var hit := _project_point_to_segment(local_pos, a_pos, b_pos)
 		var dist: float = float(hit.get("dist", INF))
 		if dist <= best_dist:

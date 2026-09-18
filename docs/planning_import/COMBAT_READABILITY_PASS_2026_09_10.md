@@ -1,5 +1,10 @@
 # Combat readability pass
 
+September 14 follow-up: the original preview-only test did not establish complete
+grab/throw correctness. Picking and contested-segment mismatches were found and
+corrected; see [lane grab validation](LANE_GRAB_VALIDATION_2026_09_14.md) for the
+gesture regression suite and outstanding physical acceptance.
+
 Authorized behavior: readable directional routes and endpoints; equally accessible friendly/enemy hive inspection; selection-centered connection emphasis; visible incoming threats; quieter floor, hive and unit presentation; protected hive numbers and HUD placement; stable crossings. Re-enable lane hierarchy with revised priorities and compare crowded gameplay.
 
 Authority: OpsState/GameState remain the only gameplay state. Render helpers consume canonical render samples and existing UI selection. Enemy inspection never becomes command ownership. Gameplay growth, unit counts, speed, targeting geometry, lane budgets, ownership and capture rules are unchanged.

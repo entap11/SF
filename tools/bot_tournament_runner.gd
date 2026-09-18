@@ -1,17 +1,15 @@
 extends SceneTree
 
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
-const BaselineBotPolicyScript := preload("res://scripts/bot/baseline_bot_policy.gd")
-const UnitSystemScript := preload("res://scripts/systems/unit_system.gd")
-const StructureControlSystemScript := preload("res://scripts/systems/structure_control_system.gd")
+var _sim_runner_script: Script
 
 const DEFAULT_STYLES: Array[String] = ["balancer", "turtle", "raider", "greedy", "swarm_lord"]
 const DEFAULT_TIERS: Array[String] = ["medium"]
 const DEFAULT_VARIANTS: Array[String] = ["1p", "2p", "4p"]
 const DEFAULT_ITERATIONS: int = 1
-const DEFAULT_DURATION_MS: int = 180000
+const DEFAULT_DURATION_MS: int = 420000
 const DEFAULT_DT: float = 0.1
-const DEFAULT_TIMING_SCALE: float = 0.08
+const DEFAULT_TIMING_SCALE: float = 1.0
 const MATCH_PHASE_RUNNING: int = 1
 const MATCH_PHASE_ENDED: int = 3
 
@@ -28,7 +26,12 @@ var _tiers: Array[String] = DEFAULT_TIERS.duplicate()
 var _variants: Array[String] = DEFAULT_VARIANTS.duplicate()
 var _map_ids: Array[String] = []
 var _profiles: Array[Dictionary] = []
-var _policy: RefCounted = BaselineBotPolicyScript.new()
+var _seed: int = 4101
+var _output_path: String = ""
+var _results: Array[Dictionary] = []
+var _pilot_control: bool = false
+var _focus_style: String = ""
+var _report_samples: bool = false
 var _ops_state: Node = null
 var _ops_profile_builder: Node = null
 var _overall: Dictionary = {}
@@ -39,7 +42,13 @@ var _games_skipped: int = 0
 
 func _init() -> void:
 	_parse_args(_script_args())
+	if not is_equal_approx(_dt, DEFAULT_DT) or not is_equal_approx(_timing_scale, 1.0):
+		push_error("BOT_TOURNAMENT: canonical evaluation requires --dt=0.1 and --timing-scale=1")
+		quit(2)
+		return
 	await process_frame
+	# Load after autoload registration; SimRunner uses the OpsState singleton.
+	_sim_runner_script = load("res://scripts/systems/sim_runner.gd")
 	_ops_state = root.get_node_or_null("OpsState")
 	if _ops_state == null:
 		push_error("BOT_TOURNAMENT: OpsState autoload missing")
@@ -75,6 +84,7 @@ func _init() -> void:
 		for pairing in pairings:
 			for iteration in range(_iterations):
 				var result: Dictionary = await _run_game(map_row, pairing, iteration)
+				_results.append(result)
 				_record_result(result)
 				_print_game_diagnostic(result)
 				if _games_run > 0 and _games_run % 100 == 0:
@@ -85,6 +95,14 @@ func _init() -> void:
 					])
 	var elapsed_s: float = float(Time.get_ticks_usec() - started_us) / 1000000.0
 	_print_summary(elapsed_s)
+	if not _output_path.is_empty():
+		var file := FileAccess.open(_output_path, FileAccess.WRITE)
+		if file == null:
+			push_error("BOT_TOURNAMENT: cannot write " + _output_path)
+			quit(2)
+			return
+		file.store_string(JSON.stringify({"schema_version": 2, "engine": Engine.get_version_info(), "seed": _seed, "canonical_tick_ms": 100, "results": _results}, "\t"))
+		file.close()
 	if _ops_profile_builder != null:
 		_ops_profile_builder.free()
 	quit(0)
@@ -98,7 +116,11 @@ func _script_args() -> Array:
 func _parse_args(args: Array) -> void:
 	for arg_any in args:
 		var arg: String = str(arg_any)
-		if arg.begins_with("--iterations="):
+		if arg.begins_with("--seed="):
+			_seed = int(arg.trim_prefix("--seed="))
+		elif arg.begins_with("--output="):
+			_output_path = arg.trim_prefix("--output=")
+		elif arg.begins_with("--iterations="):
 			_iterations = maxi(1, int(arg.trim_prefix("--iterations=")))
 		elif arg.begins_with("--duration-ms="):
 			_duration_ms = maxi(1000, int(arg.trim_prefix("--duration-ms=")))
@@ -122,6 +144,12 @@ func _parse_args(args: Array) -> void:
 			_map_ids = _csv(arg.trim_prefix("--map-ids="))
 		elif arg == "--include-mirrors":
 			_include_mirrors = true
+		elif arg == "--pilot-control":
+			_pilot_control = true
+		elif arg == "--report-samples":
+			_report_samples = true
+		elif arg.begins_with("--focus-style="):
+			_focus_style = arg.trim_prefix("--focus-style=")
 
 func _csv(raw: String) -> Array[String]:
 	var out: Array[String] = []
@@ -153,6 +181,8 @@ func _build_pairings() -> Array[Dictionary]:
 				continue
 			var left: Dictionary = _profiles[a_index]
 			var right: Dictionary = _profiles[b_index]
+			if not _focus_style.is_empty() and str(left["style"]) != _focus_style and str(right["style"]) != _focus_style:
+				continue
 			out.append({"a": left, "b": right})
 			if _max_pairs > 0 and out.size() >= _max_pairs:
 				return out
@@ -259,92 +289,81 @@ func _active_seats_for_map(data: Dictionary) -> Array[int]:
 
 func _run_game(map_row: Dictionary, pairing: Dictionary, iteration: int) -> Dictionary:
 	var data: Dictionary = (map_row.get("data", {}) as Dictionary).duplicate(true)
-	var state: GameState = _ops_state.call("reset_state_from_map", data) as GameState
-	var unit_system: UnitSystem = UnitSystemScript.new()
-	unit_system.bind_state(state)
-	unit_system.use_lane_system_spawns = true
-	var structure_control: Node = StructureControlSystemScript.new()
-	structure_control.bind_state(state)
-	var active_seats: Array[int] = (map_row.get("active_seats", []) as Array).duplicate()
-	var team_by_seat: Dictionary = _team_map_for_seats(active_seats)
-	var profile_by_seat: Dictionary = _profile_map_for_seats(active_seats, pairing)
-	var runtime_profile_by_seat: Dictionary = {}
+	data["bot_seed"] = _seed + iteration
+	var state: GameState = _ops_state.call("reset_state_from_map", data)
+	var active_seats: Array = map_row["active_seats"]
+	var team_by_seat := _team_map_for_seats(active_seats)
+	var profile_by_seat := _profile_map_for_seats(active_seats, pairing)
+	_ops_state.set("match_roster", _roster_for_seats(active_seats, team_by_seat))
+	_ops_state.call("set_team_mode_override", "2v2" if active_seats.size() >= 4 else "1p")
 	for seat_any in active_seats:
-		var seat: int = int(seat_any)
-		var runtime_profile: Dictionary = _profile_for_seat(seat, profile_by_seat.get(seat, {}), team_by_seat)
-		runtime_profile["decision_seed"] = _decision_seed_for(map_row, pairing, iteration, seat)
-		runtime_profile_by_seat[seat] = runtime_profile
-	_ops_state.call("sim_mutate", "BotTournament.setup", func() -> void:
-		_ops_state.set("match_roster", _roster_for_seats(active_seats, team_by_seat))
-		var profiles: Dictionary = _ops_state.get("bot_profiles") as Dictionary
-		profiles.clear()
-		for seat_any in active_seats:
-			var seat: int = int(seat_any)
-			profiles[seat] = (runtime_profile_by_seat.get(seat, {}) as Dictionary).duplicate(true)
-		_ops_state.set("bot_profiles", profiles)
-		_ops_state.set("match_phase", MATCH_PHASE_RUNNING)
-		_ops_state.set("input_locked", false)
-		_ops_state.set("input_locked_reason", "")
-		_ops_state.set("match_clock_running", false)
-		_ops_state.set("match_clock_started", false)
-		_ops_state.set("match_duration_ms", _duration_ms)
-		_ops_state.set("match_elapsed_ms", 0)
-		_ops_state.set("match_time_remaining_ms", _duration_ms)
-		_ops_state.set("match_remaining_ms", _duration_ms)
-		_ops_state.set("winner_id", 0)
-		_ops_state.set("match_end_reason", "")
+		var seat := int(seat_any)
+		_ops_state.call("set_bot_profile", seat, _profile_for_seat(seat, profile_by_seat[seat], team_by_seat))
+	_ops_state.set("match_phase", MATCH_PHASE_RUNNING)
+	_ops_state.set("input_locked", false)
+	var runner: Node = _sim_runner_script.new()
+	runner.set("autostart_on_bind", false)
+	runner.set("scene_structure_binding_enabled", false)
+	root.add_child(runner)
+	runner.set_process(false)
+	runner.call("bind_state", state)
+	runner.call("enable_deterministic_clock", 0)
+	var unit_system: UnitSystem = runner.get("unit_system")
+	var diagnostics := _new_game_diagnostics(active_seats)
+	var trace: Array[Dictionary] = []
+	var bot: Node = runner.get("bot_system")
+	if _pilot_control:
+		bot.set("_human_policy", load("res://tools/fixtures/bot/human_balancer_v1.gd").new())
+	var board_samples: Array[Dictionary] = []
+	bot.connect("decision_event", func(event: Dictionary) -> void:
+		trace.append(event.duplicate(true))
+		if str(event.get("event", "")) == "applied":
+			_record_bot_intent_diagnostic(diagnostics, int(event["seat"]), str(event.get("intent", "")), int(event["sim_ms"]), event)
 	)
-	var bot_schedule: Dictionary = _initial_bot_schedule(active_seats)
-	var pair_cooldowns: Dictionary = {}
-	var sim_ms: int = 0
-	var winner_team: int = 0
-	var reason: String = ""
-	var diagnostics: Dictionary = _new_game_diagnostics(active_seats)
-	var steps: int = maxi(1, int(ceil(float(_duration_ms) / (_dt * 1000.0))))
-	for _step in range(steps):
-		if int(_ops_state.get("match_phase")) == MATCH_PHASE_ENDED:
+	for step in range(maxi(1, int(ceil(float(_duration_ms) / 100.0)))):
+		if int(_ops_state.get("match_phase")) != MATCH_PHASE_RUNNING:
 			break
-		_ops_state.set("match_elapsed_ms", sim_ms)
-		_ops_state.set("match_time_remaining_ms", maxi(0, _duration_ms - sim_ms))
-		_ops_state.set("match_remaining_ms", maxi(0, _duration_ms - sim_ms))
-		var hive_owners_before: Dictionary = _hive_owner_snapshot(state)
-		var tower_owners_before: Dictionary = _structure_owner_snapshot(state.towers)
-		_tick_manual_bots(state, active_seats, runtime_profile_by_seat, bot_schedule, pair_cooldowns, sim_ms, diagnostics)
-		state.tick_unintended_power(_dt * 1000.0)
-		state.tick_lane_flow(_dt * 1000.0)
-		unit_system.tick(_dt)
-		structure_control.tick(_dt)
-		sim_ms += int(round(_dt * 1000.0))
+		var hive_owners_before := _hive_owner_snapshot(state)
+		var tower_owners_before := _structure_owner_snapshot(state.towers)
+		runner.call("step_canonical")
+		var sim_ms := int(state._sim_time_us / 1000)
 		_update_unit_diagnostics(unit_system, diagnostics)
 		_record_first_hive_capture(diagnostics, hive_owners_before, state, sim_ms)
 		_record_first_tower_capture(diagnostics, tower_owners_before, state, sim_ms)
-		winner_team = _conquest_winner(state, team_by_seat)
-		if winner_team > 0:
-			reason = "conquest"
-			break
-	if winner_team <= 0:
-		var timeout: Dictionary = _timeout_winner(state, team_by_seat)
-		winner_team = int(timeout.get("winner_team", 0))
-		reason = str(timeout.get("reason", "timeout_draw"))
-	var winner_profile: String = _winner_profile_id(winner_team, pairing)
-	var result: Dictionary = {
-		"ok": true,
-		"map_id": str(map_row.get("id", "")),
-		"variant": str(map_row.get("variant", "")),
-		"iteration": iteration,
-		"a": str((pairing.get("a", {}) as Dictionary).get("id", "")),
-		"b": str((pairing.get("b", {}) as Dictionary).get("id", "")),
-		"winner_team": winner_team,
-		"winner_profile": winner_profile,
-		"reason": reason,
-		"sim_ms": sim_ms,
+		if _report_samples and step % 50 == 0:
+			board_samples.append(_board_sample(state, sim_ms))
+		if step % 100 == 99:
+			await process_frame
+	var complete := int(_ops_state.get("match_phase")) != MATCH_PHASE_RUNNING
+	var winner_team := int(_ops_state.get("winner_id")) if complete else 0
+	var reason := str(_ops_state.get("match_end_reason")) if complete else "horizon_limit"
+	var winner_profile := _winner_profile_id(winner_team, pairing)
+	var sim_ms := int(state._sim_time_us / 1000)
+	var result := {
+		"ok": true, "completed": complete, "seed": _seed + iteration,
+		"map_id": map_row["id"], "variant": map_row["variant"], "iteration": iteration,
+		"a": pairing["a"]["id"], "b": pairing["b"]["id"],
+		"profiles": _ops_state.call("get_bot_profiles_snapshot"),
+		"winner_team": winner_team, "winner_profile": winner_profile,
+		"reason": reason, "sim_ms": sim_ms,
+		"state_hash": _ops_state.call("get_contract_state_hash"), "trace": trace,
+		"runtime_hash": JSON.stringify(_ops_state.get("bot_runtime_by_seat")).sha256_text(),
+		"pilot_controller": "v1_control" if _pilot_control else "current", "board_samples": board_samples,
+		"map_hash": JSON.stringify(data).sha256_text(), "active_seats": active_seats, "team_by_seat": team_by_seat,
 		"scores": _score_snapshot(state, team_by_seat),
 		"diagnostics": _finalize_game_diagnostics(diagnostics, state, unit_system, winner_profile, reason, sim_ms)
 	}
 	state.unit_system = null
-	structure_control.free()
+	runner.free()
 	await process_frame
 	return result
+
+func _board_sample(state: GameState, sim_ms: int) -> Dictionary:
+	var hives: Array[Dictionary] = []
+	for hive in state.hives:
+		hives.append({"id": int(hive.id), "owner": int(hive.owner_id), "power": int(hive.power),
+			"outgoing": state.count_active_outgoing(int(hive.id)), "budget": state.lanes_allowed_for_power(int(hive.power))})
+	return {"sim_ms": sim_ms, "hives": hives}
 
 func _team_map_for_seats(active_seats: Array) -> Dictionary:
 	var out: Dictionary = {}
@@ -373,109 +392,16 @@ func _roster_for_seats(active_seats: Array, team_by_seat: Dictionary) -> Array:
 			"team_id": int(team_by_seat.get(seat, seat)),
 			"uid": "bot_%d" % seat,
 			"is_local": false,
-			"is_cpu": false,
+			"is_cpu": active_seats.has(seat),
 			"active": active_seats.has(seat)
 		})
 	return roster
 
-func _profile_for_seat(seat: int, profile_ref: Dictionary, team_by_seat: Dictionary) -> Dictionary:
-	var style: String = str(profile_ref.get("style", "balancer"))
-	var tier: String = str(profile_ref.get("tier", "medium"))
-	var profile: Dictionary = _ops_profile_builder.call("_build_bot_profile_for_seat", seat, style, tier) as Dictionary
+func _profile_for_seat(seat: int, row: Dictionary, team_by_seat: Dictionary) -> Dictionary:
+	var profile: Dictionary = _ops_profile_builder.call("_build_bot_profile_for_seat", seat, str(row.get("style", "balancer")), str(row.get("tier", "medium")))
+	profile["human_behavior_enabled"] = true
 	profile["team_by_seat"] = team_by_seat.duplicate(true)
-	profile["opening_delay_ms"] = _scaled_ms(int(profile.get("opening_delay_ms", 0)))
-	profile["think_interval_ms"] = _scaled_ms(int(profile.get("think_interval_ms", 800)))
-	profile["think_jitter_ms"] = _scaled_ms(int(profile.get("think_jitter_ms", 0)))
-	profile["post_intent_delay_ms"] = _scaled_ms(int(profile.get("post_intent_delay_ms", 0)))
-	profile["pair_intent_cooldown_ms"] = _scaled_ms(int(profile.get("pair_intent_cooldown_ms", 1000)))
-	profile["global_intent_cooldown_ms"] = _scaled_ms(int(profile.get("global_intent_cooldown_ms", 1000)))
-	profile["swarm_cooldown_ms"] = _scaled_ms(int(profile.get("swarm_cooldown_ms", 1000)))
-	profile["swarm_global_cooldown_ms"] = _scaled_ms(int(profile.get("swarm_global_cooldown_ms", 2000)))
-	profile["retry_block_ms"] = _scaled_ms(int(profile.get("retry_block_ms", 800)))
-	profile["no_lane_retry_ms"] = _scaled_ms(int(profile.get("no_lane_retry_ms", 2400)))
 	return profile
-
-func _decision_seed_for(map_row: Dictionary, pairing: Dictionary, iteration: int, seat: int) -> int:
-	var profile: Dictionary = _profile_map_for_seats(map_row.get("active_seats", []) as Array, pairing).get(seat, {}) as Dictionary
-	var signature: String = "%s|%s|%d|%d" % [
-		str(map_row.get("id", "")),
-		str(profile.get("id", "")),
-		iteration,
-		seat
-	]
-	return int(abs(signature.hash()) % 1000000)
-
-func _scaled_ms(value: int) -> int:
-	return maxi(1, int(round(float(maxi(0, value)) * _timing_scale)))
-
-func _initial_bot_schedule(active_seats: Array) -> Dictionary:
-	var out: Dictionary = {}
-	for seat_any in active_seats:
-		out[int(seat_any)] = 0
-	return out
-
-func _tick_manual_bots(
-		state: GameState,
-		active_seats: Array,
-		runtime_profile_by_seat: Dictionary,
-		next_think_by_seat: Dictionary,
-		pair_cooldowns: Dictionary,
-		sim_ms: int,
-		diagnostics: Dictionary
-	) -> void:
-	if state == null:
-		return
-	for seat_any in active_seats:
-		var seat: int = int(seat_any)
-		var next_ms: int = int(next_think_by_seat.get(seat, 0))
-		if sim_ms < next_ms:
-			continue
-		var profile: Dictionary = runtime_profile_by_seat.get(seat, {}) as Dictionary
-		profile["blocked_wall_pairs"] = _ops_state.call("get_blocked_wall_pairs") if _ops_state.has_method("get_blocked_wall_pairs") else []
-		var decision_any: Variant = _policy.call("choose_intent", state, seat, profile, sim_ms)
-		var interval_ms: int = _next_interval_ms(profile, state, seat)
-		next_think_by_seat[seat] = sim_ms + interval_ms
-		if typeof(decision_any) != TYPE_DICTIONARY:
-			continue
-		var decision: Dictionary = decision_any as Dictionary
-		if decision.is_empty():
-			continue
-		var src: int = int(decision.get("src", -1))
-		var dst: int = int(decision.get("dst", -1))
-		var intent: String = str(decision.get("intent", ""))
-		if src <= 0 or dst <= 0 or intent.is_empty():
-			continue
-		var cooldown_key: String = "%d|%d|%d|%s" % [seat, src, dst, intent]
-		if sim_ms < int(pair_cooldowns.get(cooldown_key, 0)):
-			continue
-		var result: Dictionary = _ops_state.call("apply_lane_intent", src, dst, intent) as Dictionary
-		if bool(result.get("ok", false)):
-			_record_bot_intent_diagnostic(diagnostics, seat, intent, sim_ms, decision)
-			var pair_until: int = sim_ms + int(profile.get("pair_intent_cooldown_ms", 1000))
-			_apply_pair_cooldown(pair_cooldowns, seat, src, dst, pair_until)
-			var global_until: int = sim_ms + int(profile.get("global_intent_cooldown_ms", 0))
-			if global_until > int(next_think_by_seat.get(seat, 0)):
-				next_think_by_seat[seat] = global_until
-		else:
-			var retry_ms: int = int(profile.get("retry_block_ms", 500))
-			if str(result.get("reason", "")) == "no_lane":
-				retry_ms = int(profile.get("no_lane_retry_ms", retry_ms))
-			pair_cooldowns[cooldown_key] = sim_ms + retry_ms
-
-func _next_interval_ms(profile: Dictionary, state: GameState, seat: int) -> int:
-	var base_ms: int = maxi(1, int(profile.get("think_interval_ms", 80)))
-	var jitter_ms: int = maxi(0, int(profile.get("think_jitter_ms", 0)))
-	if jitter_ms <= 0:
-		return base_ms
-	var hash_value: int = abs((int(state.tick) + 1) * 1103515245 + seat * 12345 + 97)
-	var jitter_span: int = jitter_ms * 2 + 1
-	var offset: int = int(hash_value % jitter_span) - jitter_ms
-	return maxi(1, base_ms + offset)
-
-func _apply_pair_cooldown(cooldowns: Dictionary, seat: int, src: int, dst: int, until_ms: int) -> void:
-	for intent_name in ["attack", "feed", "swarm"]:
-		cooldowns["%d|%d|%d|%s" % [seat, src, dst, intent_name]] = until_ms
-		cooldowns["%d|%d|%d|%s" % [seat, dst, src, intent_name]] = until_ms
 
 func _new_game_diagnostics(active_seats: Array) -> Dictionary:
 	var last_state_by_seat: Dictionary = {}
@@ -625,7 +551,8 @@ func _finalize_game_diagnostics(
 	out.erase("seen_unit_ids")
 	out["winner"] = winner_profile
 	out["win_time_ms"] = sim_ms if reason == "conquest" else -1
-	out["timeout_or_draw"] = reason.begins_with("timeout") or winner_profile.is_empty()
+	out["evaluation_incomplete"] = reason == "horizon_limit"
+	out["timeout_or_draw"] = reason == "time" or (winner_profile.is_empty() and reason != "horizon_limit")
 	out["end_reason"] = reason
 	out["final_node_ownership"] = _final_node_ownership(state)
 	out["final_active_units_by_player"] = _active_units_by_player(unit_system)
@@ -659,67 +586,6 @@ func _active_units_by_player(unit_system: UnitSystem) -> Dictionary:
 			continue
 		out[owner_id] = int(out.get(owner_id, 0)) + int(unit.get("amount", 1))
 	return out
-
-func _conquest_winner(state: GameState, team_by_seat: Dictionary) -> int:
-	if state == null:
-		return 0
-	var active_teams: Dictionary = {}
-	for team_any in team_by_seat.values():
-		var team: int = int(team_any)
-		if team > 0:
-			active_teams[team] = true
-	if active_teams.size() < 2:
-		return 0
-	var scores: Dictionary = _score_snapshot(state, team_by_seat)
-	var alive_team: int = 0
-	var alive_count: int = 0
-	for team_any in active_teams.keys():
-		var team_id: int = int(team_any)
-		var score: Dictionary = scores.get(team_id, {}) as Dictionary
-		if int(score.get("hives", 0)) > 0:
-			alive_count += 1
-			alive_team = team_id
-	return alive_team if alive_count == 1 else 0
-
-func _timeout_winner(state: GameState, team_by_seat: Dictionary) -> Dictionary:
-	var scores: Dictionary = _score_snapshot(state, team_by_seat)
-	var team_ids: Array = _score_team_ids(scores)
-	var best_team: int = _leader_for_score_metric(team_ids, scores, "power")
-	if best_team > 0:
-		return {"winner_team": best_team, "reason": "timeout_power"}
-	best_team = _leader_for_score_metric(team_ids, scores, "hives")
-	if best_team > 0:
-		return {"winner_team": best_team, "reason": "timeout_hives"}
-	best_team = _leader_for_score_metric(team_ids, scores, "enemy_landed")
-	if best_team > 0:
-		return {"winner_team": best_team, "reason": "timeout_enemy_landed"}
-	best_team = _leader_for_score_metric(team_ids, scores, "friendly_fed")
-	if best_team > 0:
-		return {"winner_team": best_team, "reason": "timeout_friendly_fed"}
-	if best_team <= 0:
-		return {"winner_team": 0, "reason": "timeout_draw"}
-	return {"winner_team": best_team, "reason": "timeout_score"}
-
-func _score_team_ids(scores: Dictionary) -> Array:
-	var ids: Array = scores.keys()
-	ids.sort()
-	return ids
-
-func _leader_for_score_metric(team_ids: Array, scores: Dictionary, metric: String) -> int:
-	var best_team: int = 0
-	var best_value: int = -1
-	var tied: bool = false
-	for team_any in team_ids:
-		var team: int = int(team_any)
-		var score: Dictionary = scores.get(team, {}) as Dictionary
-		var value: int = int(score.get(metric, 0))
-		if value > best_value:
-			best_team = team
-			best_value = value
-			tied = false
-		elif value == best_value:
-			tied = true
-	return 0 if tied else best_team
 
 func _score_snapshot(state: GameState, team_by_seat: Dictionary) -> Dictionary:
 	var out: Dictionary = {}
@@ -759,7 +625,7 @@ func _winner_profile_id(winner_team: int, pairing: Dictionary) -> String:
 	return ""
 
 func _record_result(result: Dictionary) -> void:
-	if not bool(result.get("ok", false)):
+	if not bool(result.get("ok", false)) or not bool(result.get("completed", false)):
 		_games_skipped += 1
 		return
 	_games_run += 1
@@ -794,6 +660,7 @@ func _print_game_diagnostic(result: Dictionary) -> void:
 		"map_id": str(result.get("map_id", "")),
 		"variant": str(result.get("variant", "")),
 		"iteration": int(result.get("iteration", 0)),
+		"completed": bool(result.get("completed", false)),
 		"a": str(result.get("a", "")),
 		"b": str(result.get("b", "")),
 		"winner": str(result.get("winner_profile", "")),

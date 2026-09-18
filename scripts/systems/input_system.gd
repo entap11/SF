@@ -1111,8 +1111,7 @@ func _arm_lane_grab(arena_api: ArenaAPI) -> void:
 	if lane == null:
 		_cancel_lane_grab("lane_removed", arena_api, true)
 		return
-	var side_info: Dictionary = _owned_active_lane_side(lane, _lane_grab_player_id, arena_api)
-	if side_info.is_empty():
+	if not _grabbed_lane_side_is_active(lane, arena_api):
 		_cancel_lane_grab("enemy_lane", arena_api, true)
 		return
 	_lane_grab_state = LANE_GRAB_STATE_ARMED
@@ -1213,8 +1212,7 @@ func _lane_grab_metrics(local_pos: Vector2, arena_api: ArenaAPI) -> Dictionary:
 	var lane: LaneData = arena_api.find_lane_by_id(_lane_grab_lane_id)
 	if lane == null:
 		return {"ok": false, "reason": "lane_removed"}
-	var side_info: Dictionary = _owned_active_lane_side(lane, _lane_grab_player_id, arena_api)
-	if side_info.is_empty():
+	if not _grabbed_lane_side_is_active(lane, arena_api):
 		return {"ok": false, "reason": "enemy_lane"}
 	var seg: Dictionary = _lane_grab_segment_local(lane, arena_api)
 	if not bool(seg.get("ok", false)):
@@ -1227,13 +1225,13 @@ func _lane_grab_metrics(local_pos: Vector2, arena_api: ArenaAPI) -> Dictionary:
 		return {"ok": false, "reason": "lane_removed"}
 	var t: float = clampf((local_pos - start_pos).dot(axis) / len_sq, 0.0, 1.0)
 	var closest: Vector2 = start_pos.lerp(end_pos, t)
-	var offset: Vector2 = local_pos - closest
 	var lane_dir: Vector2 = axis.normalized()
 	var from_start: Vector2 = local_pos - _lane_grab_start_local
 	return {
 		"ok": true,
 		"closest": closest,
-		"perp_dist": offset.length(),
+		# Along-lane movement past an endpoint is not a perpendicular throw.
+		"perp_dist": absf((local_pos - start_pos).cross(lane_dir)),
 		"parallel_abs": abs(from_start.dot(lane_dir))
 	}
 
@@ -1258,17 +1256,25 @@ func _lane_grab_segment_local(lane: LaneData, arena_api: ArenaAPI) -> Dictionary
 		return {"ok": false}
 	var start_pos: Vector2 = a_pos
 	var end_pos: Vector2 = b_pos
-	if bool(lane.send_a) and bool(lane.send_b):
-		var front_t: float = clampf(float(lane.last_impact_f), 0.05, 0.95)
-		var front_pos: Vector2 = a_pos.lerp(b_pos, front_t)
-		if _lane_grab_side == "a":
-			end_pos = front_pos
-		elif _lane_grab_side == "b":
-			start_pos = front_pos
-	elif _lane_grab_side == "b":
+	# The picker acquires the full route, including beyond a contested front.
+	# Keep gesture geometry equally stable along that route, independently of
+	# combat/front animation, and always anchor the preview at the owned source.
+	if _lane_grab_side == "b":
 		start_pos = b_pos
 		end_pos = a_pos
 	return {"ok": true, "start": start_pos, "end": end_pos}
+
+func _grabbed_lane_side_is_active(lane: LaneData, arena_api: ArenaAPI) -> bool:
+	# Revalidate the acquired direction, not any direction now owned on the pair.
+	# Capture or reversal during a hold must not transfer the gesture's authority.
+	var source: HiveData = arena_api.find_hive_by_id(_lane_grab_src_id)
+	if source == null or int(source.owner_id) != _lane_grab_player_id:
+		return false
+	if _lane_grab_side == "a":
+		return bool(lane.send_a) and int(lane.a_id) == _lane_grab_src_id and int(lane.b_id) == _lane_grab_dst_id
+	if _lane_grab_side == "b":
+		return bool(lane.send_b) and int(lane.b_id) == _lane_grab_src_id and int(lane.a_id) == _lane_grab_dst_id
+	return false
 
 func _set_lane_grab_preview(arena_api: ArenaAPI, tension: bool, anchor_local: Vector2, pull_local: Vector2) -> void:
 	var lr := _get_lane_renderer(arena_api)
