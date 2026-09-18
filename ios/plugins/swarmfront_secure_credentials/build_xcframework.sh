@@ -8,6 +8,20 @@ fi
 
 target="$1"
 godot_headers="$2"
+if [[ ! -f "$godot_headers/version.py" ]] \
+  || ! grep -q '^major = 4$' "$godot_headers/version.py" \
+  || ! grep -q '^minor = 7$' "$godot_headers/version.py" \
+  || ! grep -q '^patch = 1$' "$godot_headers/version.py" \
+  || ! grep -q '^status = "stable"$' "$godot_headers/version.py"; then
+  echo "The shared mobile release requires Godot 4.7.1 stable headers." >&2
+  exit 65
+fi
+for header in core/extension/gdextension_interface.gen.h core/disabled_classes.gen.h; do
+  if [[ ! -f "$godot_headers/$header" ]]; then
+    echo "Missing generated Godot header: $header" >&2
+    exit 66
+  fi
+done
 plugin_dir="$(cd "$(dirname "$0")" && pwd)"
 cd "$plugin_dir"
 mkdir -p bin

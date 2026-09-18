@@ -25,6 +25,10 @@ var _boot_done := false
 var cell_size: int = 64
 
 func _ready() -> void:
+	if OS.has_feature("store_release") or not OS.is_debug_build():
+		hide()
+		process_mode = Node.PROCESS_MODE_DISABLED
+		return
 	set_anchors_preset(Control.PRESET_FULL_RECT)
 	_sync_cell_size_from_arena()
 	offset_left = 0

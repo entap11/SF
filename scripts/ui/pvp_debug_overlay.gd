@@ -230,6 +230,8 @@ func _refresh_visibility() -> void:
 		_study_panel.offset_bottom = top + STUDY_PANEL_HEIGHT
 
 func _overlay_enabled() -> bool:
+	if OS.has_feature("store_release") or not OS.is_debug_build():
+		return false
 	var env_value: String = OS.get_environment(ENV_ENABLED).strip_edges().to_lower()
 	if env_value == "0" or env_value == "false" or env_value == "off":
 		return false

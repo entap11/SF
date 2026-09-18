@@ -12,7 +12,8 @@ config_version=5
 
 config/name="Swarmfront"
 run/main_scene="res://scenes/Shell.tscn"
-config/features=PackedStringArray("4.2")
+run/main_scene.store_release="res://scenes/MainMenu.tscn"
+config/features=PackedStringArray("4.7")
 config/icon="res://assets/branding/swarmfront_logo_1024.png"
 
 [autoload]
@@ -53,6 +54,10 @@ window/handheld/orientation=1
 window/size/window_width=1080
 window/size/window_height=1920
 
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/swarmfront_secure_credentials/plugin.cfg")
+
 [gui]
 
 theme/custom_font="res://assets/fonts/brand/Iceland/Iceland-Regular.ttf"
@@ -75,10 +80,10 @@ analytics/backend_url=""
 analytics/enabled=false
 ads/fake_ads=false
 ads/show_placeholders=false
-ads/dev_biodynamic_test_ads=true
+ads/dev_biodynamic_test_ads=false
 ads/dev_biodynamic_image_path="res://assets/ads/test_creatives/biodynamic_laser_cleaning_banner.png"
 ads/dev_biodynamic_destination_url="https://www.biodynamicusa.com"
-ads/dev_biodynamic_open_url_on_tap=true
+ads/dev_biodynamic_open_url_on_tap=false
 vs/backend_url="https://swarmfront-cert-vs.onrender.com/v1"
 vs/backend_token=""
 vs/backend_timeout_sec=6.0

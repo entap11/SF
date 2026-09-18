@@ -176,6 +176,9 @@ func get_client_build() -> int:
 	return 0
 
 func get_flag(flag_name: String, fallback: bool = false) -> bool:
+	# Store candidates cannot remotely enable the quarantined cash-entry path.
+	if OS.has_feature("store_release") and flag_name.strip_edges() == "enable_paid_entries":
+		return false
 	var flags: Dictionary = _dict(_config.get("feature_flags", {}))
 	return bool(flags.get(flag_name.strip_edges(), fallback))
 

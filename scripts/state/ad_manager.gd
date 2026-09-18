@@ -385,6 +385,8 @@ func _house_ads_enabled() -> bool:
 	return true
 
 func _fake_ads_enabled() -> bool:
+	if OS.has_feature("store_release") or not OS.is_debug_build():
+		return false
 	var env_value: String = OS.get_environment(FAKE_ADS_ENV).strip_edges().to_lower()
 	if ["1", "true", "yes", "on"].has(env_value):
 		return true
@@ -402,6 +404,8 @@ func _install_dev_biodynamic_provider_if_enabled() -> void:
 	_provider_is_dev_test = true
 
 func _dev_biodynamic_ads_enabled() -> bool:
+	if OS.has_feature("store_release") or not OS.is_debug_build():
+		return false
 	var env_value: String = OS.get_environment(DEV_BIODYNAMIC_ADS_ENV).strip_edges().to_lower()
 	if ["1", "true", "yes", "on"].has(env_value):
 		return true

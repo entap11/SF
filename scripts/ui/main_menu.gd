@@ -568,7 +568,7 @@ var _player_profile := {
 var _wallet_profile := {
 	"balance_usd": 0
 }
-var _dev_bypass_cash_balance := true
+var _dev_bypass_cash_balance := OS.is_debug_build() and not OS.has_feature("store_release")
 const HIVE_PANEL_PROFILE_DEFAULT := {
 	"view_mode": HIVE_VIEW_MEMBER,
 	"name": "Swarmfront Prime",

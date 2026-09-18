@@ -662,6 +662,8 @@ func _configure_shell_menu_ui() -> void:
 		menu_title.text = "SWARMFRONT"
 	if menu_subtitle_label != null:
 		menu_subtitle_label.text = "Playable shell loop for direct map launch, tutorial sandbox checks, and handoff into the main menu."
+		if OS.has_feature("store_release") or not OS.is_debug_build():
+			menu_subtitle_label.text = "Choose a practice map or return to the main menu."
 		menu_subtitle_label.add_theme_color_override("font_color", Color(0.92, 0.94, 0.97, 0.84))
 	if dev_button != null:
 		dev_button.text = "MAIN MENU"
@@ -673,6 +675,7 @@ func _configure_shell_menu_ui() -> void:
 		_ctf_bot_button.text = "HIDDEN CTF BOT"
 	if _telemetry_button != null:
 		_telemetry_button.text = "TELEMETRY"
+		_telemetry_button.visible = OS.is_debug_build() and not OS.has_feature("store_release")
 	if _screen_angle_study_button != null:
 		_screen_angle_study_button.text = "ANGLE A/B TEST"
 		_screen_angle_study_button.tooltip_text = "Choose a map, then compare 0° with a live screen-angle candidate."
@@ -946,6 +949,8 @@ func _on_telemetry_pressed() -> void:
 	_open_telemetry_dashboard()
 
 func _open_telemetry_dashboard() -> void:
+	if OS.has_feature("store_release") or not OS.is_debug_build():
+		return
 	if _telemetry_dashboard_panel != null and is_instance_valid(_telemetry_dashboard_panel):
 		_telemetry_dashboard_panel.visible = true
 		if _telemetry_dashboard_panel.has_method("refresh_data"):
@@ -984,6 +989,8 @@ func _close_telemetry_dashboard() -> void:
 	_telemetry_dashboard_panel.visible = false
 
 func battlefield_screen_angle_study_available() -> bool:
+	if OS.has_feature("store_release") or not OS.is_debug_build():
+		return false
 	var env_value: String = OS.get_environment(BATTLEFIELD_SCREEN_ANGLE_STUDY_ENV).strip_edges().to_lower()
 	if env_value == "0" or env_value == "false" or env_value == "off":
 		return false
@@ -1072,6 +1079,8 @@ func _apply_battlefield_screen_angle() -> Dictionary:
 	}
 
 func _ensure_pvp_debug_overlay() -> Control:
+	if OS.has_feature("store_release") or not OS.is_debug_build():
+		return null
 	if _pvp_debug_overlay != null and is_instance_valid(_pvp_debug_overlay):
 		return _pvp_debug_overlay
 	var hud_root: Control = get_node_or_null("/root/Shell/HUDCanvasLayer/HUDRoot") as Control
@@ -2195,6 +2204,8 @@ func _wait_for_launch_prewarm(map_path: String, timeout_ms: int) -> void:
 		await get_tree().process_frame
 
 func _show_dev_panel(show: bool) -> void:
+	if OS.has_feature("store_release") or not OS.is_debug_build():
+		show = false
 	if TRACE_SHELL_LOGS: print("DEV_LOADER_SHOW_CALL ", {
 		"shell_iid": _iid(self),
 		"node": _np(_dev_map_loader),
