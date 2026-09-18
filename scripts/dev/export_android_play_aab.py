@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import tempfile
+import zipfile
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -92,6 +93,24 @@ def signing_environment(java_home):
     return env
 
 
+def verify_game_payload(bundle):
+    # Godot can return success after a resource-save error interrupts packaging.
+    # Its final project settings and script cache must actually be in the AAB.
+    with zipfile.ZipFile(bundle) as archive:
+        configs = [name for name in archive.namelist() if name.endswith("/assets/project.binary")]
+        require(len(configs) == 1, "AAB has no unique project.binary; resource export is incomplete.")
+        prefix = configs[0][:-len("project.binary")]
+        config = archive.read(configs[0])
+        require(config.startswith(b"ECFG") and b"store_release" in config,
+                "AAB project settings are invalid or lack store safeguards.")
+        for resource in [".godot/global_script_class_cache.cfg", ".godot/uid_cache.bin",
+                         "scripts/ui/main_menu.gdc", "scripts/state/account_deletion_runtime.gdc",
+                         "scripts/state/player_identity_runtime.gdc",
+                         "scripts/platform/native_secure_credential_store.gdc"]:
+            require(prefix + resource in archive.namelist() and bool(archive.read(prefix + resource)),
+                    "AAB is missing required runtime content: " + resource)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check-signing", action="store_true", help="Verify configuration and Keychain without building.")
@@ -143,6 +162,10 @@ def main():
                         "--export-release", "Android", str(unsigned)],
                        env=export_env, check=True)
         require(unsigned.is_file(), "Android AAB export failed.")
+        verify_game_payload(unsigned)
+        require(subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=ROOT, text=True).strip() == source_commit
+                and not subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT),
+                "Source changed during export; refusing to sign.")
         signed = subprocess.run(
             [str(java_home / "bin/jarsigner"), "-keystore", str(KEYSTORE),
              "-storepass:env", "GODOT_ANDROID_KEYSTORE_RELEASE_PASSWORD",

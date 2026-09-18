@@ -30,6 +30,12 @@ entered RUNNING without intervening state mutation or gameplay-rule changes.
 VS quarantine coverage also recognizes the three existing economy-rollout health
 fields and asserts their default values remain null/zero/OFF.
 
+An empty, unreferenced file under the literal `res:` directory was removed because
+it interrupted Android resource packaging before `project.binary` was written,
+even though Godot returned success. The actual map under `maps/json` is preserved.
+The Play launcher now verifies packaged project settings, script caches, menu,
+identity and deletion code before signing; process exit status alone is insufficient.
+
 ## Store configuration
 
 - iOS bundle ID: `com.matthew.swarmfront`; Apple team: `SH6675DXQ5`.
