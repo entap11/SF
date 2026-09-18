@@ -7,7 +7,9 @@ LOG_FILE="${MVP_SMOKE_LOG_FILE:-/tmp/swarmfront_mvp_smoke.log}"
 SMOKE_MAP="${MVP_SMOKE_MAP:-}"
 SMOKE_WIN_MAP="${MVP_SMOKE_WIN_MAP:-}"
 BOOT_TIMEOUT_MS="${MVP_SMOKE_BOOT_TIMEOUT_MS:-7000}"
-RUN_TIMEOUT_MS="${MVP_SMOKE_RUN_TIMEOUT_MS:-12000}"
+# The current launch flow includes a loading-cover handoff plus a ten-second
+# orientation countdown. Bound the whole transition without skipping either.
+RUN_TIMEOUT_MS="${MVP_SMOKE_RUN_TIMEOUT_MS:-20000}"
 END_TIMEOUT_MS="${MVP_SMOKE_END_TIMEOUT_MS:-25000}"
 
 set +e

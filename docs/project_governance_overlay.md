@@ -10,7 +10,7 @@ This overlay is the project-specific companion required by the universal Constit
 ## 1. Identity and reliability profiles
 
 - Purpose: deterministic real-time strategy game, player identity, public multiplayer, contests, progression, and opt-in analytics.
-- Supported development/runtime environment: Godot 4.2 family on macOS; the accepted mobile engine/export evidence uses Godot 4.2.2.
+- Unified mobile candidate runtime on macOS: pinned Godot `4.7.1.stable.official.a13da4feb` and matching export templates, adapted from the Android release lane. Historical accepted iOS evidence used 4.2.2; it does not certify the new candidate. See `docs/unified_mobile_release.md`.
 - Current field target: iPhone/TestFlight beta. Android is not field-supported until a separate device gate records approval.
 - Hosted environments: local development and explicitly identified Render staging services. Production promotion requires its own release evidence.
 - Baseline profile: presentation, disposable UI state, local visual preferences, and non-consequential tooling.
@@ -19,7 +19,7 @@ This overlay is the project-specific companion required by the universal Constit
 
 ## 2. Stack and canonical entry points
 
-- Game runtime/framework: Godot 4.2/GDScript. Main scene: `res://scenes/Shell.tscn`.
+- Game runtime/framework: Godot 4.7.1/GDScript. Development main scene: `res://scenes/Shell.tscn`; both store presets use the `store_release` override to `res://scenes/MainMenu.tscn`.
 - Simulation authority entry point: `scripts/ops/ops_state.gd`; owned game graph: `scripts/state/game_state.gd`.
 - Node services: TypeScript/Node packages under `tools/analytics`, `tools/match-authority`, `tools/rank-service`, `tools/scholastic-service`, and `tools/vs-service`.
 - Primary package manager for every Node package: npm. Each package owns and must use its committed `package-lock.json`; CI/candidate installs use `npm ci`.
@@ -110,11 +110,11 @@ This registry covers mutation families. New consequential/final endpoints or cli
 
 | Artifact | Canonical generator/input | Canonical output | Commit/freshness rule |
 |---|---|---|---|
-| Godot import metadata/cache | Godot 4.2 importer from source assets | committed `*.import` metadata where already tracked; `.godot/` cache local | Do not hand-edit; release import verifies required outputs |
+| Godot import metadata/cache | Pinned Godot 4.7.1 importer from source assets | committed `*.import` metadata and script UIDs; `.godot/` cache local | Do not hand-edit; release import verifies required outputs |
 | Analytics JavaScript | `npm run build` from `tools/analytics/src` and `tsconfig.json` | `tools/analytics/dist` | Currently committed; regenerate, never hand-edit, and require a clean build diff |
 | Other Node JavaScript | Each package `npm run build` | package `dist/` | Uncommitted artifact; build from exact source/lockfile for candidate |
 | Performance reports/baselines | Canonical Godot harness/package scripts and declared fixture inputs | `artifacts/`/`debug_reports/` or approved baseline paths | Runtime reports remain ignored unless an approval workflow explicitly promotes exact evidence |
-| iOS export/Xcode products | Approved Godot 4.2.2 export/template inputs | exported Xcode project/app/archive | Do not infer source truth from generated export; retain exact candidate identity and signing evidence |
+| Mobile export products | Pinned Godot 4.7.1 export/templates and rebuilt native secure-credentials plugins | iOS Xcode project/archive and signed Android AAB | Both platforms must use one clean source commit; retain template hashes and signing evidence |
 | App icons | `tools/generate_ios_icons.sh` plus branding source | platform icon assets | Regenerate through the script; inspect before candidate promotion |
 
 Duplicate numbered/conflict copies that can affect build or runtime are blockers.

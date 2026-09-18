@@ -22,6 +22,14 @@ The merge retains both the lane-grab regression gate and main's soak-launch
 contract. TestFlight preflight retains main's local smoke/read-only hosted health
 checks; only its runtime selection/version detection is adapted.
 
+The MVP transition test retains all assertions and allows 20 seconds for the
+existing ten-second orientation countdown plus loading-cover handoff. The old
+12-second wall-clock budget expired during that valid transition on the pinned
+runtime. A timing probe confirmed that the cover released and the simulation
+entered RUNNING without intervening state mutation or gameplay-rule changes.
+VS quarantine coverage also recognizes the three existing economy-rollout health
+fields and asserts their default values remain null/zero/OFF.
+
 ## Store configuration
 
 - iOS bundle ID: `com.matthew.swarmfront`; Apple team: `SH6675DXQ5`.

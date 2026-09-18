@@ -8635,6 +8635,8 @@ func _startup_hitch_effectively_visible() -> bool:
 	return alpha > 0.01
 
 func _runtime_telemetry_overlay_enabled() -> bool:
+	if OS.has_feature("store_release") or not OS.is_debug_build():
+		return false
 	if not show_runtime_telemetry_overlay:
 		return false
 	if OS.is_debug_build() or get_node_or_null("/root/DevMapRunner") != null:
@@ -8700,6 +8702,8 @@ func _position_runtime_telemetry_overlay() -> void:
 	_runtime_telemetry_overlay.position = Vector2(12.0, top_px + 12.0)
 
 func _ensure_pvp_debug_overlay() -> void:
+	if OS.has_feature("store_release") or not OS.is_debug_build():
+		return
 	var started_usec: int = Time.get_ticks_usec()
 	_startup_hitch_mark_once("arena_deferred_pvp_overlay_started")
 	if _pvp_debug_overlay != null and is_instance_valid(_pvp_debug_overlay):
