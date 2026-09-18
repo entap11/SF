@@ -15,6 +15,10 @@ const DOUBLE_TAP_MS := 360
 const DOUBLE_TAP_DIST_PX := 22.0
 const TOUCH_DOUBLE_TAP_MS := 460
 const TOUCH_DOUBLE_TAP_DIST_PX := 34.0
+# Mothballed: a lane-only double tap cannot express intent where lanes overlap,
+# especially near a shared hive. Keep the implementation available for future
+# experiments, but production input must use explicit source -> destination.
+const ENABLE_LANE_DOUBLE_TAP_ACTION := false
 const CLICK_DBL_MS := 300
 const CLICK_DBL_DIST_PX := 22.0
 const LANE_PICK_RADIUS := 30.0
@@ -304,6 +308,8 @@ func handle_tap(hive_id: int, dev_pid: int, arena_api: ArenaAPI) -> void:
 	_handle_tap(hive_id, dev_pid, arena_api)
 
 func handle_lane_double_tap(local_pos: Vector2, dev_pid: int, pid: int, arena_api: ArenaAPI) -> bool:
+	if not ENABLE_LANE_DOUBLE_TAP_ACTION:
+		return false
 	return _handle_lane_double_tap(local_pos, dev_pid, pid, arena_api)
 
 func clear_tap_state() -> void:
@@ -326,12 +332,18 @@ func _record_lane_tap(lane_id: int, local_pos: Vector2, player_id: int) -> void:
 func _is_lane_double_tap(lane_id: int, local_pos: Vector2, player_id: int, is_touch: bool = false) -> bool:
 	if lane_id <= 0 or lane_id != _last_lane_tap_id:
 		return false
+	return _is_pending_lane_double_tap(local_pos, player_id, is_touch)
+
+func _is_pending_lane_double_tap(local_pos: Vector2, player_id: int, is_touch: bool = false) -> bool:
+	if _last_lane_tap_id <= 0:
+		return false
 	if player_id <= 0 or player_id != _last_lane_tap_player_id:
 		return false
 	var now_ms: int = Time.get_ticks_msec()
 	var max_ms: int = TOUCH_DOUBLE_TAP_MS if is_touch else DOUBLE_TAP_MS
 	var max_dist: float = TOUCH_DOUBLE_TAP_DIST_PX if is_touch else DOUBLE_TAP_DIST_PX
-	return (now_ms - _last_lane_tap_time_ms) <= max_ms and _last_lane_tap_pos.distance_to(local_pos) <= max_dist
+	var elapsed_ms: int = now_ms - _last_lane_tap_time_ms
+	return elapsed_ms >= 0 and elapsed_ms <= max_ms and _last_lane_tap_pos.distance_to(local_pos) <= max_dist
 
 func clear_selection() -> void:
 	if selection == null:
@@ -442,11 +454,17 @@ func _clear_enemy_first_for_player(player_id: int) -> void:
 
 func _set_enemy_first_visual(arena_api: ArenaAPI, hive_id: int, player_id: int) -> void:
 	if selection != null:
-		selection.selected_hive_id = -1
+		selection.selected_hive_id = hive_id
 		selection.selected_lane_id = -1
+	if arena_api != null:
+		arena_api.set_selected_hive_id(hive_id)
 	_set_selected_visual_for_player(arena_api, player_id, hive_id)
 
 func _clear_enemy_first_visual(arena_api: ArenaAPI, player_id: int) -> void:
+	if selection != null:
+		selection.selected_hive_id = -1
+	if arena_api != null:
+		arena_api.clear_selection()
 	if _visual_selected_player_id == player_id:
 		_clear_selected_visual(arena_api)
 
@@ -785,6 +803,18 @@ func _pick_lane_hit(world_pos: Vector2, arena_api: ArenaAPI) -> Dictionary:
 		"dist": float(fallback.get("dist", INF))
 	}
 
+func _pick_lane_hit_by_id(world_pos: Vector2, lane_id: int, arena_api: ArenaAPI, extra_radius: float = 0.0) -> Dictionary:
+	if lane_id <= 0 or arena_api == null:
+		return {"hit": false}
+	var radius: float = _lane_pick_radius(arena_api) + maxf(0.0, extra_radius)
+	var lr := _get_lane_renderer(arena_api)
+	if lr != null and lr.has_method("pick_lane_by_id_at_world_pos"):
+		return lr.call("pick_lane_by_id_at_world_pos", world_pos, lane_id, radius)
+	var fallback: Dictionary = _pick_lane_hit(world_pos, arena_api)
+	if bool(fallback.get("hit", false)) and int(fallback.get("lane_id", -1)) == lane_id:
+		return fallback
+	return {"hit": false}
+
 func _pick_lane_id_for_click(local_pos: Vector2, fallback_lane_id: int, arena_api: ArenaAPI) -> int:
 	var world_pos: Vector2 = _map_local_to_world(local_pos, arena_api)
 	var hit: Dictionary = _pick_lane_hit(world_pos, arena_api)
@@ -800,17 +830,17 @@ func _pick_lane_id_for_click(local_pos: Vector2, fallback_lane_id: int, arena_ap
 func _should_route_hive_click_to_lane(prev_selected_id: int, clicked_id: int, lane_id: int, local_pos: Vector2, player_id: int, arena_api: ArenaAPI) -> bool:
 	if clicked_id <= 0 or lane_id <= 0 or arena_api == null:
 		return false
-	if _is_lane_double_tap(lane_id, local_pos, player_id, _press_is_touch):
-		return true
-	if _is_lane_source_retract_tap(lane_id, local_pos, player_id, arena_api):
-		return true
+	if ENABLE_LANE_DOUBLE_TAP_ACTION:
+		if _is_lane_double_tap(lane_id, local_pos, player_id, _press_is_touch):
+			return true
+		if _is_lane_source_retract_tap(lane_id, local_pos, player_id, arena_api):
+			return true
 	if prev_selected_id > 0:
 		return false
 	var hive: HiveData = arena_api.find_hive_by_id(clicked_id)
 	if hive == null:
 		return false
-	if int(hive.owner_id) != player_id:
-		return true
+	# Hive cores take the same picking priority for every owner.
 	return _tap_is_outside_hive_core(clicked_id, local_pos, arena_api)
 
 func _tap_is_outside_hive_core(hive_id: int, local_pos: Vector2, arena_api: ArenaAPI) -> bool:
@@ -1081,8 +1111,7 @@ func _arm_lane_grab(arena_api: ArenaAPI) -> void:
 	if lane == null:
 		_cancel_lane_grab("lane_removed", arena_api, true)
 		return
-	var side_info: Dictionary = _owned_active_lane_side(lane, _lane_grab_player_id, arena_api)
-	if side_info.is_empty():
+	if not _grabbed_lane_side_is_active(lane, arena_api):
 		_cancel_lane_grab("enemy_lane", arena_api, true)
 		return
 	_lane_grab_state = LANE_GRAB_STATE_ARMED
@@ -1183,8 +1212,7 @@ func _lane_grab_metrics(local_pos: Vector2, arena_api: ArenaAPI) -> Dictionary:
 	var lane: LaneData = arena_api.find_lane_by_id(_lane_grab_lane_id)
 	if lane == null:
 		return {"ok": false, "reason": "lane_removed"}
-	var side_info: Dictionary = _owned_active_lane_side(lane, _lane_grab_player_id, arena_api)
-	if side_info.is_empty():
+	if not _grabbed_lane_side_is_active(lane, arena_api):
 		return {"ok": false, "reason": "enemy_lane"}
 	var seg: Dictionary = _lane_grab_segment_local(lane, arena_api)
 	if not bool(seg.get("ok", false)):
@@ -1197,13 +1225,13 @@ func _lane_grab_metrics(local_pos: Vector2, arena_api: ArenaAPI) -> Dictionary:
 		return {"ok": false, "reason": "lane_removed"}
 	var t: float = clampf((local_pos - start_pos).dot(axis) / len_sq, 0.0, 1.0)
 	var closest: Vector2 = start_pos.lerp(end_pos, t)
-	var offset: Vector2 = local_pos - closest
 	var lane_dir: Vector2 = axis.normalized()
 	var from_start: Vector2 = local_pos - _lane_grab_start_local
 	return {
 		"ok": true,
 		"closest": closest,
-		"perp_dist": offset.length(),
+		# Along-lane movement past an endpoint is not a perpendicular throw.
+		"perp_dist": absf((local_pos - start_pos).cross(lane_dir)),
 		"parallel_abs": abs(from_start.dot(lane_dir))
 	}
 
@@ -1228,17 +1256,25 @@ func _lane_grab_segment_local(lane: LaneData, arena_api: ArenaAPI) -> Dictionary
 		return {"ok": false}
 	var start_pos: Vector2 = a_pos
 	var end_pos: Vector2 = b_pos
-	if bool(lane.send_a) and bool(lane.send_b):
-		var front_t: float = clampf(float(lane.last_impact_f), 0.05, 0.95)
-		var front_pos: Vector2 = a_pos.lerp(b_pos, front_t)
-		if _lane_grab_side == "a":
-			end_pos = front_pos
-		elif _lane_grab_side == "b":
-			start_pos = front_pos
-	elif _lane_grab_side == "b":
+	# The picker acquires the full route, including beyond a contested front.
+	# Keep gesture geometry equally stable along that route, independently of
+	# combat/front animation, and always anchor the preview at the owned source.
+	if _lane_grab_side == "b":
 		start_pos = b_pos
 		end_pos = a_pos
 	return {"ok": true, "start": start_pos, "end": end_pos}
+
+func _grabbed_lane_side_is_active(lane: LaneData, arena_api: ArenaAPI) -> bool:
+	# Revalidate the acquired direction, not any direction now owned on the pair.
+	# Capture or reversal during a hold must not transfer the gesture's authority.
+	var source: HiveData = arena_api.find_hive_by_id(_lane_grab_src_id)
+	if source == null or int(source.owner_id) != _lane_grab_player_id:
+		return false
+	if _lane_grab_side == "a":
+		return bool(lane.send_a) and int(lane.a_id) == _lane_grab_src_id and int(lane.b_id) == _lane_grab_dst_id
+	if _lane_grab_side == "b":
+		return bool(lane.send_b) and int(lane.b_id) == _lane_grab_src_id and int(lane.a_id) == _lane_grab_dst_id
+	return false
 
 func _set_lane_grab_preview(arena_api: ArenaAPI, tension: bool, anchor_local: Vector2, pull_local: Vector2) -> void:
 	var lr := _get_lane_renderer(arena_api)
@@ -1858,7 +1894,10 @@ func _handle_release(local_pos: Vector2, _hive_id: int, lane_id: int, dev_pid: i
 		arena_api,
 		selection.drag_start_hive_id
 	)
-	var release_lane_id: int = _pick_lane_id_for_click(local_pos, lane_id, arena_api)
+	# Once a possible double-tap begins, the first tap owns lane selection. A
+	# second nearest-lane query is unstable where lanes overlap or cross.
+	var locked_double_tap_lane_id: int = _last_lane_tap_id if ENABLE_LANE_DOUBLE_TAP_ACTION and _is_pending_lane_double_tap(local_pos, player_id, _press_is_touch) else -1
+	var release_lane_id: int = locked_double_tap_lane_id if locked_double_tap_lane_id > 0 else _pick_lane_id_for_click(local_pos, lane_id, arena_api)
 	if lane_double_tap_only and _press_lane_id > 0:
 		release_lane_id = _press_lane_id
 	if _lane_grab_state == LANE_GRAB_STATE_CANDIDATE:
@@ -1980,11 +2019,10 @@ func _handle_click_hive(prev_selected_id: int, clicked_id: int, player_id: int, 
 	SFLog.info("INPUT_CLICK", {"player_id": player_id, "hid": clicked_id, "world": world_pos})
 	var enemy_first_id: int = _get_enemy_first_for_player(player_id)
 	var clicked_owned: bool = hive.owner_id == player_id
-	var clicked_ally: bool = _are_allied_seats(player_id, hive.owner_id)
 	if enemy_first_id > 0:
 		_clear_enemy_first_for_player(player_id)
 		_clear_enemy_first_visual(arena_api, player_id)
-		SFLog.info("ENEMY_FIRST_CLEAR", {"enemy_id": enemy_first_id, "reason": "enemy_unselectable"})
+		SFLog.info("ENEMY_FIRST_CLEAR", {"enemy_id": enemy_first_id, "reason": "inspection_changed"})
 		clear_tap_state()
 	if prev_selected_id != -1 and prev_selected_id != clicked_id:
 		_apply_hive_to_hive_action(prev_selected_id, clicked_id, player_id, dev_pid, arena_api)
@@ -1997,13 +2035,11 @@ func _handle_click_hive(prev_selected_id: int, clicked_id: int, player_id: int, 
 		return
 	if not clicked_owned:
 		_clear_selected_for_player(arena_api, player_id)
+		if enemy_first_id != clicked_id:
+			_set_enemy_first_for_player(player_id, clicked_id)
+			_set_enemy_first_visual(arena_api, clicked_id, player_id)
 		clear_tap_state()
-		SFLog.info("HIVE_CLICK_UNSELECTABLE", {
-			"hive_id": clicked_id,
-			"owner_id": int(hive.owner_id),
-			"player_id": player_id,
-			"ally": clicked_ally
-		})
+		SFLog.info("HIVE_INSPECT", {"hive_id": clicked_id, "owner_id": int(hive.owner_id), "player_id": player_id})
 		return
 	if clicked_owned:
 		_set_selected_for_player(arena_api, player_id, clicked_id)
@@ -2025,9 +2061,9 @@ func _handle_click_ground(lane_id: int, local_pos: Vector2, arena_api: ArenaAPI,
 	if lane_id != -1:
 		var lane: LaneData = arena_api.find_lane_by_id(lane_id)
 		if lane != null:
-			if _is_lane_double_tap(lane.id, local_pos, player_id, _press_is_touch):
+			if ENABLE_LANE_DOUBLE_TAP_ACTION and _is_lane_double_tap(lane.id, local_pos, player_id, _press_is_touch):
 				_reset_lane_tap_state()
-				var handled_double_tap: bool = _handle_lane_swarm_double_tap_by_id(lane.id, player_id, arena_api) if lane_double_tap_only else _handle_lane_double_tap(local_pos, player_id, player_id, arena_api)
+				var handled_double_tap: bool = _handle_lane_swarm_double_tap_by_id(lane.id, player_id, arena_api) if lane_double_tap_only else _handle_lane_double_tap_by_id(lane.id, local_pos, player_id, arena_api, _press_is_touch)
 				if handled_double_tap:
 					_clear_selected_for_player(arena_api, player_id)
 					selection.selected_lane_id = -1
@@ -2046,6 +2082,8 @@ func _handle_click_ground(lane_id: int, local_pos: Vector2, arena_api: ArenaAPI,
 	clear_tap_state()
 
 func _handle_lane_swarm_double_tap_by_id(lane_id: int, player_id: int, arena_api: ArenaAPI) -> bool:
+	if not ENABLE_LANE_DOUBLE_TAP_ACTION:
+		return false
 	if lane_id <= 0 or player_id <= 0 or arena_api == null:
 		return false
 	var lane: LaneData = arena_api.find_lane_by_id(lane_id)
@@ -2194,6 +2232,21 @@ func _handle_lane_double_tap(local_pos: Vector2, dev_pid: int, pid: int, arena_a
 	var lane_id: int = int(hit.get("lane_id", -1))
 	if lane_id <= 0:
 		return false
+	var player_id: int = pid
+	if player_id == -1:
+		player_id = dev_pid if dev_pid != -1 else arena_api.get_active_player_id()
+	return _handle_lane_double_tap_hit(hit, lane_id, player_id, arena_api)
+
+func _handle_lane_double_tap_by_id(lane_id: int, local_pos: Vector2, player_id: int, arena_api: ArenaAPI, is_touch: bool = false) -> bool:
+	var world_pos: Vector2 = _map_local_to_world(local_pos, arena_api)
+	var extra_radius: float = TOUCH_DOUBLE_TAP_DIST_PX if is_touch else DOUBLE_TAP_DIST_PX
+	var hit: Dictionary = _pick_lane_hit_by_id(world_pos, lane_id, arena_api, extra_radius)
+	if not bool(hit.get("hit", false)):
+		SFLog.info("LANE_PICK_MISS", {"world": world_pos, "locked_lane_id": lane_id})
+		return false
+	return _handle_lane_double_tap_hit(hit, lane_id, player_id, arena_api)
+
+func _handle_lane_double_tap_hit(hit: Dictionary, lane_id: int, player_id: int, arena_api: ArenaAPI) -> bool:
 	SFLog.info("LANE_PICK_HIT", {
 		"lane_id": lane_id,
 		"t": float(hit.get("t", 0.0)),
@@ -2202,9 +2255,6 @@ func _handle_lane_double_tap(local_pos: Vector2, dev_pid: int, pid: int, arena_a
 	var lane: LaneData = arena_api.find_lane_by_id(lane_id)
 	if lane == null:
 		return false
-	var player_id: int = pid
-	if player_id == -1:
-		player_id = dev_pid if dev_pid != -1 else arena_api.get_active_player_id()
 	var a: HiveData = arena_api.find_hive_by_id(lane.a_id)
 	var b: HiveData = arena_api.find_hive_by_id(lane.b_id)
 	if a == null or b == null:

@@ -149,6 +149,7 @@ The same `POST /<action>` routes are also available for hosts that prefer a root
 - `VS_VERIFIER_WORKER_BUILD_ID`: pinned worker build bound into every accepted receipt.
 - `VS_VERIFIER_LEASE_SEC`, `VS_VERIFIER_RETRY_DELAY_SEC`: at-least-once worker lease and retry timing.
 - `VS_RANK_SERVICE_URL` and `VS_RANK_SERVICE_TOKEN_*`: Rank service location and short-lived ES256 service identity. VS holds the private key; Rank receives only the public key.
+- `VS_RANK_SERVICE_TIMEOUT_MS`: hard deadline for each VS-to-Rank request; defaults to `5000`. Durable mutation workers classify a timeout as retryable and replay the same stored operation identity.
 - `VS_RANK_SETTLEMENT_LEASE_SEC`, `VS_RANK_SETTLEMENT_RETRY_DELAY_SEC`, `VS_RANK_SETTLEMENT_POLL_MS`: durable at-least-once settlement-worker timing.
 - `VS_RANK_LEADERBOARD_MAX_STALE_SEC`: maximum age for the last server-fetched Global Rank snapshot. With no snapshot, or after this bound, reads fail closed.
 - `VS_AUTHENTICATED_1V1_SLICE_ENABLED`: enables only the Package 1 authenticated Standard 1v1 queue proof. Defaults to `false`; it is not the public 1v1 release flag.

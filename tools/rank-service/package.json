@@ -12,6 +12,8 @@
     "smoke:player-token": "tsx src/identity/playerTokenSmoke.ts",
     "smoke:session": "tsx src/identity/sessionSmoke.ts",
     "smoke:session:embedded": "tsx src/identity/embeddedSessionSmoke.ts",
+    "smoke:account-deletion": "DATABASE_URL=postgres://embedded:embedded@127.0.0.1:1/embedded tsx src/identity/accountDeletionSmoke.ts",
+    "account-deletions": "tsx src/cli/account-deletions.ts",
     "smoke:verified-settlement": "DATABASE_URL=postgres://embedded:embedded@127.0.0.1:1/embedded RANK_ECONOMY_MUTATIONS_ENABLED=true RANK_VERIFIED_MATCH_MUTATIONS_ENABLED=true tsx src/verifiedSettlementEmbeddedSmoke.ts",
     "smoke:platform-economy": "DATABASE_URL=postgres://embedded:embedded@127.0.0.1:1/embedded tsx src/platformEconomyEmbeddedSmoke.ts",
     "smoke:quarantine": "DATABASE_URL=postgres://quarantine:quarantine@127.0.0.1:1/quarantine tsx src/economyQuarantineSmoke.ts",
@@ -31,5 +33,9 @@
     "@types/pg": "^8.11.11",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
+  },
+  "overrides": {
+    "esbuild": "0.28.2",
+    "qs": "6.16.0"
   }
 }

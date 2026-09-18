@@ -173,6 +173,7 @@ export const config = {
   rankServiceSubject: process.env.VS_RANK_SERVICE_TOKEN_SUBJECT?.trim() || "vs-settlement-worker",
   rankServiceKeyId: process.env.VS_RANK_SERVICE_TOKEN_KEY_ID?.trim() || "vs-rank-service-v1",
   rankServicePrivateKeyPem: normalizePem(process.env.VS_RANK_SERVICE_TOKEN_PRIVATE_KEY_PEM),
+  rankServiceTimeoutMs: Math.max(100, parseIntValue(process.env.VS_RANK_SERVICE_TIMEOUT_MS, 5_000)),
   rankSettlementLeaseSec: Math.max(10, parseIntValue(process.env.VS_RANK_SETTLEMENT_LEASE_SEC, 60)),
   rankSettlementRetryDelaySec: Math.max(1, parseIntValue(process.env.VS_RANK_SETTLEMENT_RETRY_DELAY_SEC, 15)),
   rankSettlementPollMs: Math.max(250, parseIntValue(process.env.VS_RANK_SETTLEMENT_POLL_MS, 1_000)),

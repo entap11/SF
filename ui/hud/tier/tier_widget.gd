@@ -13,6 +13,7 @@ const HERO_YELLOW_BOTTOM: Color = Color(1.0, 0.831, 0.0, 1.0) # #FFD400
 const HERO_STROKE: Color = Color(0.44, 0.28, 0.05, 1.0)
 const HERO_GLOW: Color = Color(1.0, 0.80, 0.22, 1.0)
 const DEFAULT_WIDGET_HEIGHT: float = 200.0
+const TYPOGRAPHY_SCALE: float = 1.10
 const VALUE_FONT_SIZE: int = 100
 const VALUE_MIN_FONT_SIZE: int = 36
 const VALUE_HORIZONTAL_PADDING: float = 12.0
@@ -26,13 +27,13 @@ const VALUE_GLOW_RADIUS: float = 3.2
 @export var plate_path: NodePath = NodePath("Plate")
 @export var row_path: NodePath = NodePath("Row")
 @export var tier_column_path: NodePath = NodePath("Row/TierColumn")
-@export var rank_column_path: NodePath = NodePath("Row/RankColumn")
+@export var rank_column_path: NodePath = NodePath("Row/RankSlot/RankColumn")
 @export var tier_title_label_path: NodePath = NodePath("Row/TierColumn/TierTitle")
 @export var tier_value_label_path: NodePath = NodePath("Row/TierColumn/TierValue")
 @export var tier_name_label_path: NodePath = NodePath("Row/TierColumn/TierName")
-@export var rank_title_label_path: NodePath = NodePath("Row/RankColumn/RankTitle")
-@export var rank_name_spacer_path: NodePath = NodePath("Row/RankColumn/RankNameSpacer")
-@export var rank_value_label_path: NodePath = NodePath("Row/RankColumn/RankValue")
+@export var rank_title_label_path: NodePath = NodePath("Row/RankSlot/RankColumn/RankTitle")
+@export var rank_name_spacer_path: NodePath = NodePath("Row/RankSlot/RankColumn/RankNameSpacer")
+@export var rank_value_label_path: NodePath = NodePath("Row/RankSlot/RankColumn/RankValue")
 @export var rank_up_flash_path: NodePath = NodePath("RankUpFlash")
 @export var rankup_duration_sec: float = 0.20
 @export var significant_rank_improvement: int = 10
@@ -102,6 +103,9 @@ func _apply_hero_font(font: Font, base_size: int) -> void:
 	var value_size: int = maxi(VALUE_FONT_SIZE, int(round(widget_height * 0.50)))
 	var hinted_value_size: int = maxi(VALUE_MIN_FONT_SIZE, int(round(float(base_size) * 2.10)))
 	value_size = maxi(value_size, hinted_value_size)
+	title_size = int(round(float(title_size) * TYPOGRAPHY_SCALE))
+	tier_name_size = int(round(float(tier_name_size) * TYPOGRAPHY_SCALE))
+	value_size = int(round(float(value_size) * TYPOGRAPHY_SCALE))
 	for label in [_tier_title_label, _rank_title_label]:
 		if label == null:
 			continue

@@ -13,7 +13,7 @@ export type ReplayResult = RecordJson & { ok: boolean };
 export type WorkerConfig = {
   baseUrl: string; workerToken: string; workerId: string; workerBuildId: string;
   verifierKeyId: string; verifierPrivateKeyPem: string; artifactManifestPath: string;
-  godotBin: string; pollMs: number; replayTimeoutMs: number; runOnce: boolean;
+  godotBin: string; pollMs: number; replayTimeoutMs: number; httpTimeoutMs?: number; runOnce: boolean;
 };
 
 export async function runOne(config: WorkerConfig, replayOverride?: (job: Job) => Promise<[ReplayResult, ReplayResult]>): Promise<boolean> {
@@ -235,11 +235,24 @@ async function runGodot(config: WorkerConfig, projectPath: string, input: Record
 }
 
 async function action(config: WorkerConfig, name: string, body: RecordJson): Promise<RecordJson> {
-  const response = await fetch(`${config.baseUrl.replace(/\/$/, "")}/${name}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json", "x-verifier-worker-token": config.workerToken },
-    body: JSON.stringify(body)
-  });
+  const startedMs = Date.now();
+  let response: Response;
+  try {
+    response = await fetch(`${config.baseUrl.replace(/\/$/, "")}/${name}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-verifier-worker-token": config.workerToken },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(config.httpTimeoutMs ?? 10_000)
+    });
+  } catch (error) {
+    console.warn(JSON.stringify({ ts: new Date().toISOString(), event: "dependency_call",
+      dependency: `vs.${name}`, outcome: "transport_error",
+      error: error instanceof Error ? error.name : "unknown_error", ms: Date.now() - startedMs }));
+    throw error;
+  }
+  console.log(JSON.stringify({ ts: new Date().toISOString(), event: "dependency_call",
+    dependency: `vs.${name}`, outcome: response.ok ? "ok" : "http_error",
+    status: response.status, ms: Date.now() - startedMs }));
   const payload = await response.json() as RecordJson;
   if (!response.ok || payload.ok !== true) throw new AuthorityError(String(payload.err ?? `HTTP_${response.status}`), response.status >= 500);
   return payload;
@@ -297,6 +310,7 @@ export function loadConfig(): WorkerConfig {
     godotBin: process.env.MATCH_AUTHORITY_GODOT_BIN?.trim() || "godot",
     pollMs: Number.isFinite(integer) ? Math.max(100, integer) : 1000,
     replayTimeoutMs: Math.max(1_000, Number.parseInt(process.env.MATCH_AUTHORITY_REPLAY_TIMEOUT_MS ?? "120000", 10) || 120_000),
+    httpTimeoutMs: Math.max(100, Number.parseInt(process.env.MATCH_AUTHORITY_HTTP_TIMEOUT_MS ?? "10000", 10) || 10_000),
     runOnce: ["1", "true", "yes"].includes(process.env.MATCH_AUTHORITY_RUN_ONCE?.trim().toLowerCase() ?? "")
   };
 }

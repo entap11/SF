@@ -4,6 +4,7 @@ import { signServiceJwt } from "./serviceJwt.js";
 import { sha256Canonical, type JsonRecord } from "./repositories/durableCore.js";
 import { getRankSettlementRepository, getVerificationRepository } from "./repositories/durableCoreRuntime.js";
 import type { RankSettlementBundle } from "./repositories/rankSettlement.js";
+import { fetchDependency } from "./httpDependency.js";
 
 export async function reconcileRankSettlements(nowIso = new Date().toISOString()): Promise<number> {
   if (config.durableStore !== "postgres") return 0;
@@ -50,11 +51,12 @@ async function processOneAuthorizedRankSettlement(workerId: string, nowIso: stri
       subject: config.rankServiceSubject, keyId: config.rankServiceKeyId,
       privateKeyPem: config.rankServicePrivateKeyPem
     }, "rank:settle");
-    const http = await fetch(`${config.rankServiceUrl}/v1/service/settle-standard-1v1`, {
+    const http = await fetchDependency("rank.settle_standard_1v1",
+      `${config.rankServiceUrl}/v1/service/settle-standard-1v1`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify(request)
-    });
+    }, config.rankServiceTimeoutMs);
     response = await safeJson(http);
     if (!http.ok || response.ok !== true) {
       const errorCode = String(response.err ?? `RANK_HTTP_${http.status}`);

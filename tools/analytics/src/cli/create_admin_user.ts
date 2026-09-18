@@ -11,10 +11,10 @@ function arg(name: string): string | null {
 
 async function main(): Promise<void> {
   const username = arg("username") ?? config.adminBootstrapUsername;
-  const password = arg("password") ?? config.adminBootstrapPassword;
+  const password = config.adminBootstrapPassword;
 
   if (!username || !password) {
-    throw new Error("username/password required. Use --username=... --password=... or ADMIN_BOOTSTRAP_* env vars.");
+    throw new Error("username/password required. Set ADMIN_BOOTSTRAP_USERNAME and ADMIN_BOOTSTRAP_PASSWORD through the environment or an untracked .env file; password arguments are not accepted.");
   }
 
   await runMigrations(pool);

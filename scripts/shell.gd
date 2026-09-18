@@ -102,10 +102,9 @@ const SHELL_PREMATCH_ROUND_FONT_SIZE: int = 43
 const SHELL_PREMATCH_BODY_FONT_SIZE: int = 40
 const SHELL_PREMATCH_STATUS_FONT_SIZE: int = 45
 const PREMATCH_FACTS_CARD_ENABLED: bool = false
+const MatchHudLayout = preload("res://scripts/ui/match_hud_layout.gd")
 const SHELL_WORLD_VIEWPORT_LEFT_INSET_PX: float = 0.0
 const SHELL_WORLD_VIEWPORT_RIGHT_INSET_PX: float = 0.0
-const SHELL_WORLD_VIEWPORT_TOP_INSET_PX: float = 60.0
-const SHELL_WORLD_VIEWPORT_BOTTOM_INSET_PX: float = 40.0
 const BATTLEFIELD_SCREEN_ANGLE_STUDY_ENV: String = "SF_BATTLEFIELD_SCREEN_ANGLE_STUDY"
 const BATTLEFIELD_SCREEN_ANGLE_LIMIT_DEG: float = 4.0
 const BATTLEFIELD_SCREEN_ANGLE_DEFAULT_CANDIDATE_DEG: float = 2.0
@@ -916,11 +915,10 @@ func _update_back_parent(in_game: bool) -> void:
 func _position_back_button() -> void:
 	if back_button == null:
 		return
+	var menu_rect: Rect2 = get_match_hud_layout().menu
 	back_button.set_anchors_preset(Control.PRESET_TOP_LEFT)
-	back_button.offset_left = 16.0
-	back_button.offset_top = 16.0
-	back_button.offset_right = 241.0
-	back_button.offset_bottom = 126.0
+	back_button.position = menu_rect.position
+	back_button.size = menu_rect.size
 
 func _refresh_back_button_state(in_menu: bool) -> void:
 	if back_button == null:
@@ -1656,19 +1654,47 @@ func _hide_match_loading_cover() -> void:
 	and loading_coordinator.has_method("hide_immediately"):
 		loading_coordinator.call("hide_immediately")
 
+func get_match_hud_layout() -> Dictionary:
+	var viewport: Viewport = get_viewport()
+	var safe: Rect2 = MatchHudLayout.safe_rect_for_viewport(viewport)
+	var footer_top: float = INF
+	for control in [_player_buff_strip, _opponent_buff_strip, _opponent_buff_strip_b, _ally_buff_strip]:
+		if control != null and control.visible:
+			footer_top = minf(footer_top, control.get_global_rect().position.y)
+	var jukebox_button: Control = get_node_or_null(SHELL_BOTTOM_BUFFER_PATH + "/JukeboxBackButton") as Control
+	if jukebox_button != null and jukebox_button.visible:
+		footer_top = minf(footer_top, jukebox_button.get_global_rect().position.y)
+	return MatchHudLayout.resolve(viewport.get_visible_rect().size, safe, footer_top)
+
 func _configure_shell_world_viewport_opening() -> void:
 	if _arena_instance == null:
 		return
 	var world_fit: Node = _arena_instance.get_node_or_null("WorldCanvasLayer/WorldViewportContainer")
 	if world_fit == null:
 		return
+	var safe: Rect2 = MatchHudLayout.safe_rect_for_viewport(get_viewport())
+	var jukebox_button: Control = get_node_or_null(SHELL_BOTTOM_BUFFER_PATH + "/JukeboxBackButton") as Control
+	if jukebox_button != null and jukebox_button.visible:
+		_set_control_global_rect(jukebox_button, Rect2(Vector2(safe.get_center().x - 98.0, safe.end.y - 60.0), Vector2(196.0, 44.0)))
+	var layout: Dictionary = get_match_hud_layout()
+	_position_back_button()
+	var top_buffer: Control = get_node_or_null(SHELL_TOP_BUFFER_PATH) as Control
+	if top_buffer != null:
+		top_buffer.offset_bottom = float(layout.top_inset)
+	if is_equal_approx(float(world_fit.get("inset_top_px")), float(layout.top_inset)) \
+	and is_equal_approx(float(world_fit.get("inset_bottom_px")), float(layout.bottom_inset)):
+		return
 	world_fit.set("inset_left_px", SHELL_WORLD_VIEWPORT_LEFT_INSET_PX)
 	world_fit.set("inset_right_px", SHELL_WORLD_VIEWPORT_RIGHT_INSET_PX)
-	world_fit.set("inset_top_px", SHELL_WORLD_VIEWPORT_TOP_INSET_PX)
-	world_fit.set("inset_bottom_px", SHELL_WORLD_VIEWPORT_BOTTOM_INSET_PX)
+	world_fit.set("inset_top_px", layout.top_inset)
+	world_fit.set("inset_bottom_px", layout.bottom_inset)
 	world_fit.set("top_overlap_px", 0.0)
 	if world_fit.has_method("_apply_layout"):
 		world_fit.call("_apply_layout")
+	var arena_node: Node = _resolve_runtime_arena_node()
+	if arena_node != null:
+		arena_node.call_deferred("_layout_in_game_ad_surface")
+		arena_node.call_deferred("_snap_power_bar_to_map_top", "shell_hud_layout")
 	_apply_battlefield_screen_angle()
 
 func _ensure_vs_frame_visible() -> void:
@@ -2200,6 +2226,7 @@ func _on_viewport_size_changed() -> void:
 		return
 	call_deferred("_sync_power_bar_buffer_placement")
 	call_deferred("_layout_buff_strip_positions")
+	call_deferred("_configure_shell_world_viewport_opening")
 
 func _apply_content_scale_from_profile() -> void:
 	if not ProfileManager.has_method("get_content_scale_factor"):
@@ -2389,6 +2416,7 @@ func _set_buff_strip_visibility(player_visible: bool, opponent_visible: bool, op
 		_opponent_buff_strip_b.visible = opponent_b_visible
 	if _ally_buff_strip != null:
 		_ally_buff_strip.visible = ally_visible
+	call_deferred("_configure_shell_world_viewport_opening")
 
 
 func _buff_targeting_runtime_enabled() -> bool:
@@ -2436,6 +2464,7 @@ func _layout_buff_strip_positions() -> void:
 		return
 	_layout_player_strip_inside_bottom_buffer()
 	_layout_side_strips_inside_bottom_buffer()
+	_configure_shell_world_viewport_opening()
 
 func _visible_screen_rect() -> Rect2:
 	var vp: Viewport = get_viewport()
@@ -2450,7 +2479,7 @@ func _bottom_buffer_layout_rect(bottom_buffer: Control) -> Rect2:
 	if bottom_buffer == null:
 		return Rect2()
 	var buffer_rect: Rect2 = bottom_buffer.get_global_rect()
-	var visible_rect: Rect2 = _visible_screen_rect()
+	var visible_rect: Rect2 = MatchHudLayout.safe_rect_for_viewport(get_viewport())
 	if visible_rect.size.x <= 1.0 or visible_rect.size.y <= 1.0:
 		return buffer_rect
 	if not buffer_rect.intersects(visible_rect):
@@ -3516,8 +3545,8 @@ func _sync_power_bar_buffer_placement(startup_probe_id: String = "") -> void:
 		_startup_hitch_callback_completed(marker_prefix, started_usec, "missing_power_bar")
 		return
 
-	# Editor-authoritative: PowerBarAnchor placement is authored in scene.
-	# Do not create/move anchors or reposition the power bar at runtime.
+	# The scene owns the anchor hierarchy. Arena docks the visible frame using
+	# Shell's shared HUD layout when the playfield changes.
 	_update_power_bar_visibility()
 	SFLog.info("POWERBAR_ANCHOR", {
 		"bar_path": str(power_bar.get_path()),
@@ -3535,9 +3564,8 @@ func _ensure_power_bar_anchor() -> Control:
 	var anchor: Control = top_buffer.get_node_or_null("PowerBarAnchor") as Control
 	if anchor != null:
 		return anchor
-	# IMPORTANT:
-	# Do NOT rewrite PowerBarAnchor geometry at runtime.
-	# It is authored in scenes/Shell.tscn (under TopBufferBackground) and must remain stable.
+	# Preserve the anchor hierarchy authored in scenes/Shell.tscn. Arena applies
+	# the shared HUD geometry to this anchor; do not add a competing layout here.
 	# Do not use legacy BufferRoot/PowerBarAnchor shims. PowerBar must remain under:
 	# /root/Shell/HUDCanvasLayer/HUDRoot/BufferBackdropLayer/BufferRoot/TopBufferBackground/PowerBarAnchor/PowerBar
 	anchor = Control.new()
@@ -5036,20 +5064,7 @@ func _run_tutorial_controls_smoke(config: Dictionary) -> void:
 	passes += int(check_result.get("passes", 0))
 	fails += int(check_result.get("fails", 0))
 	_tutorial_controls_smoke_clear_swarms()
-	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "swarm_double_tap", run_timeout_ms, "tutorial_controls_advances_after_overlap_hit", {"src": neutral_id, "dst": enemy_id})
-	passes += int(check_result.get("passes", 0))
-	fails += int(check_result.get("fails", 0))
-	var swarm_lane_id: int = _tutorial_controls_smoke_lane_id_between(start_id, enemy_id)
-	if _tutorial_controls_smoke_lane_double_tap_press_constrained(arena_node, swarm_lane_id, enemy_id):
-		passes += _mvp_smoke_pass("tutorial_controls_red_half_double_tap_routes_to_lane", {"lane_id": swarm_lane_id})
-	else:
-		fails += _mvp_smoke_fail("tutorial_controls_red_half_double_tap_routes_to_lane", _tutorial_controls_smoke_snapshot(arena_node))
-
-	_tutorial_controls_smoke_boost_hive(start_id, 30)
-	check_result = _tutorial_controls_smoke_apply_intent("tutorial_controls_double_tap_swarm_intent", start_id, enemy_id, "swarm")
-	passes += int(check_result.get("passes", 0))
-	fails += int(check_result.get("fails", 0))
-	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "finish_fight", run_timeout_ms, "tutorial_controls_advances_after_double_tap_swarm", {"src": start_id, "dst": enemy_id})
+	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "finish_fight", run_timeout_ms, "tutorial_controls_skips_mothballed_double_tap", {"src": friend_id, "dst": enemy_id})
 	passes += int(check_result.get("passes", 0))
 	fails += int(check_result.get("fails", 0))
 
@@ -5327,19 +5342,7 @@ func _tutorial_controls_smoke_boost_hive(hive_id: int, power: int) -> void:
 func _tutorial_controls_smoke_add_team_units_killed(team_id: int, count: int) -> bool:
 	if team_id <= 0 or count <= 0:
 		return false
-	var stats_by_team: Dictionary = OpsState.stats_by_team
-	var stats: Dictionary = stats_by_team.get(team_id, {}) as Dictionary
-	if stats.is_empty():
-		stats = {
-			"max_total_hive_power": 0,
-			"units_killed": 0,
-			"units_landed": 0,
-			"units_landed_enemy": 0,
-			"units_fed_friendly": 0
-		}
-	stats["units_killed"] = int(stats.get("units_killed", 0)) + count
-	stats_by_team[team_id] = stats
-	OpsState.stats_by_team = stats_by_team
+	OpsState.add_team_units_killed(team_id, count)
 	return true
 
 func _tutorial_controls_smoke_clear_swarms() -> void:

@@ -26,8 +26,10 @@ async function post(base: string): Promise<JsonRecord> {
 async function main(): Promise<void> {
   const tempDir = mkdtempSync(join(tmpdir(), "sf-public-rank-"));
   const generatedAt = new Date().toISOString();
+  let rankServerHangs = false;
   const rankServer = http.createServer((req, res) => {
     if (req.url?.startsWith("/v1/public/leaderboard/global")) {
+      if (rankServerHangs) return;
       res.writeHead(200, { "Content-Type": "application/json" });
       res.end(JSON.stringify({ ok: true, board: { region: "GLOBAL", generated_at: generatedAt,
         rows: [{ rank: 1, player_id: "player-a", display_name: "Rank A", wax: 120 }] } }));
@@ -40,6 +42,7 @@ async function main(): Promise<void> {
   if (rankAddress == null || typeof rankAddress === "string") throw new Error("rank mock address missing");
   process.env.VS_ENABLE_PUBLIC_LEADERBOARDS = "true";
   process.env.VS_RANK_SERVICE_URL = `http://127.0.0.1:${rankAddress.port}`;
+  process.env.VS_RANK_SERVICE_TIMEOUT_MS = "50";
   process.env.VS_RANK_LEADERBOARD_MAX_STALE_SEC = "300";
   process.env.CRUCIBLE_LEDGER_PATH = join(tempDir, "crucible.json");
   process.env.HONEY_LEDGER_PATH = join(tempDir, "honey.json");
@@ -54,12 +57,14 @@ async function main(): Promise<void> {
     expect(live.http_status === 200 && liveBoard.source === "rank_primary"
       && liveBoard.stale === false && liveBoard.cache_age_seconds === 0,
     "live public rank labels are wrong", live);
-    await close(rankServer);
+    rankServerHangs = true;
+    const timeoutStartedMs = Date.now();
     const cached = await post(base);
     const cachedBoard = cached.board as JsonRecord;
     expect(cached.http_status === 200 && cachedBoard.source === "vs_cache" && cachedBoard.stale === true
       && Number(cachedBoard.cache_age_seconds) >= 0,
     "bounded cached rank fallback failed", cached);
+    expect(Date.now() - timeoutStartedMs < 1_000, "rank dependency deadline was not bounded");
     rankProxy.clearPublicRankCacheForTests();
     const unavailable = await post(base);
     expect(unavailable.http_status === 503 && unavailable.err === "public_leaderboard_unavailable"
@@ -71,7 +76,8 @@ async function main(): Promise<void> {
     rmSync(tempDir, { recursive: true, force: true });
   }
   console.log(JSON.stringify({ ok: true, smoke: "public_rank_proxy", live_primary: true,
-    cache_age_labeled: true, bounded_stale_fallback: true, no_local_data_fallback: true }));
+    cache_age_labeled: true, dependency_timeout_bounded: true,
+    bounded_stale_fallback: true, no_local_data_fallback: true }));
 }
 
 void main().catch((error) => { console.error(error); process.exitCode = 1; });

@@ -6,6 +6,7 @@ GODOT_BIN="${GODOT_BIN:-godot}"
 
 MVP_GATE="${ROOT_DIR}/scripts/dev/run_mvp_smoke.sh"
 SOAK_LAUNCH_CONTRACT="res://tools/soak_launch_mode_smoke_test.gd"
+LANE_GRAB_GATE="${ROOT_DIR}/scripts/dev/run_lane_grab_regression.sh"
 BETA_OPS_GATE="${ROOT_DIR}/scripts/dev/run_beta_ops_gate.sh"
 MATRIX_GATE="${ROOT_DIR}/scripts/dev/run_player_config_matrix_gate.sh"
 SOAK_GATE="${ROOT_DIR}/scripts/dev/run_soak_gate.sh"
@@ -35,8 +36,9 @@ Usage:
   scripts/dev/run_release_readiness_gate.sh [options]
 
 Default stages:
-  1. MVP smoke
-  2. Player config matrix gate, fast tier
+  1. Lane grab regression checks
+  2. MVP smoke
+  3. Player config matrix gate, fast tier
 
 Options:
   --matrix-gate <fast|pr|nightly>  Player config matrix tier.
@@ -201,6 +203,8 @@ run_stage() {
 }
 
 echo "RELEASE_READINESS_BEGIN matrix_gate=${MATRIX_GATE_TIER} matrix_seed=${MATRIX_SEED} matrix_seed_runs=${MATRIX_SEED_RUNS}"
+
+run_stage lane_grab_regression 650 bash "${LANE_GRAB_GATE}"
 
 if [[ "${RUN_MVP}" == "1" || "${RUN_MVP}" == "true" ]]; then
   run_stage mvp_smoke "${MVP_TIMEOUT_SECONDS}" "${MVP_GATE}"

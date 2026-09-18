@@ -29,7 +29,7 @@ This checklist names credentials only. Never copy their values into the reposito
 Other privileged server packages exist in the repository but are not declared as current Render services here:
 
 - `tools/scholastic-service`: `SCHOLASTIC_API_TOKEN` and `SCHOLASTIC_ADMIN_TOKEN` are required if that service is deployed. Its admin token falls back to the API token when no separate admin token is configured.
-- `tools/analytics`: `ADMIN_BOOTSTRAP_USERNAME` and `ADMIN_BOOTSTRAP_PASSWORD` create the dashboard/admin credential if that service is deployed. They must be overridden from repository defaults before a production deployment. `ADMIN_AUTH_REALM` is configuration, not a secret.
+- `tools/analytics`: `ADMIN_BOOTSTRAP_USERNAME` and `ADMIN_BOOTSTRAP_PASSWORD` create the dashboard/admin credential if that service is deployed. They have no repository defaults and must be supplied through an untracked local environment or managed secret store. `ADMIN_AUTH_REALM` is configuration, not a secret.
 
 The public Godot/TestFlight export must keep both `swarmfront/vs/backend_token` and `swarmfront/rank/backend_token` empty. In particular, `VS_MATCH_AUTHORITY_TOKEN` is never an `SF_VS_BACKEND_TOKEN` client value.
 

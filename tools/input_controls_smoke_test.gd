@@ -32,6 +32,7 @@ var _failed: bool = false
 
 func _initialize() -> void:
 	await process_frame
+	_test_enemy_inspection()
 	_test_tap_tap_enemy_lane_creation()
 	_test_tap_tap_friendly_feed_and_reverse()
 	_test_tap_tap_active_lane_reinstances_swarm()
@@ -123,7 +124,7 @@ func _make_harness(dst_owner_id: int) -> Dictionary:
 		"state": state
 	}
 
-func _tap_hive(input: Variant, api: Variant, hive_id: int, local_pos: Vector2) -> void:
+func _tap_hive(input: Variant, api: Variant, hive_id: int, local_pos: Vector2, touch: bool = true) -> void:
 	if input == null or api == null:
 		_expect_true(false, "tap harness should have input and api")
 		return
@@ -133,7 +134,7 @@ func _tap_hive(input: Variant, api: Variant, hive_id: int, local_pos: Vector2) -
 		"local_pos": local_pos,
 		"world_pos": local_pos,
 		"screen_pos": local_pos,
-		"is_touch": true,
+		"is_touch": touch,
 		"hive_id": hive_id,
 		"lane_id": -1
 	}, api)
@@ -143,7 +144,7 @@ func _tap_hive(input: Variant, api: Variant, hive_id: int, local_pos: Vector2) -
 		"local_pos": local_pos,
 		"world_pos": local_pos,
 		"screen_pos": local_pos,
-		"is_touch": true,
+		"is_touch": touch,
 		"hive_id": hive_id,
 		"lane_id": -1
 	}, api)
@@ -165,3 +166,26 @@ func _expect_eq(actual: Variant, expected: Variant, message: String) -> void:
 		return
 	_failed = true
 	push_error("INPUT_CONTROLS_SMOKE: %s actual=%s expected=%s" % [message, str(actual), str(expected)])
+
+func _test_enemy_inspection() -> void:
+	for touch in [true, false]:
+		var harness: Dictionary = _make_harness(2)
+		if _harness_missing(harness, "enemy inspection"):
+			return
+		var input: Variant = harness.input
+		var api: Variant = harness.api
+		var state: Variant = harness.state
+		_tap_hive(input, api, 2, Vector2(4, 0), touch)
+		_expect_eq(api.selected_hive_id, 2, "enemy should be inspectable by touch and mouse")
+		_expect_eq(input.selection.selected_hive_id, 2, "renderer focus should include enemy")
+		_expect_eq(input.selected_src_id, -1, "enemy inspection must never become command source")
+		_expect_true(not state.intent_is_on(1, 2) and not state.intent_is_on(2, 1), "inspection must emit no lane intent")
+		_expect_true(not input._should_route_hive_click_to_lane(-1, 2, 1, Vector2(4, 0), 1, api), "enemy core should win over overlapping lane")
+		_tap_hive(input, api, 2, Vector2(4, 0), touch)
+		_expect_eq(api.selected_hive_id, -1, "second enemy tap should dismiss inspection")
+		_tap_hive(input, api, 2, Vector2(4, 0), touch)
+		_tap_hive(input, api, 1, Vector2(0, 0), touch)
+		_expect_eq(input.selected_src_id, 1, "friendly tap after inspection selects owned command source")
+		_expect_true(not state.intent_is_on(2, 1), "inspection must not authorize enemy orders")
+		_tap_hive(input, api, 2, Vector2(4, 0), touch)
+		_expect_true(state.intent_is_on(1, 2), "friendly-to-enemy attack gesture should remain intact")

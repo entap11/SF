@@ -5,6 +5,7 @@
 class_name FloorRenderer
 extends Node2D
 
+const CombatReadability := preload("res://scripts/renderers/combat_readability.gd")
 const CosmeticThemeDB := preload("res://scripts/cosmetics/cosmetic_theme_db.gd")
 
 @export var floor_color: Color = Color(0.9, 0.9, 0.92)
@@ -15,6 +16,7 @@ const CosmeticThemeDB := preload("res://scripts/cosmetics/cosmetic_theme_db.gd")
 @export var origin_px: Vector2 = Vector2.ZERO
 
 var _size_px: Vector2 = Vector2.ZERO
+var _readability_veil: Polygon2D = null
 @onready var _base_floor: Sprite2D = $BaseFloor
 @onready var _overlay_floor: Sprite2D = $FloorOverlay
 
@@ -88,6 +90,18 @@ func _apply_floor_layout() -> void:
 	var visual_bounds: Rect2 = get_visual_floor_bounds_rect()
 	var size: Vector2 = visual_bounds.size
 	var center: Vector2 = visual_bounds.get_center()
+	# The influence shader writes COLOR directly, so a separate floor-only veil
+	# keeps its team information subtle without changing influence calculation.
+	if _readability_veil == null:
+		_readability_veil = Polygon2D.new()
+		_readability_veil.name = "ReadabilityVeil"
+		_readability_veil.z_index = maxi(_base_floor.z_index, _overlay_floor.z_index) + 1
+		add_child(_readability_veil)
+	_readability_veil.visible = CombatReadability.is_enabled()
+	_readability_veil.color = Color(0.018, 0.022, 0.034, 0.76)
+	_readability_veil.polygon = PackedVector2Array([visual_bounds.position,
+		visual_bounds.position + Vector2(size.x, 0), visual_bounds.end,
+		visual_bounds.position + Vector2(0, size.y)])
 	_base_floor.position = center
 	_overlay_floor.position = center
 	if floor_texture != null:

@@ -33,6 +33,9 @@ var _flush_timer: Timer = null
 var _perf_harness_isolation: bool = false
 
 func _ready() -> void:
+	if FileAccess.file_exists("user://account_deletion_receipt.json"):
+		_perf_harness_isolation = true
+		return
 	if TestBackendPolicyScript.automated_test_process() \
 	or (OS.is_debug_build() and OS.get_cmdline_user_args().has("--startup-hitch-diagnostic")):
 		_perf_harness_isolation = true
@@ -46,6 +49,8 @@ func _ready() -> void:
 	_sync_flush_timer()
 
 func start_session(launch_reason: String = "cold") -> void:
+	if _perf_harness_isolation:
+		return
 	_ensure_ids()
 	_session_id = _uuid_v4()
 	_save_state()
@@ -106,6 +111,14 @@ func queue_count() -> int:
 func get_queue_snapshot() -> Array[Dictionary]:
 	return _queue.duplicate(true)
 
+func stop_for_account_deletion() -> void:
+	_perf_harness_isolation = true
+	_queue.clear()
+	_install_id = ""
+	_session_id = ""
+	if _flush_timer != null:
+		_flush_timer.stop()
+
 func clear_queue_for_smoke() -> void:
 	if not OS.is_debug_build():
 		return
@@ -115,7 +128,7 @@ func clear_queue_for_smoke() -> void:
 	_sync_flush_timer()
 
 func flush() -> Dictionary:
-	if _perf_harness_isolation:
+	if _perf_harness_isolation or FileAccess.file_exists("user://account_deletion_receipt.json"):
 		return {"ok": false, "err": "perf_harness_isolated", "remaining": _queue.size()}
 	_load_queue()
 	if _queue.is_empty():

@@ -113,6 +113,12 @@ func _run() -> void:
 	_expect(typeof(host_events_any) == TYPE_ARRAY, "host poll events should be array", host_poll)
 	var host_events: Array = host_events_any as Array if typeof(host_events_any) == TYPE_ARRAY else []
 	_expect(_contains_command_from_uid(host_events, guest_uid, "lane_retract"), "host did not receive guest lane_retract", host_poll)
+	var rematch_session_id: String = _run_fresh_rematch_smoke(handshake, session_id, host_uid, guest_uid)
+	if _failed:
+		return
+	if not rematch_session_id.is_empty():
+		handshake.call("leave_session", rematch_session_id, guest_uid)
+		handshake.call("leave_session", rematch_session_id, host_uid)
 
 	var leave_guest: Dictionary = handshake.call("leave_session", session_id, guest_uid) as Dictionary
 	_expect(bool(leave_guest.get("ok", false)), "guest leave_session failed", leave_guest)
@@ -133,6 +139,34 @@ func _run() -> void:
 			"guest_events": guest_events.size(),
 			"host_events": host_events.size()
 		})
+
+func _run_fresh_rematch_smoke(handshake: Node, parent_session_id: String, host_uid: String, guest_uid: String) -> String:
+	var host_vote: Dictionary = handshake.call("request_fresh_rematch", parent_session_id, host_uid) as Dictionary
+	_expect(bool(host_vote.get("ok", false)), "host rematch vote failed", host_vote)
+	_expect(str(host_vote.get("status", "")) == "pending", "first rematch vote should wait", host_vote)
+	_expect(str(host_vote.get("session_id", "")).is_empty(), "first rematch vote created session early", host_vote)
+	if _failed:
+		return ""
+	var guest_vote: Dictionary = handshake.call("request_fresh_rematch", parent_session_id, guest_uid) as Dictionary
+	_expect(bool(guest_vote.get("ok", false)), "guest rematch vote failed", guest_vote)
+	_expect(str(guest_vote.get("status", "")) == "ready", "second rematch vote did not create child", guest_vote)
+	var child_session_id: String = str(guest_vote.get("session_id", ""))
+	var child_session: Dictionary = guest_vote.get("session", {}) as Dictionary
+	var child_context: Dictionary = child_session.get("context", {}) as Dictionary
+	_expect(not child_session_id.is_empty() and child_session_id != parent_session_id, "rematch did not use a fresh session id", guest_vote)
+	_expect(str(child_session.get("status", "")) == "started", "fresh rematch session did not start", guest_vote)
+	_expect(str(child_context.get("rematch_parent_session_id", "")) == parent_session_id, "fresh rematch parent missing", guest_vote)
+	_expect(int(child_context.get("rematch_index", 0)) == 1, "fresh rematch index mismatch", guest_vote)
+	var host_poll: Dictionary = handshake.call("request_fresh_rematch", parent_session_id, host_uid) as Dictionary
+	_expect(str(host_poll.get("session_id", "")) == child_session_id, "first voter did not receive the same child session", host_poll)
+	var child_events: Dictionary = handshake.call("poll_intents", child_session_id, host_uid, 0) as Dictionary
+	_expect(bool(child_events.get("ok", false)), "fresh rematch command stream unavailable", child_events)
+	_expect((child_events.get("events", []) as Array).is_empty(), "fresh rematch inherited parent commands", child_events)
+	var setup: Dictionary = handshake.call("resolve_runtime_setup_for_session", child_session) as Dictionary
+	_expect(bool(setup.get("ok", false)), "fresh rematch setup did not resolve", setup)
+	_expect(not (setup.get("stage_map_paths", []) as Array).is_empty(), "fresh rematch map selector returned no maps", setup)
+	_expect(typeof(setup.get("match_randomizer", {})) == TYPE_DICTIONARY, "fresh rematch randomizer missing", setup)
+	return child_session_id
 
 func _run_quick_match_smoke(handshake: Node, context: Dictionary, stamp: int) -> void:
 	var p1_uid: String = "smoke_quick_a_%d" % stamp

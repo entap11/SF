@@ -1050,7 +1050,7 @@ func _build_metrics(duration_s: float) -> Dictionary:
 	var players: Array[int] = _active_player_ids.duplicate()
 	players.sort()
 	var sorted_events: Array[Dictionary] = _sorted_events_by_time()
-	var reaction: Dictionary = _compute_reaction_metrics(players, sorted_events)
+	var reaction: Dictionary = _compute_reaction_metrics(players, sorted_events, int(round(duration_s * 1000.0)))
 	var early_window_s: float = minf(duration_s, float(EARLY_WINDOW_MS) / 1000.0)
 	var winner_player_id: int = int(_model.metadata.get("winner_player_id", 0))
 	var produced: Array = []
@@ -1298,6 +1298,7 @@ func _build_metrics(duration_s: float) -> Dictionary:
 		"lane_budget_utilization_ratio_vs_top_opponent_by_player": lane_budget_utilization_ratio_vs_top_opponent,
 		"fully_utilized_lane_time_ratio_vs_top_opponent_by_player": fully_utilized_lane_time_ratio_vs_top_opponent,
 		"underutilized_lane_time_ratio_vs_top_opponent_by_player": underutilized_lane_time_ratio_vs_top_opponent,
+		"reaction_observations": reaction,
 		"reaction_time_s_by_player": reaction_time_s,
 		"reaction_time_samples_by_player": reaction_samples,
 		"early_meaningful_actions_per_min_by_player": early_apm,
@@ -1417,65 +1418,86 @@ func _ratio_vs_top_opponent_array(values: Array) -> Array:
 			out.append(own_value / opponent_top)
 	return out
 
-func _compute_reaction_metrics(players: Array[int], sorted_events: Array[Dictionary]) -> Dictionary:
-	var response_events_by_player: Dictionary = {}
-	var overall_delays_by_player: Dictionary = {}
-	var early_delays_by_player: Dictionary = {}
-	var last_threat_ms_by_player: Dictionary = {}
-	for player_id in players:
-		response_events_by_player[player_id] = []
-		overall_delays_by_player[player_id] = []
-		early_delays_by_player[player_id] = []
-		last_threat_ms_by_player[player_id] = -999999999
-	for event in sorted_events:
-		if not _event_is_response_candidate(event):
+# Relevant response proxy, not gaze or intent. Keep unanswered/censored threats.
+func _compute_reaction_metrics(players: Array[int], sorted_events: Array[Dictionary], end_ms: int = -1) -> Dictionary:
+	var samples: Dictionary = {}
+	var early: Dictionary = {}
+	var unanswered: Dictionary = {}
+	var censored: Dictionary = {}
+	var unlocated: Dictionary = {}
+	var last_by_target: Dictionary = {}
+	var used_responses: Dictionary = {}
+	var responses_by_player: Dictionary = {}
+	for player in players:
+		samples[player] = []
+		early[player] = []
+		unanswered[player] = 0
+		censored[player] = 0
+		unlocated[player] = 0
+		responses_by_player[player] = []
+	for index in range(sorted_events.size()):
+		var response: Dictionary = sorted_events[index]
+		var player := int(response.get("p", 0))
+		if responses_by_player.has(player) and _event_is_response_candidate(response):
+			responses_by_player[player].append(index)
+	for threat in sorted_events:
+		var player := _event_threat_target_player_id(threat)
+		if not samples.has(player):
 			continue
-		var player_id: int = int(event.get("p", 0))
-		if player_id <= 0:
+		var target := int(threat.get("dst", threat.get("hive_id", -1)))
+		if target <= 0:
+			unlocated[player] = int(unlocated[player]) + 1
 			continue
-		var response_events: Array = response_events_by_player.get(player_id, []) as Array
-		response_events.append({
-			"t": int(event.get("t", 0)),
-			"e": int(event.get("e", 0))
-		})
-		response_events_by_player[player_id] = response_events
-	for event in sorted_events:
-		var threat_target_player_id: int = _event_threat_target_player_id(event)
-		if threat_target_player_id <= 0:
+		var at_ms := int(threat.get("t", 0))
+		var key := "%d:%d" % [player, target]
+		if at_ms - int(last_by_target.get(key, -99999999)) < REACTION_THREAT_COOLDOWN_MS:
 			continue
-		var threat_time_ms: int = int(event.get("t", 0))
-		var last_threat_ms: int = int(last_threat_ms_by_player.get(threat_target_player_id, -999999999))
-		if threat_time_ms - last_threat_ms < REACTION_THREAT_COOLDOWN_MS:
+		last_by_target[key] = at_ms
+		var response_delay := -1
+		for index in responses_by_player[player]:
+			var response: Dictionary = sorted_events[index]
+			var delay := int(response.get("t", 0)) - at_ms
+			if delay <= 0 or int(response.get("p", 0)) != player or used_responses.has(index):
+				continue
+			if delay > REACTION_RESPONSE_WINDOW_MS:
+				break
+			if _response_addresses_threat(response, threat, target):
+				response_delay = delay
+				used_responses[index] = true
+				break
+		if response_delay < 0:
+			if end_ms >= 0 and end_ms - at_ms < REACTION_RESPONSE_WINDOW_MS:
+				censored[player] = int(censored[player]) + 1
+			else:
+				unanswered[player] = int(unanswered[player]) + 1
 			continue
-		last_threat_ms_by_player[threat_target_player_id] = threat_time_ms
-		var delay_ms: int = _first_response_delay_ms(response_events_by_player.get(threat_target_player_id, []) as Array, threat_time_ms)
-		if delay_ms < 0:
-			continue
-		var delay_s: float = float(delay_ms) / 1000.0
-		var overall_delays: Array = overall_delays_by_player.get(threat_target_player_id, []) as Array
-		overall_delays.append(delay_s)
-		overall_delays_by_player[threat_target_player_id] = overall_delays
-		if threat_time_ms <= EARLY_WINDOW_MS:
-			var early_delays: Array = early_delays_by_player.get(threat_target_player_id, []) as Array
-			early_delays.append(delay_s)
-			early_delays_by_player[threat_target_player_id] = early_delays
-	var median_by_player: Dictionary = {}
-	var samples_by_player: Dictionary = {}
-	var early_median_by_player: Dictionary = {}
-	var early_samples_by_player: Dictionary = {}
-	for player_id in players:
-		var overall_values: Array = overall_delays_by_player.get(player_id, []) as Array
-		var early_values: Array = early_delays_by_player.get(player_id, []) as Array
-		median_by_player[player_id] = _median_float_array(overall_values)
-		samples_by_player[player_id] = overall_values.size()
-		early_median_by_player[player_id] = _median_float_array(early_values)
-		early_samples_by_player[player_id] = early_values.size()
-	return {
-		"median_by_player": median_by_player,
-		"samples_by_player": samples_by_player,
-		"early_median_by_player": early_median_by_player,
-		"early_samples_by_player": early_samples_by_player
-	}
+		var delay_s := float(response_delay) / 1000.0
+		samples[player].append(delay_s)
+		if at_ms <= EARLY_WINDOW_MS:
+			early[player].append(delay_s)
+	var result := {"version": 2, "median_by_player": {}, "samples_by_player": {},
+		"early_median_by_player": {}, "early_samples_by_player": {},
+		"unanswered_by_player": unanswered, "censored_by_player": censored,
+		"unlocated_by_player": unlocated, "delays_s_by_player": samples}
+	for player in players:
+		result["median_by_player"][player] = _median_float_array(samples[player])
+		result["samples_by_player"][player] = samples[player].size()
+		result["early_median_by_player"][player] = _median_float_array(early[player])
+		result["early_samples_by_player"][player] = early[player].size()
+	return result
+
+func _response_addresses_threat(response: Dictionary, threat: Dictionary, target: int) -> bool:
+	if not _event_is_response_candidate(response):
+		return false
+	var kind := str(response.get("k", ""))
+	var src := int(response.get("src", -1))
+	var dst := int(response.get("dst", -1))
+	if dst == target and ["lane_open_feed", "swarm_send"].has(kind):
+		return true
+	if src == target and ["lane_open_attack", "swarm_send", "lane_retract", "lane_disable", "lane_reverse"].has(kind):
+		return true
+	var attacker := int(threat.get("src", -1))
+	return attacker > 0 and dst == attacker and ["lane_open_attack", "swarm_send"].has(kind)
 
 func _event_is_response_candidate(event: Dictionary) -> bool:
 	var event_type: int = int(event.get("e", -1))
@@ -1497,28 +1519,32 @@ func _event_threat_target_player_id(event: Dictionary) -> int:
 		if kind == "swarm_send" or kind == "lane_open_attack":
 			var target_player_id: int = int(event.get("dst_owner", 0))
 			var source_player_id: int = int(event.get("p", 0))
-			if target_player_id > 0 and target_player_id != source_player_id:
+			if target_player_id > 0 and not _telemetry_players_allied(target_player_id, source_player_id):
 				return target_player_id
 	elif event_type == int(MatchTelemetryModelScript.EVENT_HIVE_DAMAGE):
 		var defender_player_id: int = int(event.get("def", 0))
 		var attacker_player_id: int = int(event.get("atk", 0))
-		if defender_player_id > 0 and defender_player_id != attacker_player_id:
+		if defender_player_id > 0 and not _telemetry_players_allied(defender_player_id, attacker_player_id):
 			return defender_player_id
 	return 0
 
-func _first_response_delay_ms(response_events: Array, threat_time_ms: int) -> int:
-	for response_any in response_events:
-		if typeof(response_any) != TYPE_DICTIONARY:
+func _telemetry_players_allied(a: int, b: int) -> bool:
+	if a <= 0 or b <= 0:
+		return false
+	var team_a := a
+	var team_b := b
+	for row in _model.metadata.get("players", []):
+		if typeof(row) != TYPE_DICTIONARY:
 			continue
-		var response_event: Dictionary = response_any as Dictionary
-		var response_time_ms: int = int(response_event.get("t", -1))
-		if response_time_ms <= threat_time_ms:
+		var seat := int(row.get("seat", 0))
+		var team := int(row.get("team_id", seat))
+		if team <= 0:
 			continue
-		var delay_ms: int = response_time_ms - threat_time_ms
-		if delay_ms <= REACTION_RESPONSE_WINDOW_MS:
-			return delay_ms
-		break
-	return -1
+		if seat == a:
+			team_a = team
+		if seat == b:
+			team_b = team
+	return team_a == team_b
 
 func _median_float_array(values: Array) -> float:
 	if values.is_empty():
