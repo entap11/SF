@@ -319,7 +319,7 @@ function platformFailure(res: Response, error: unknown): void {
     res.status(error.status).json({ ok: false, err: error.code });
     return;
   }
-  if (error instanceof PlayerTokenError) {
+  if (error instanceof PlayerTokenError || error instanceof IdentitySessionError) {
     identityFailure(res, error);
     return;
   }
