@@ -99,6 +99,7 @@ async function main(): Promise<void> {
       "admin_auth_required", "authenticated_1v1_slice_enabled", "build", "contest_rewards_enabled",
       "crucible_wax_settlement_enabled", "ctf_bot_fallback_enabled",
       "durable_public_1v1_enabled", "economy_mutations_enabled", "embedded_settlement_workers",
+      "economy_rollout_cutover_at", "economy_rollout_player_count", "economy_rollout_scope",
       "hctf_live_secrecy_certified",
       "match_authority_auth_required", "match_verification_enabled", "ok", "ops_reconcile_interval_ms",
       "platform_economy_delivery_enabled", "player_auth_configured",
@@ -109,7 +110,9 @@ async function main(): Promise<void> {
       "public_ctf_enabled", "public_gauntlet_enabled", "public_hctf_enabled", "public_leaderboards_enabled",
       "public_time_puzzles_enabled",
       "rank_mutations_enabled", "remote_ops_config_enabled", "service", "storage"
-    ]), "health disclosed unexpected fields", health);
+    ].sort()), "health disclosed unexpected fields", health);
+    expect(health.economy_rollout_cutover_at === null && health.economy_rollout_player_count === 0
+      && health.economy_rollout_scope === "OFF", "default economy rollout did not fail closed", health);
     expect(health.economy_mutations_enabled === false && health.admin_auth_required === true
       && health.match_authority_auth_required === true && health.authenticated_1v1_slice_enabled === false
       && health.match_verification_enabled === false && health.durable_public_1v1_enabled === false

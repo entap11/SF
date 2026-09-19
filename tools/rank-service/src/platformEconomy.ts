@@ -588,7 +588,7 @@ export class PlatformEconomyRepository {
         accountId: `reserve:award:${epochId}`, asset: "WAX_MILLIS",
         accountType: "AWARD_RESERVE", ownerId: "reserve:award"
       });
-      const players = await client.query<{ id: string }>("SELECT id::text AS id FROM rank_players ORDER BY id");
+      const players = await client.query<{ id: string }>("SELECT id::text AS id FROM rank_players WHERE account_status = 'active' ORDER BY id");
       for (const player of players.rows) {
         await this.ensurePlayerAccount(client, epochId, player.id, "HONEY_CENTI");
         await this.ensurePlayerAccount(client, epochId, player.id, "WAX_MILLIS");
@@ -893,7 +893,7 @@ export class PlatformEconomyRepository {
   }
 
   private async requirePlayer(client: PoolClient, playerId: string): Promise<void> {
-    const result = await client.query("SELECT 1 FROM rank_players WHERE id = $1::uuid", [playerId]);
+    const result = await client.query("SELECT 1 FROM rank_players WHERE id = $1::uuid AND account_status = 'active' FOR SHARE", [playerId]);
     if ((result.rowCount ?? 0) !== 1) throw new PlatformEconomyError("player_not_found", 404);
   }
 
@@ -938,6 +938,7 @@ export class PlatformEconomyRepository {
          SELECT id, row_number() OVER (ORDER BY wax_score DESC, id ASC)::int AS position,
            count(*) OVER ()::int AS total
          FROM rank_players
+         WHERE account_status = 'active'
        ), projected AS (
          SELECT id, position,
            CASE WHEN total <= 1 THEN 1.0
