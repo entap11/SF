@@ -2,6 +2,24 @@
 
 This is the current working list of major non-MVP projects and the recommended execution order that minimizes implementation friction.
 
+
+## Near-Term Project — Deterministic Replay Social Rendering
+
+Decision (2026-09-18): stop treating continuous match video recording as the default social-content source. Preserve compact authoritative replay truth, score matches after completion, and recreate/render only selected highlights.
+
+Reuse-first audit found that the major seams already exist:
+
+- VS durable match contracts and ordered command events
+- Match Authority deterministic double-replay verification
+- final state/command-log hashes
+- telemetry `video_replay` and `swing_moment_ms`
+- highlight scoring, replay links, social routing, and `deterministic_replay_render`
+- replay/spectator visualization components
+
+Canonical gameplay replay must come from the authoritative match contract + command stream + result, not sampled telemetry frames. Add lightweight periodic state-hash checkpoints, then render selected windows through the actual Arena scene. Intermediate replay renders are ephemeral; selected/published clips are the durable video artifacts.
+
+Weekend implementation plan: [Deterministic Replay → Social Render Plan](deterministic_replay_social_render_plan.md).
+
 ## Recommended Order
 
 ### 1. Gameplay Safety Rails
