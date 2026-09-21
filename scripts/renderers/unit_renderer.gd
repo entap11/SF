@@ -4168,7 +4168,7 @@ func _apply_swarm_absorb_visual(node: Node2D, unit_id: int, unit_data: Dictionar
 	if node == null:
 		return render_pos
 	var readability_alpha: float = _readability_unit_alpha(unit_data)
-	var readability_scale: float = 0.78 if CombatReadability.is_enabled() else 1.0
+	var readability_scale: float = CombatReadability.UNIT_SCALE if CombatReadability.is_enabled() else 1.0
 	node.scale = Vector2.ONE * readability_scale
 	node.modulate = Color(1.0, 1.0, 1.0, readability_alpha)
 	if not SWARM_ABSORB_VISUAL_ENABLED or unit_data.is_empty() or swarm_nodes_by_id.is_empty():

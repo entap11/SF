@@ -3,6 +3,14 @@ extends RefCounted
 
 const SETTING := "swarmfront/arena/combat_readability_enabled"
 
+# Presentation-only sizing: modest detail increase over the initial readability pass.
+const UNIT_SCALE: float = 0.78 * 1.225
+const HIVE_ART_SCALE: float = 0.86 * 1.15
+const LANE_WIDTH_MULTIPLIER: float = 1.15
+const UNRELATED_HIVE_ALPHA: float = 0.75
+const UNRELATED_UNIT_ALPHA: float = 0.60
+const UNRELATED_LANE_ALPHA_MULTIPLIER: float = 0.65
+
 static func is_enabled() -> bool:
 	return bool(ProjectSettings.get_setting(SETTING, false))
 
@@ -80,5 +88,14 @@ static func unit_alpha(unit: Dictionary, context: Dictionary) -> float:
 	var teams: Dictionary = context.get("teams", {})
 	var owner: int = int(unit.get("owner_id", 0))
 	if allied(owner_of(target), int(context.get("viewer", 1)), teams) and not allied(owner, owner_of(target), teams):
-		return 0.72
-	return 0.28
+		return 0.85
+	return UNRELATED_UNIT_ALPHA
+
+static func hive_alpha(hive_id: int, context: Dictionary) -> float:
+	if int(context.get("focus_hive", -1)) <= 0 and int(context.get("focus_lane", -1)) <= 0:
+		return 1.0
+	if hive_id == int(context.get("focus_hive", -1)):
+		return 1.0
+	if (context.get("connections", {}) as Dictionary).has(hive_id) or (context.get("available_targets", {}) as Dictionary).has(hive_id):
+		return 1.0
+	return UNRELATED_HIVE_ALPHA

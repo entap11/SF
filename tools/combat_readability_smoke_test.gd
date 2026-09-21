@@ -38,6 +38,12 @@ func _initialize() -> void:
 	_expect(context.focus_hive == -1, "removed hive focus must be cleared")
 	context = Readability.build_context(sample, -1, 1, teams)
 	_expect(context.connections.has(1) and context.connections.has(2), "lane grab must focus both endpoints")
+	_expect(Readability.hive_alpha(1, context) == 1.0, "existing lane endpoints remain fully visible")
+	_expect(Readability.hive_alpha(3, context) >= 0.7, "unrelated hives only fade subtly")
+	context["available_targets"] = {3: true}
+	_expect(Readability.hive_alpha(3, context) == 1.0, "available destinations stay opaque without an existing lane")
+	context = Readability.build_context(sample, -1, -1, teams)
+	_expect(Readability.hive_alpha(3, context) == 1.0, "clearing selection restores full hive opacity")
 	print("COMBAT_READABILITY_SMOKE: %s" % ("FAIL" if failed else "PASS"))
 	quit(1 if failed else 0)
 

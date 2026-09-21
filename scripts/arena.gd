@@ -201,7 +201,7 @@ const PREMATCH_FACTS_CARD_ENABLED: bool = false
 const ASYNC_PREMATCH_CARD_WIDTH_PX: float = 840.0
 const ASYNC_PREMATCH_CARD_HEIGHT_PX: float = 680.0
 const PREMATCH_AD_SIZE: Vector2 = Vector2(720.0, 90.0)
-const IN_GAME_AD_SIZE: Vector2 = Vector2(720.0, 90.0)
+const IN_GAME_AD_SIZE: Vector2 = Vector2(960.0, 150.0)
 # Keep the readable ticker below the persistent 225x110 Menu action.
 const IN_GAME_AD_TOP_MARGIN_PX: float = 142.0
 const IN_GAME_AD_MIN_WIDTH_PX: float = 560.0
@@ -364,6 +364,7 @@ var _prematch_ctf_title: Label = null
 var _prematch_ctf_body: Label = null
 var _prematch_ad_surface: Control = null
 var _in_game_ad_surface: Control = null
+var _bottom_match_ad_surface: Control = null
 var _ctf_move_button: Button = null
 var _controls_hint_controller: ArenaControlsHintController = ArenaControlsHintController.new()
 var _tutorial_controls_controller: ArenaTutorialControlsController = ArenaTutorialControlsController.new()
@@ -903,7 +904,7 @@ func _start_match_flow() -> void:
 			_controls_hint_controller.hide(false)
 	elif _is_jukebox_easy_bot_mode():
 		_apply_jukebox_easy_bot_profile()
-	elif _has_vs_cpu_bot_override():
+	elif _has_vs_cpu_bot_override() and not CampaignRuntime.is_active():
 		_apply_vs_cpu_bot_override()
 	elif _controls_hint_controller != null:
 		_controls_hint_controller.maybe_show_once(Callable(self, "_resolve_hud_root"), Callable(self, "_force_fullscreen_anchors"))
@@ -1124,7 +1125,11 @@ func _ensure_jukebox_back_button() -> void:
 		bottom_buffer.add_child(button)
 	if not button.pressed.is_connected(_on_jukebox_back_pressed):
 		button.pressed.connect(_on_jukebox_back_pressed)
-	button.visible = _is_jukebox_run()
+	button.text = "BACK TO CAMPAIGN" if CampaignRuntime.is_active() and CampaignRuntime.entry() == "campaign" else "BACK TO JUKEBOX"
+	if CampaignRuntime.is_active():
+		button.custom_minimum_size = Vector2(420.0, 132.0)
+		button.add_theme_font_size_override("font_size", 40)
+	button.visible = _is_jukebox_run() and get_node_or_null("/root/Shell") == null
 	_jukebox_back_button = button
 	var shell: Node = get_node_or_null("/root/Shell")
 	if shell != null and shell.has_method("_configure_shell_world_viewport_opening"):
@@ -1150,6 +1155,9 @@ func _on_jukebox_back_pressed() -> void:
 	_return_to_jukebox()
 
 func _return_to_jukebox() -> void:
+	if CampaignRuntime.is_active():
+		CampaignRuntime.request_return()
+		return
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return
@@ -1293,6 +1301,8 @@ func _ensure_post_match_ui() -> void:
 		})
 
 func _resolve_or_create_outcome_overlay() -> OutcomeOverlay:
+	if is_instance_valid(outcome_overlay):
+		return outcome_overlay
 	var existing: OutcomeOverlay = get_node_or_null(SHELL_OUTCOME_OVERLAY_PATH) as OutcomeOverlay
 	if existing != null:
 		return existing
@@ -3464,9 +3474,16 @@ func _ensure_in_game_ad_surface() -> void:
 			_in_game_ad_surface.name = "InGameHudAdSurface"
 			hud_root.add_child(_in_game_ad_surface)
 	if _in_game_ad_surface.has_method("configure"):
-		_in_game_ad_surface.call("configure", "in_game_hud", "in_game", IN_GAME_AD_SIZE, false)
+		_in_game_ad_surface.call("configure", "in_game_hud", "in_game", IN_GAME_AD_SIZE, true)
 	_in_game_ad_surface.z_as_relative = false
 	_in_game_ad_surface.z_index = IN_GAME_AD_HUD_Z_INDEX
+	if _bottom_match_ad_surface == null or not is_instance_valid(_bottom_match_ad_surface):
+		_bottom_match_ad_surface = AdSurfaceScript.new()
+		_bottom_match_ad_surface.name = "BottomMatchAdSurface"
+		hud_root.add_child(_bottom_match_ad_surface)
+		_bottom_match_ad_surface.call("configure", "in_game_footer", "in_game", IN_GAME_AD_SIZE, true)
+		_bottom_match_ad_surface.z_as_relative = false
+		_bottom_match_ad_surface.z_index = IN_GAME_AD_HUD_Z_INDEX
 	_layout_in_game_ad_surface()
 	_snap_power_bar_to_map_top("in_game_ad_surface_ready")
 	_startup_hitch_callback_completed("arena_deferred_in_game_ad", started_usec)
@@ -3478,8 +3495,15 @@ func _layout_in_game_ad_surface() -> void:
 	if shell != null and shell.has_method("get_match_hud_layout"):
 		var layout: Dictionary = shell.call("get_match_hud_layout")
 		var ad_rect: Rect2 = layout.ad
+		_in_game_ad_surface.custom_minimum_size = ad_rect.size
 		_in_game_ad_surface.position = ad_rect.position
 		_in_game_ad_surface.size = ad_rect.size
+		if is_instance_valid(_bottom_match_ad_surface):
+			var bottom_rect: Rect2 = layout.bottom_ad
+			_bottom_match_ad_surface.custom_minimum_size = bottom_rect.size
+			_bottom_match_ad_surface.position = bottom_rect.position
+			_bottom_match_ad_surface.size = bottom_rect.size
+			_bottom_match_ad_surface.call("set_placement_enabled", not bool(layout.buffs_allowed))
 		return
 	var vp: Viewport = get_viewport()
 	if vp == null:
@@ -6052,6 +6076,11 @@ func _should_play_post_match_song(_winner_id_in: int) -> bool:
 	return int(tree.get_meta("progressive_stage_index", 0)) <= 0
 
 func _match_end_deferred(winner_id_in: int, reason: String) -> void:
+	if CampaignRuntime.is_active():
+		_ensure_post_match_ui()
+		CampaignRuntime.retry_result_save()
+		outcome_overlay.show_campaign_outcome(CampaignRuntime.active_level(), CampaignRuntime.result(), CampaignRuntime.entry())
+		return
 	if _controls_hint_controller != null:
 		_controls_hint_controller.hide(false)
 	var tutorial_section1_ended: bool = _tutorial_section1_controller != null and _tutorial_section1_controller.is_active()
@@ -6108,6 +6137,8 @@ func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 	mark_render_dirty("match_end")
 
 func _maybe_record_jukebox_result(winner_id_in: int, reason: String) -> void:
+	if CampaignRuntime.is_active():
+		return
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return
@@ -6281,6 +6312,24 @@ func _resolve_stage_race_contest_map_id(tree: SceneTree) -> String:
 	return MapRegistry.map_id_from_path(map_path)
 
 func _on_post_match_action(action: String) -> void:
+	if CampaignRuntime.is_active():
+		if _post_match_action_taken:
+			return
+		var level: Dictionary = CampaignRuntime.active_level()
+		var result: Dictionary = CampaignRuntime.result()
+		if action == "campaign_save":
+			CampaignRuntime.retry_result_save()
+			outcome_overlay.show_campaign_outcome(level, CampaignRuntime.result(), CampaignRuntime.entry())
+		elif action == "campaign_next" or action == "campaign_retry":
+			var target: String = str(result.get("next_id", "")) if action == "campaign_next" else str(level.id)
+			var response: Dictionary = CampaignRuntime.request_launch(target, CampaignRuntime.entry())
+			_post_match_action_taken = bool(response.get("ok", false))
+			if not _post_match_action_taken:
+				outcome_overlay.show_campaign_outcome(level, result, CampaignRuntime.entry())
+		elif action == "main_menu" or action == "campaign_back":
+			_post_match_action_taken = true
+			CampaignRuntime.request_return()
+		return
 	if action == "rematch_vote" and not _is_async_stage_run_runtime_mode() and not _is_progressive_runtime_mode():
 		var voter_id: int = active_player_id
 		if voter_id != 1 and voter_id != 2:
@@ -7797,6 +7846,9 @@ func _create_system(script_path: String, label: String) -> RefCounted:
 	return instance
 
 func _exit_tree() -> void:
+	# OutcomeOverlay moves to the root canvas while visible; retain scene lifetime.
+	if is_instance_valid(outcome_overlay) and not is_ancestor_of(outcome_overlay):
+		outcome_overlay.queue_free()
 	clear_buff_hive_targeting(-1, "arena_scene_exit")
 	clear_buff_lane_global_targeting(-1, "arena_scene_exit")
 	if buff_canonical_feedback_controller != null:
@@ -10743,6 +10795,8 @@ func _init_buff_states() -> void:
 		buff_states[pid] = buff_state
 
 func _default_buff_loadout(pid: int = -1) -> Array:
+	if CampaignRuntime.is_active():
+		return []
 	var resolved_pid: int = pid
 	if resolved_pid <= 0:
 		resolved_pid = int(active_player_id)
@@ -11923,17 +11977,20 @@ func _buff_flag(pid: int, key: String) -> bool:
 func _lane_insight_active(pid: int) -> bool:
 	return _buff_flag(pid, "lane_insight")
 
+func are_match_buffs_allowed() -> bool:
+	return bool(buffs_enabled) and not _is_crucible_match() and not CampaignRuntime.is_active()
+
 func get_buff_ui_snapshot() -> Dictionary:
 	var now_ms: int = int(_authoritative_sim_time_us() / 1000)
 	var snapshot: Dictionary = {
-		"buffs_enabled": bool(buffs_enabled) and not _is_crucible_match(),
+		"buffs_enabled": are_match_buffs_allowed(),
 		"active_player_id": int(active_player_id),
 		"inventory_revision": _buff_inventory_revision(),
 		"overtime_active": bool(overtime_active),
 		"sim_time_ms": now_ms,
 		"players": {}
 	}
-	if not buffs_enabled or _is_crucible_match():
+	if not are_match_buffs_allowed():
 		return snapshot
 	if buff_states.is_empty():
 		_init_buff_states()

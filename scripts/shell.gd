@@ -87,10 +87,10 @@ const BUFF_OPP_STRIP_MAX_HEIGHT_PX: float = 72.0
 const BUFF_OPP_SLOT_MIN_PX: float = 30.0
 const BUFF_OPP_SLOT_MAX_PX: float = 72.0
 const BUFF_OPP_ROW_SIDE_PAD_PX: float = 8.0
-const BUFF_PLAYER_STRIP_WIDTH_PX: float = 420.0
-const BUFF_PLAYER_STRIP_HEIGHT_PX: float = 120.0
-const BUFF_PLAYER_STRIP_LIFT_PX: float = 45.0
-const BUFF_PLAYER_SLOT_SIZE_PX: float = 84.0
+const BUFF_PLAYER_STRIP_WIDTH_PX: float = 624.0
+const BUFF_PLAYER_STRIP_HEIGHT_PX: float = 200.0
+const BUFF_PLAYER_STRIP_LIFT_PX: float = 0.0
+const BUFF_PLAYER_SLOT_SIZE_PX: float = 192.0
 const BUFF_PLAYER_SLOT_SEPARATION_PX: int = 24
 const PREMATCH_POWERBAR_REVEAL_WINDOW_MS: int = 350
 const SHELL_ASYNC_PREMATCH_CARD_WIDTH_PX: float = 840.0
@@ -268,7 +268,11 @@ func _enter_tree() -> void:
 	if TRACE_SHELL_LOGS:
 		push_warning("SHELL_ENTER_TREE_PROOF " + SHELL_PATCH_REV + " path=" + str(get_path()))
 
+var _prior_quit_on_go_back := true
+
 func _ready() -> void:
+	_prior_quit_on_go_back = get_tree().quit_on_go_back
+	get_tree().quit_on_go_back = false
 	_install_error_hooks()
 	_shell_ready_count += 1
 	if TRACE_SHELL_LOGS: print("SHELL_LIFECYCLE ready #", _shell_ready_count, " iid=", _iid(self), " path=", _np(self))
@@ -864,6 +868,7 @@ func _resolve_dev_map_loader_node() -> Node:
 	return _dev_loader
 
 func _exit_tree() -> void:
+	get_tree().quit_on_go_back = _prior_quit_on_go_back
 	_finish_startup_hitch_diagnostic("shell_exit")
 	cancel_buff_pointer_session("shell_scene_exit")
 	_shell_exit_count += 1
@@ -921,13 +926,25 @@ func _position_back_button() -> void:
 	var menu_rect: Rect2 = get_match_hud_layout().menu
 	back_button.set_anchors_preset(Control.PRESET_TOP_LEFT)
 	back_button.position = menu_rect.position
+	back_button.custom_minimum_size = menu_rect.size
 	back_button.size = menu_rect.size
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color("192331")
+	style.border_color = Color("d9b95d")
+	style.set_border_width_all(2)
+	style.set_corner_radius_all(16)
+	back_button.add_theme_stylebox_override("normal", style)
+	back_button.add_theme_stylebox_override("hover", style)
+	back_button.add_theme_stylebox_override("pressed", style)
+	back_button.tooltip_text = "Match menu"
+
 
 func _refresh_back_button_state(in_menu: bool) -> void:
 	if back_button == null:
 		return
 	back_button.visible = not in_menu
 	back_button.text = "MENU"
+	back_button.add_theme_font_size_override("font_size", 44)
 
 func _on_select_map_pressed() -> void:
 	SFLog.info("MAP_PICKER_OPEN", {})
@@ -1666,14 +1683,9 @@ func _hide_match_loading_cover() -> void:
 func get_match_hud_layout() -> Dictionary:
 	var viewport: Viewport = get_viewport()
 	var safe: Rect2 = MatchHudLayout.safe_rect_for_viewport(viewport)
-	var footer_top: float = INF
-	for control in [_player_buff_strip, _opponent_buff_strip, _opponent_buff_strip_b, _ally_buff_strip]:
-		if control != null and control.visible:
-			footer_top = minf(footer_top, control.get_global_rect().position.y)
-	var jukebox_button: Control = get_node_or_null(SHELL_BOTTOM_BUFFER_PATH + "/JukeboxBackButton") as Control
-	if jukebox_button != null and jukebox_button.visible:
-		footer_top = minf(footer_top, jukebox_button.get_global_rect().position.y)
-	return MatchHudLayout.resolve(viewport.get_visible_rect().size, safe, footer_top)
+	var arena_node: Node = _resolve_runtime_arena_node()
+	var allowed := _buff_targeting_runtime_enabled() and arena_node != null and arena_node.has_method("are_match_buffs_allowed") and bool(arena_node.call("are_match_buffs_allowed"))
+	return MatchHudLayout.resolve(viewport.get_visible_rect().size, safe, INF, allowed)
 
 func _configure_shell_world_viewport_opening() -> void:
 	if _arena_instance == null:
@@ -1681,12 +1693,18 @@ func _configure_shell_world_viewport_opening() -> void:
 	var world_fit: Node = _arena_instance.get_node_or_null("WorldCanvasLayer/WorldViewportContainer")
 	if world_fit == null:
 		return
-	var safe: Rect2 = MatchHudLayout.safe_rect_for_viewport(get_viewport())
-	var jukebox_button: Control = get_node_or_null(SHELL_BOTTOM_BUFFER_PATH + "/JukeboxBackButton") as Control
-	if jukebox_button != null and jukebox_button.visible:
-		_set_control_global_rect(jukebox_button, Rect2(Vector2(safe.get_center().x - 98.0, safe.end.y - 60.0), Vector2(196.0, 44.0)))
 	var layout: Dictionary = get_match_hud_layout()
 	_position_back_button()
+	var bottom_buffer: Control = get_node_or_null(SHELL_BOTTOM_BUFFER_PATH) as Control
+	if bottom_buffer != null:
+		_set_control_global_rect(bottom_buffer, Rect2(Vector2(0, layout.footer.position.y), Vector2(get_viewport().get_visible_rect().size.x, get_viewport().get_visible_rect().size.y - layout.footer.position.y)))
+	if bool(layout.buffs_allowed):
+		_layout_player_strip_inside_bottom_buffer()
+		_layout_side_strips_inside_bottom_buffer()
+		_layout_teammate_strip_left_of_player_slots()
+	var arena_for_ads: Node = _resolve_runtime_arena_node()
+	if arena_for_ads != null and arena_for_ads.has_method("_layout_in_game_ad_surface"):
+		arena_for_ads.call_deferred("_layout_in_game_ad_surface")
 	var top_buffer: Control = get_node_or_null(SHELL_TOP_BUFFER_PATH) as Control
 	if top_buffer != null:
 		top_buffer.offset_bottom = float(layout.top_inset)
@@ -1740,8 +1758,62 @@ func _start_game() -> void:
 	_enter_game()
 
 
+var _match_menu_layer: CanvasLayer
+var _match_menu_panel: Control
+
+func _open_match_menu() -> void:
+	if is_instance_valid(_match_menu_panel):
+		return
+	cancel_buff_pointer_session("match_menu")
+	var policy = preload("res://scripts/state/match_exit_intent.gd")
+	var data: Dictionary = policy.context(get_tree())
+	_match_menu_layer = CanvasLayer.new()
+	_match_menu_layer.layer = 1001
+	add_child(_match_menu_layer)
+	_match_menu_panel = preload("res://scripts/ui/match_menu_panel.gd").new()
+	_match_menu_panel.set("warning_text", policy.warning(data))
+	_match_menu_panel.set("finished", bool(data.finished))
+	_match_menu_layer.add_child(_match_menu_panel)
+	_match_menu_panel.connect("closed", _close_match_menu)
+	_match_menu_panel.connect("leave_requested", _confirm_match_exit)
+
+func _close_match_menu() -> void:
+	if is_instance_valid(_match_menu_layer):
+		_match_menu_layer.queue_free()
+	_match_menu_panel = null
+	_match_menu_layer = null
+
+func _confirm_match_exit() -> void:
+	var policy = preload("res://scripts/state/match_exit_intent.gd")
+	var result: Dictionary = policy.request_leave(policy.context(get_tree()), get_node("/root/VsHandshake"), get_node("/root/CrucibleState"))
+	if not bool(result.get("ok", false)):
+		_match_menu_panel.call("show_failure")
+		return
+	_close_match_menu()
+	if CampaignRuntime.is_active():
+		CampaignRuntime.request_return()
+	else:
+		_open_main_menu()
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_GO_BACK_REQUEST and is_node_ready():
+		if is_instance_valid(_match_menu_panel):
+			_close_match_menu()
+		elif _arena_instance != null:
+			_open_match_menu()
+		else:
+			_open_main_menu()
+
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed("ui_cancel") and _arena_instance != null:
+		if is_instance_valid(_match_menu_panel):
+			_close_match_menu()
+		else:
+			_open_match_menu()
+		get_viewport().set_input_as_handled()
+
 func _on_back_pressed() -> void:
-	_stop_game()
+	_open_match_menu()
 
 func _stop_game() -> void:
 	cancel_buff_pointer_session("arena_scene_exit")
@@ -2510,12 +2582,13 @@ func _layout_player_strip_inside_bottom_buffer() -> void:
 	var parent_rect: Rect2 = _bottom_buffer_layout_rect(bottom_buffer)
 	if parent_rect.size.x <= 1.0 or parent_rect.size.y <= 1.0:
 		return
-	var max_width: float = maxf(220.0, parent_rect.size.x - (BUFF_SIDE_STRIP_MARGIN_PX * 2.0))
+	var has_side_status: bool = (_opponent_buff_strip != null and _opponent_buff_strip.visible) or (_ally_buff_strip != null and _ally_buff_strip.visible)
+	var max_width: float = parent_rect.size.x * 0.62 if has_side_status else parent_rect.size.x - 32.0
 	var target_width: float = minf(BUFF_PLAYER_STRIP_WIDTH_PX, max_width)
-	var target_height: float = minf(BUFF_PLAYER_STRIP_HEIGHT_PX, maxf(96.0, parent_rect.size.y - (BUFF_SIDE_STRIP_MARGIN_PX * 2.0)))
-	var target_pos: Vector2 = Vector2(
-		parent_rect.end.x - target_width - BUFF_SIDE_STRIP_MARGIN_PX,
-		parent_rect.end.y - target_height - BUFF_SIDE_STRIP_MARGIN_PX - BUFF_PLAYER_STRIP_LIFT_PX
+	var target_height: float = BUFF_PLAYER_STRIP_HEIGHT_PX
+	var target_pos := Vector2(
+		parent_rect.end.x - target_width - 16.0 if has_side_status else parent_rect.get_center().x - target_width * 0.5,
+		parent_rect.get_center().y - target_height * 0.5
 	)
 	_set_control_global_rect(player_strip, Rect2(target_pos, Vector2(target_width, target_height)))
 	player_strip.z_as_relative = false
@@ -2530,11 +2603,17 @@ func _compact_player_strip(player_strip: Control) -> void:
 		slots_row.add_theme_constant_override("separation", BUFF_PLAYER_SLOT_SEPARATION_PX)
 		slots_row.custom_minimum_size = Vector2(0.0, BUFF_PLAYER_SLOT_SIZE_PX)
 		slots_row.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		slots_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	for idx in [1, 2, 3]:
 		var slot: Panel = player_strip.get_node_or_null("Center/SlotsRow/BuffSlot%d" % idx) as Panel
 		if slot == null:
 			continue
-		slot.custom_minimum_size = Vector2(BUFF_PLAYER_SLOT_SIZE_PX, BUFF_PLAYER_SLOT_SIZE_PX)
+		var slot_width: float = minf(BUFF_PLAYER_SLOT_SIZE_PX, (player_strip.size.x - BUFF_PLAYER_SLOT_SEPARATION_PX * 2) / 3.0)
+		slot.custom_minimum_size = Vector2(slot_width, BUFF_PLAYER_SLOT_SIZE_PX)
+		for label_name in ["Name", "Meta", "State"]:
+			var label: Label = slot.get_node_or_null("SlotText/" + label_name) as Label
+			if label != null:
+				label.add_theme_font_size_override("font_size", 32 if label_name == "Name" else 26)
 		slot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 
 func _layout_side_strips_inside_bottom_buffer() -> void:
@@ -2683,7 +2762,7 @@ func _layout_teammate_strip_left_of_player_slots() -> void:
 		slots_rect.position.x - target_size.x - gap_px,
 		slots_rect.position.y + slots_rect.size.y - target_size.y
 	)
-	var min_x: float = maxf(parent_rect.position.x + 8.0, parent_rect.position.x + parent_rect.size.x * 0.5 + 8.0)
+	var min_x: float = parent_rect.position.x + 12.0
 	target_pos.x = clampf(target_pos.x, min_x, parent_rect.end.x - target_size.x - 8.0)
 	target_pos.y = clampf(target_pos.y, parent_rect.position.y + 8.0, parent_rect.end.y - target_size.y - 8.0)
 	_set_control_global_rect(ally_strip, Rect2(target_pos, target_size))
@@ -2757,14 +2836,7 @@ func _split_relative_seats(active_pid: int, players: Dictionary, active_seats: A
 			continue
 		candidate_lookup[seat] = true
 		candidates.append(seat)
-	for key_any in players.keys():
-		var seat: int = int(key_any)
-		if seat < 1 or seat > 4 or seat == active_pid:
-			continue
-		if candidate_lookup.has(seat):
-			continue
-		candidate_lookup[seat] = true
-		candidates.append(seat)
+	# Configured reserve seats are not participants; use the canonical HUD roster.
 	var allies: Array = []
 	var opponents: Array = []
 	if _team_mode_ui == "2v2":

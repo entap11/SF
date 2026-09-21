@@ -46,9 +46,15 @@ func _run() -> void:
 	var match_file := FileAccess.open("user://matches/nested/private.json", FileAccess.WRITE)
 	match_file.store_string("{}")
 	match_file.close()
+	for path in ["user://campaign_progress_v1.json", "user://campaign_progress_v1.json.tmp"]:
+		var campaign_file := FileAccess.open(path, FileAccess.WRITE)
+		campaign_file.store_string("{}")
+		campaign_file.close()
 	var failures: Array = runtime.call("_clear_local_files") as Array
 	_expect(failures.is_empty(), "local cleanup succeeds")
 	_expect(not FileAccess.file_exists("user://profile.cfg"), "profile is removed")
+	_expect(not FileAccess.file_exists("user://campaign_progress_v1.json"), "campaign history is removed")
+	_expect(not FileAccess.file_exists("user://campaign_progress_v1.json.tmp"), "pending campaign save is removed")
 	_expect(not DirAccess.dir_exists_absolute("user://matches"), "nested match records are removed")
 	_expect(FileAccess.file_exists("user://unrelated-test.txt"), "cleanup is limited to account-owned paths")
 	# A malformed/mismatched server reply must never erase a local account.

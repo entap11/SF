@@ -12,7 +12,8 @@ const LOCAL_FILES: Array[String] = [
 	"economy_buff_state.json", "crucible_state.json", "hive_clan_state.json", "scholastic_state.json",
 	"moderation_state.json", "contest_entries.json", "contest_leaderboards_v1.json",
 	"public_contest_pending_evidence_v1.json", "match_records_v1.json", "progressive_run_v1.json",
-	"jukebox_leaderboard_v1.json", "player_telemetry_profiles_v1.json", "analytics_queue_v1.jsonl",
+	"jukebox_leaderboard_v1.json", "campaign_progress_v1.json", "campaign_progress_v1.json.tmp",
+	"player_telemetry_profiles_v1.json", "analytics_queue_v1.jsonl",
 	"analytics_state_v1.json", "bot_intent_telemetry_v1.jsonl", "bot_intent_summary_v1.json",
 	"vs_handshake_diagnostics.jsonl", "vs_contract_violations.jsonl"
 ]

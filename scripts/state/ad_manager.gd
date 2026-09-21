@@ -26,6 +26,8 @@ var _slots: Dictionary = {}
 var _measurement_events: Array[Dictionary] = []
 var _event_sequence: int = 0
 var _provider_is_dev_test: bool = false
+var _saved_match_ads: Array[Dictionary] = []
+var _saved_ads_match_key := ""
 
 class DevBiodynamicTestProvider:
 	extends RefCounted
@@ -220,8 +222,51 @@ func record_tap(slot_id: String, context: Dictionary = {}) -> Dictionary:
 	record["last_tap_event_id"] = str(measurement.get("event_id", ""))
 	_slots[clean_slot] = record
 	_emit_ad_event("tap", record)
+	if str(record.get("placement", "")) == PLACEMENT_IN_GAME and _match_is_unfinished():
+		var match_key: String = _current_match_key()
+		if _saved_ads_match_key != match_key:
+			_saved_match_ads.clear()
+			_saved_ads_match_key = match_key
+		var creative_id: String = JSON.stringify(record.get("creative", {}))
+		var already_saved := false
+		for item in _saved_match_ads:
+			if str(item.get("creative_id", "")) == creative_id:
+				already_saved = true
+		if not already_saved:
+			_saved_match_ads.append({"record": record.duplicate(true), "event": measurement.duplicate(true), "creative_id": creative_id})
+		return {"ok": true, "saved": true, "open": {"opened": false, "reason": "saved_until_match_end"}}
 	var open_result: Dictionary = _open_provider_ad(record, measurement)
 	return {"ok": true, "slot": record.duplicate(true), "event": measurement, "open": open_result}
+
+func _current_match_key() -> String:
+	var ops: Node = get_node_or_null("/root/OpsState")
+	var profile: Node = get_node_or_null("/root/ProfileManager")
+	var uid: String = str(profile.call("get_user_id")) if profile != null and profile.has_method("get_user_id") else ""
+	return "%s:%s:%s" % [uid, str(get_tree().get_meta("vs_handshake_session_id", "local")), str(ops.call("get_state_iid")) if ops != null else ""]
+
+func _match_is_unfinished() -> bool:
+	var ops: Node = get_node_or_null("/root/OpsState")
+	return ops != null and int(ops.get("match_phase")) < 2 and int(ops.get("match_phase")) > 0
+
+func saved_match_ads() -> Array[Dictionary]:
+	if _saved_match_ads.is_empty():
+		return []
+	if _saved_ads_match_key != _current_match_key():
+		return []
+	var rows: Array[Dictionary] = []
+	for item in _saved_match_ads:
+		var creative: Dictionary = item.record.get("creative", {})
+		rows.append({"title": str(creative.get("title", "Saved ad"))})
+	return rows
+
+func open_saved_match_ad(index: int) -> Dictionary:
+	if _match_is_unfinished():
+		return {"ok": false, "reason": "match_still_running"}
+	if index < 0 or index >= saved_match_ads().size():
+		return {"ok": false, "reason": "saved_ad_not_found"}
+	var item: Dictionary = _saved_match_ads[index]
+	# Open the exact saved creative; do not count a second ad tap or open a newer fill.
+	return _open_provider_ad(item.record, item.event)
 
 func record_conversion(slot_id: String, attribution: Dictionary = {}) -> Dictionary:
 	var clean_slot: String = slot_id.strip_edges()

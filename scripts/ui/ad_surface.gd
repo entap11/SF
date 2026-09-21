@@ -20,6 +20,7 @@ var slot_id: String = ""
 var placement: String = ""
 var reserved_size: Vector2 = Vector2(320.0, 50.0)
 var reserve_when_empty: bool = false
+var placement_enabled := true
 var ticker_items: Array[String] = []
 
 var _label: Label = null
@@ -52,6 +53,12 @@ func configure(slot_id_in: String, placement_in: String, size_in: Vector2, reser
 	_refresh_policy_snapshot()
 	_sync_empty_state()
 	request_ad()
+
+func set_placement_enabled(enabled: bool) -> void:
+	if placement_enabled == enabled:
+		return
+	placement_enabled = enabled
+	_sync_empty_state()
 
 func set_ad_available(available: bool) -> void:
 	_refresh_policy_snapshot()
@@ -127,7 +134,7 @@ func _sync_empty_state() -> void:
 	var policy_allows_ads: bool = _ads_allowed_by_policy()
 	var show_internal_ticker: bool = _should_show_internal_ticker()
 	var show_placeholder: bool = policy_allows_ads and _placeholders_enabled()
-	visible = show_internal_ticker or (policy_allows_ads and (_ad_available or reserve_when_empty or show_placeholder))
+	visible = placement_enabled and (show_internal_ticker or (policy_allows_ads and (_ad_available or reserve_when_empty or show_placeholder)))
 	modulate.a = 1.0 if (_ad_available or show_placeholder or show_internal_ticker) else 0.0
 	set_meta("ad_surface_content_mode", _current_content_mode())
 	mouse_filter = Control.MOUSE_FILTER_STOP if _ad_available and _current_content_mode() == CONTENT_MODE_AD else Control.MOUSE_FILTER_IGNORE
@@ -284,7 +291,13 @@ func _gui_input(event: InputEvent) -> void:
 		return
 	var manager: Node = _ad_manager()
 	if manager != null and manager.has_method("record_tap"):
-		manager.call("record_tap", slot_id, _surface_measurement_context("tap"))
+		var result: Dictionary = manager.call("record_tap", slot_id, _surface_measurement_context("tap"))
+		if bool(result.get("saved", false)):
+			_label.text = "LINK SAVED · OPEN AFTER THE MATCH"
+			_label.visible = true
+			if _creative_texture_rect != null:
+				_creative_texture_rect.visible = false
+			get_tree().create_timer(2.0).timeout.connect(_sync_empty_state, CONNECT_ONE_SHOT)
 	accept_event()
 
 func _ad_manager() -> Node:
@@ -423,7 +436,7 @@ func _apply_surface_style(internal_ticker: bool) -> void:
 		if _label != null:
 			_label.add_theme_color_override("font_color", Color(1.0, 0.93, 0.62, 0.96))
 	else:
-		style.bg_color = Color(0.02, 0.025, 0.03, 0.72)
+		style.bg_color = Color.WHITE if _ad_available and not _filled_ad_image_path().is_empty() else Color(0.02, 0.025, 0.03, 0.72)
 		style.border_color = Color(0.8, 0.86, 0.95, 0.35)
 		if _label != null:
 			_label.add_theme_color_override("font_color", Color(0.88, 0.90, 0.96, 0.82))

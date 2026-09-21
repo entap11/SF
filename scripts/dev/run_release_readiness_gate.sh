@@ -204,6 +204,8 @@ run_stage() {
 
 echo "RELEASE_READINESS_BEGIN matrix_gate=${MATRIX_GATE_TIER} matrix_seed=${MATRIX_SEED} matrix_seed_runs=${MATRIX_SEED_RUNS}"
 
+run_stage campaign_fingerprints 30 python3 "${ROOT_DIR}/tools/refresh_campaign_fingerprints.py" --check
+
 run_stage lane_grab_regression 650 bash "${LANE_GRAB_GATE}"
 
 if [[ "${RUN_MVP}" == "1" || "${RUN_MVP}" == "true" ]]; then

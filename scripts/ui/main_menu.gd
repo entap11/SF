@@ -396,6 +396,7 @@ var _battle_pass_panel: Control = null
 var _rank_panel: Control = null
 var _rank_context_panel: Panel = null
 var _jukebox_panel: Panel = null
+var _challenge_hub: Panel = null
 var _dash_hex_jukebox: HexButton = null
 var _async_contest_dash_panel: Panel = null
 var _dash_hex_async_contest: HexButton = null
@@ -1338,6 +1339,7 @@ const STORE_SKUS := [
 ]
 
 func _ready() -> void:
+	CampaignRuntime.finish_session()
 	if _maybe_route_headless_shell_smoke():
 		return
 	set_process(true)
@@ -1358,6 +1360,7 @@ func _ready() -> void:
 	_ensure_async_stage_contest_section()
 	_ensure_payout_proof_button()
 	_wire_buttons()
+	_ensure_campaign_navigation()
 	if not get_viewport().size_changed.is_connected(_apply_bottom_nav_layout):
 		get_viewport().size_changed.connect(_apply_bottom_nav_layout)
 	if not get_viewport().size_changed.is_connected(_apply_background_art_direction):
@@ -1384,6 +1387,7 @@ func _ready() -> void:
 	_apply_performance_pref_from_profile()
 	call_deferred("_init_dash_state")
 	call_deferred("_finish_noncritical_menu_boot")
+	call_deferred("_apply_campaign_return")
 	call_deferred("_apply_pending_jukebox_reopen_request")
 	call_deferred("_apply_pending_stage_leaderboard_request")
 	_apply_player_profile(_player_profile)
@@ -1695,6 +1699,8 @@ func _sync_main_art_shroud() -> void:
 		platform_dimmer.visible = should_shroud
 
 func _has_open_main_menu_surface() -> bool:
+	if is_instance_valid(_challenge_hub) and _challenge_hub.visible:
+		return true
 	if onboarding_overlay != null and onboarding_overlay.visible:
 		return true
 	if dash_panel != null and dash_panel.visible:
@@ -1773,6 +1779,10 @@ func _input(event: InputEvent) -> void:
 			_finish_buff_drag(touch.position)
 
 func _unhandled_input(event: InputEvent) -> void:
+	if is_instance_valid(_challenge_hub) and event.is_action_pressed("ui_cancel"):
+		_close_challenge_hub()
+		get_viewport().set_input_as_handled()
+		return
 	if dash_settings_panel == null or not dash_settings_panel.visible:
 		return
 	if not event.is_action_pressed("ui_cancel"):
@@ -2861,7 +2871,7 @@ func _wire_buttons() -> void:
 	menu_free_roll_button.pressed.connect(_open_free_roll_split)
 	menu_cash_button.pressed.connect(_open_cash_split)
 	menu_battle_pass_button.pressed.connect(_on_battle_pass_pressed)
-	menu_jukebox_button.pressed.connect(_open_jukebox_from_menu_button)
+	menu_jukebox_button.pressed.connect(_open_campaign)
 	if menu_unused_button != null:
 		menu_unused_button.pressed.connect(_open_tournament_panel)
 	hive_button.pressed.connect(_toggle_hive_dropdown)
@@ -16548,26 +16558,76 @@ func _ensure_async_contest_dash_panel() -> void:
 		_set_hex_buttons()
 
 func _open_jukebox_panel() -> void:
-	if _jukebox_panel == null:
-		_ensure_jukebox_panel()
-	if _jukebox_panel == null:
-		return
-	_play_mm_base_drop_sfx()
-	_close_top_level_windows(UI_SURFACE_DASH)
-	_jukebox_direct_mode = true
-	_hide_dash_panels()
-	_set_dash_chrome_visible(false)
-	_set_dash_panel_store_passthrough(false)
-	_set_dash_offsets(0.0)
-	dash_panel.visible = true
-	_jukebox_panel.visible = true
-	_dash_open = true
+	_open_challenge_hub("jukebox")
 
 func _close_jukebox_panel() -> void:
-	_jukebox_direct_mode = false
-	if _jukebox_panel != null:
-		_jukebox_panel.visible = false
-	_set_dash_hidden_state()
+	_close_challenge_hub()
+
+func _ensure_campaign_navigation() -> void:
+	menu_jukebox_button.text = "CAMPAIGN"
+	menu_jukebox_button.tooltip_text = "Continue your single-player campaign"
+	var skin: Control = menu_jukebox_button.get_node_or_null("SkinTex") as Control
+	if skin != null:
+		skin.visible = false
+	menu_jukebox_button.add_theme_color_override("font_color", Color("ffe19a"))
+	menu_jukebox_button.add_theme_color_override("font_hover_color", Color.WHITE)
+	menu_jukebox_button.add_theme_color_override("font_pressed_color", Color.WHITE)
+	menu_jukebox_button.add_theme_font_size_override("font_size", 44)
+	var surface := StyleBoxFlat.new()
+	surface.bg_color = Color("202938")
+	surface.border_color = Color("d9b95d")
+	surface.set_border_width_all(2)
+	surface.set_corner_radius_all(12)
+	menu_jukebox_button.add_theme_stylebox_override("normal", surface)
+	menu_jukebox_button.add_theme_stylebox_override("hover", surface)
+	menu_jukebox_button.add_theme_stylebox_override("pressed", surface)
+	menu_jukebox_button.flat = false
+	if dash_root != null and not dash_root.has_node("JukeboxEntry"):
+		var button := Button.new()
+		button.name = "JukeboxEntry"
+		button.text = "JUKEBOX · CHOOSE A CAMPAIGN CHALLENGE"
+		button.custom_minimum_size.y = 132
+		button.add_theme_font_size_override("font_size", 40)
+		dash_root.add_child(button)
+		dash_root.move_child(button, 2)
+		button.pressed.connect(_open_jukebox_panel)
+
+func _open_campaign() -> void:
+	_open_challenge_hub("campaign")
+
+func _open_challenge_hub(mode: String, level_id: String = "") -> void:
+	_close_top_level_windows(UI_SURFACE_DASH)
+	if is_instance_valid(_challenge_hub):
+		_challenge_hub.queue_free()
+	var script = preload("res://scripts/ui/campaign_hub_panel.gd")
+	_challenge_hub = script.new()
+	_challenge_hub.name = "CampaignHub" if mode == "campaign" else "JukeboxHub"
+	_challenge_hub.set("mode", mode)
+	_challenge_hub.set("selected_id", level_id)
+	_challenge_hub.z_index = 100
+	add_child(_challenge_hub)
+	_challenge_hub.call("set_content_top_offset", _top_safe_area_inset_px())
+	_challenge_hub.connect("closed", _close_challenge_hub)
+
+func _close_challenge_hub() -> void:
+	if not is_instance_valid(_challenge_hub):
+		return
+	var from_jukebox: bool = str(_challenge_hub.get("mode")) == "jukebox"
+	_challenge_hub.queue_free()
+	_challenge_hub = null
+	if from_jukebox:
+		_set_dash_chrome_visible(true)
+		_set_dash_offsets(0.0)
+		dash_panel.visible = true
+		_dash_open = true
+
+func _apply_campaign_return() -> void:
+	var tree := get_tree()
+	if not tree.has_meta("campaign_return"):
+		return
+	var context: Dictionary = tree.get_meta("campaign_return", {})
+	tree.remove_meta("campaign_return")
+	_open_challenge_hub(str(context.get("entry", "campaign")), str(context.get("level_id", "")))
 
 func _open_async_contest_dash_panel() -> void:
 	if _async_contest_dash_panel == null:

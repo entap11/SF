@@ -4,22 +4,20 @@ const Layout = preload("res://scripts/ui/match_hud_layout.gd")
 var failed: bool = false
 
 func _initialize() -> void:
-	var desktop: Dictionary = Layout.resolve(Vector2(1080, 1920), Rect2(0, 0, 1080, 1920))
-	_expect(desktop.ad.size == Vector2(720, 90), "compact header preserves the full ad slot")
-	_expect(desktop.menu.size == Vector2(225, 110), "menu retains its target size")
-	_expect(not desktop.menu.intersects(desktop.ad), "menu and ad cannot overlap")
-	_expect(is_equal_approx(desktop.top_inset, 224.0), "separate power row must fit in compact header")
-	_expect(is_equal_approx(desktop.bottom_inset, 16.0), "unused footer leaves only an edge gutter")
-	for width in [800.0, 982.0, 1080.0, 1543.0]:
-		var safe: Rect2 = Rect2(20, 110, width - 40, 2300)
-		var layout: Dictionary = Layout.resolve(Vector2(width, 2500), safe)
-		_expect(safe.encloses(layout.menu) and safe.encloses(layout.ad), "header stays in safe area at width %s" % width)
-		_expect(not layout.menu.intersects(layout.ad), "narrow header must stack without overlap")
-		_expect(layout.ad.size == Vector2(720, 90), "narrow supported widths preserve ad size")
-		_expect(layout.top_inset - maxf(layout.ad.end.y, layout.menu.end.y) >= 98.0, "power bar retains its own row")
-		_expect(2500.0 - layout.bottom_inset <= safe.end.y - 16.0, "board excludes phone home area")
-	var footer: Dictionary = Layout.resolve(Vector2(1080, 1920), Rect2(0, 0, 1080, 1920), 1743.0)
-	_expect(1920.0 - footer.bottom_inset < 1743.0, "visible bottom controls stay outside the battlefield")
+	for viewport_size in [Vector2(1080, 1920), Vector2(944, 2048), Vector2(1080, 2348), Vector2(720, 1280)]:
+		var safe := Rect2(Vector2(12, 120), viewport_size - Vector2(24, 180))
+		for buffs in [false, true]:
+			var layout: Dictionary = Layout.resolve(viewport_size, safe, INF, buffs)
+			_expect(safe.encloses(layout.menu) and safe.encloses(layout.ad), "menu and banner respect phone safe area")
+			_expect(layout.ad.position.y >= layout.menu.end.y, "banner always sits below menu")
+			_expect(is_equal_approx(layout.ad.end.y, layout.power.position.y), "banner meets power row")
+			_expect(is_equal_approx(layout.power.end.y, layout.board.position.y), "power row meets arena")
+			_expect(is_equal_approx(layout.board.end.y, layout.footer.position.y), "arena meets footer")
+			_expect(layout.board.size.y > 500, "smallest supported portrait retains usable arena")
+			_expect(not layout.board.intersects(layout.ad) and not layout.board.intersects(layout.bottom_ad), "ads cannot cover gameplay")
+			if not buffs:
+				_expect(layout.footer.encloses(layout.bottom_ad), "bottom banner stays above home indicator")
+				_expect(is_equal_approx(layout.ad.size.x / layout.ad.size.y, 6.4), "creative aspect is preserved")
 	print("MATCH_HUD_LAYOUT_SMOKE: %s" % ("FAIL" if failed else "PASS"))
 	quit(1 if failed else 0)
 

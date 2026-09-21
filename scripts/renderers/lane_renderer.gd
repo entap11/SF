@@ -720,11 +720,13 @@ func setup(state_ref: GameState, selection_ref: Object, arena_ref: Node2D) -> vo
 	sel = selection_ref
 	arena = arena_ref
 	_hive_cache_dirty = true
+	_readability_dirty = true
 	queue_redraw()
 
 func bind_state(state_ref: GameState) -> void:
 	state = state_ref
 	_hive_cache_dirty = true
+	_readability_dirty = true
 	queue_redraw()
 
 func set_model(rm: Dictionary) -> void:
@@ -3025,7 +3027,27 @@ func _refresh_readability_context() -> void:
 	_readability_dirty = false
 	var teams: Dictionary = OpsState.get_team_by_seat_snapshot() if OpsState != null else {}
 	readability_context = CombatReadability.build_context(model, focus_hive, focus_lane, teams)
+	readability_context["available_targets"] = _readability_available_targets(focus_hive) if CombatReadability.is_enabled() else {}
 	_update_readability_hive_markers()
+
+func _readability_available_targets(source_id: int) -> Dictionary:
+	var targets: Dictionary = {}
+	if state == null or source_id <= 0:
+		return targets
+	var source: HiveData = state.find_hive_by_id(source_id)
+	if source == null or source.owner_id != _local_lane_owner_id():
+		return targets
+	# Read the same canonical geometry/budget queries as InputSystem._validate_target.
+	# Enemy inspection never advertises commands from an opponent's hive.
+	var has_capacity: bool = state.count_active_outgoing(source_id) < state.lanes_allowed_for_power(source.power)
+	for target: HiveData in state.hives:
+		if target.id == source_id:
+			continue
+		if not has_capacity and not state.is_outgoing_lane_active(source_id, target.id):
+			continue
+		if state.can_connect(source_id, target.id):
+			targets[target.id] = true
+	return targets
 
 func _update_readability_hive_markers() -> void:
 	var enabled: bool = CombatReadability.is_enabled()
@@ -3039,10 +3061,8 @@ func _update_readability_hive_markers() -> void:
 		var marker: Node2D = hive.get_node_or_null("ConnectionMarkers") as Node2D
 		var visual: CanvasItem = hive.get_node_or_null("Visual") as CanvasItem
 		if visual != null:
-			var has_focus: bool = int(readability_context.get("focus_hive", -1)) > 0 or int(readability_context.get("focus_lane", -1)) > 0
-			var focus_self: bool = int(readability_context.get("focus_hive", -1)) == id
 			if visual.has_method("set_connection_opacity"):
-				visual.call("set_connection_opacity", 0.48 if enabled and has_focus and not focus_self and not connections.has(id) else 1.0)
+				visual.call("set_connection_opacity", CombatReadability.hive_alpha(id, readability_context) if enabled else 1.0)
 		if not enabled:
 			if marker != null:
 				marker.hide()

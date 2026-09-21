@@ -147,10 +147,10 @@ static func profile_for_context(lane: Dictionary, context: Dictionary) -> Dictio
 	var viewer: int = int(context.get("viewer", 1))
 	var threat: bool = not feed and ((bool(lane.get("send_a", false)) and Readability.allied(bo, viewer, teams)) or (bool(lane.get("send_b", false)) and Readability.allied(ao, viewer, teams)))
 	if not is_enabled():
-		return {"focused": false, "alpha": 0.78, "width": 3.5, "z_index": -4}
+		return {"focused": false, "alpha": 0.78, "width": 3.5 * Readability.LANE_WIDTH_MULTIPLIER, "z_index": -4}
 	var alpha: float = 0.44 if feed else 0.78
 	if has_focus and not focused:
-		alpha = 0.48 if threat else 0.16
+		alpha = 0.64 if threat else alpha * Readability.UNRELATED_LANE_ALPHA_MULTIPLIER
 	return {"focused": focused, "feed": feed, "threat": threat,
-		"alpha": 1.0 if focused else alpha, "width": 5.5 if focused else (2.5 if feed else 3.5),
+		"alpha": 1.0 if focused else alpha, "width": (5.5 if focused else (2.5 if feed else 3.5)) * Readability.LANE_WIDTH_MULTIPLIER,
 		"z_index": 4 if focused else (-3 if threat else (-6 if feed else -4))}

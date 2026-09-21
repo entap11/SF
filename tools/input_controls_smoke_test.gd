@@ -36,6 +36,7 @@ func _initialize() -> void:
 	_test_tap_tap_enemy_lane_creation()
 	_test_tap_tap_friendly_feed_and_reverse()
 	_test_tap_tap_active_lane_reinstances_swarm()
+	_test_readability_destinations()
 	if not _failed:
 		print("INPUT_CONTROLS_SMOKE: PASS")
 	quit(1 if _failed else 0)
@@ -86,20 +87,21 @@ func _test_tap_tap_active_lane_reinstances_swarm() -> void:
 	_expect_eq(int(req.get("src", -1)), 1, "tap/tap swarm src")
 	_expect_eq(int(req.get("dst", -1)), 2, "tap/tap swarm dst")
 
-func _make_harness(dst_owner_id: int) -> Dictionary:
+func _make_harness(dst_owner_id: int, extra_hives: Array = [], source_power: int = 50) -> Dictionary:
 	var ops_state: Node = get_root().get_node_or_null("/root/OpsState")
 	_expect_true(ops_state != null, "OpsState autoload should exist")
 	if ops_state != null and ops_state.has_method("reset_match_state"):
 		ops_state.call("reset_match_state")
 	var map_dict := {
 		"hives": [
-			{"id": 1, "x": 0, "y": 0, "owner_id": 1, "power": 50, "kind": "Hive"},
+			{"id": 1, "x": 0, "y": 0, "owner_id": 1, "power": source_power, "kind": "Hive"},
 			{"id": 2, "x": 4, "y": 0, "owner_id": dst_owner_id, "power": 20, "kind": "Hive"}
 		],
 		"lane_candidates": [
 			{"a_id": 1, "b_id": 2}
 		]
 	}
+	map_dict.hives.append_array(extra_hives)
 	var state: Variant = ops_state.call("reset_state_from_map", map_dict)
 	ops_state.set("match_phase", 1)
 	ops_state.set("input_locked", false)
@@ -189,3 +191,28 @@ func _test_enemy_inspection() -> void:
 		_expect_true(not state.intent_is_on(2, 1), "inspection must not authorize enemy orders")
 		_tap_hive(input, api, 2, Vector2(4, 0), touch)
 		_expect_true(state.intent_is_on(1, 2), "friendly-to-enemy attack gesture should remain intact")
+
+func _test_readability_destinations() -> void:
+	var harness: Dictionary = _make_harness(2, [
+		{"id": 3, "x": 8, "y": 0, "owner_id": 2, "power": 5, "kind": "Hive"},
+		{"id": 4, "x": 0, "y": 4, "owner_id": 0, "power": 5, "kind": "Hive"},
+		{"id": 5, "x": -4, "y": 0, "owner_id": 1, "power": 5, "kind": "Hive"}
+	], 5)
+	if _harness_missing(harness, "readability destinations"):
+		return
+	var renderer: Node2D = load("res://scripts/renderers/lane_renderer.gd").new()
+	renderer.call("setup", harness.state, harness.input.selection, harness.arena)
+	var targets: Dictionary = renderer.call("_readability_available_targets", 1)
+	_expect_true(targets.has(2) and targets.has(4) and targets.has(5), "enemy, neutral and friendly destinations need no existing lane to stay visible")
+	_expect_true(not targets.has(1) and not targets.has(3), "self and a hive blocked by another hive are not available destinations")
+	for id in [2, 3, 4, 5]:
+		var validation: Dictionary = harness.input.call("_validate_target", 1, id, harness.api)
+		_expect_eq(targets.has(id), bool(validation.ok), "destination visibility matches actual input validation")
+	_expect_eq((renderer.call("_readability_available_targets", 2) as Dictionary).size(), 0, "enemy inspection cannot advertise player commands")
+	_expect_eq(harness.state.count_active_outgoing(1), 0, "finding targets never creates lanes")
+	_tap_hive(harness.input, harness.api, 1, Vector2(0, 0))
+	_tap_hive(harness.input, harness.api, 2, Vector2(4, 0))
+	targets = renderer.call("_readability_available_targets", 1)
+	_expect_true(targets.has(2) and not targets.has(4) and not targets.has(5), "full lane budget retains active destination but excludes new lanes")
+	_expect_eq(harness.state.count_active_outgoing(1), 1, "finding targets preserves the player's lane")
+	renderer.free()

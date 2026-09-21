@@ -362,6 +362,8 @@ func get_contract_state_hash() -> String:
 	return _build_contract_state_signature().sha256_text()
 
 func apply_authoritative_buff_command(command: Dictionary) -> Dictionary:
+	if get_tree() != null and get_tree().has_meta("campaign_level_id"):
+		return {"ok": false, "status": "deterministic_no_op", "reason": "campaign_fixed_loadout"}
 	if state == null:
 		return {"ok": false, "status": "deterministic_no_op", "reason": "missing_game_state"}
 	var result_holder: Dictionary = {"outcome": {}}
@@ -4400,6 +4402,7 @@ func reset_state_from_map(map_dict: Dictionary) -> GameState:
 
 	var map_id := str(map_dict.get("map_id", map_dict.get("_id", map_dict.get("id", "UNKNOWN"))))
 	current_map_id = map_id
+	_apply_campaign_setup()
 	_invalidate_intent_telemetry_cache(true)
 	SFLog.info("OPS_STATE_CHANGED", {
 		"iid": int(new_state.get_instance_id()),
@@ -4408,6 +4411,19 @@ func reset_state_from_map(map_dict: Dictionary) -> GameState:
 
 	call_deferred("_emit_state_changed", new_state)
 	return new_state
+
+func _apply_campaign_setup() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null or not tree.has_meta("campaign_level_id"):
+		return
+	var catalog = preload("res://scripts/state/campaign_catalog.gd")
+	var level: Dictionary = catalog.find(str(tree.get_meta("campaign_level_id", "")))
+	if level.is_empty():
+		return
+	bot_match_seed = int(level.seed)
+	set_team_mode_override("")
+	for seat in [2, 3, 4]:
+		set_bot_profile(seat, {"style": str(level.bot), "tier": str(level.difficulty)})
 
 func _emit_state_changed(new_state: GameState) -> void:
 	if new_state == null:

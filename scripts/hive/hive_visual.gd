@@ -1950,7 +1950,7 @@ func _apply_sprite() -> void:
 	)
 	var uniform_scale := target_height / tex_size.y
 	if CombatReadability.is_enabled():
-		uniform_scale *= 0.86
+		uniform_scale *= CombatReadability.HIVE_ART_SCALE
 	_current_size = Vector2(tex_size.x * uniform_scale * HIVE_WIDTH_SCALE, tex_size.y * uniform_scale)
 	_sprite.scale = Vector2(uniform_scale * HIVE_WIDTH_SCALE, uniform_scale)
 	_update_core_layout()
