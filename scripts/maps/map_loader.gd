@@ -3,6 +3,7 @@ extends Node
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
 const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
+const Layout := preload("res://scripts/maps/map_layout_contract.gd")
 const CANON_GRID_W := 18
 const CANON_GRID_H := 28
 const CANON_CELL_SIZE := 64
@@ -16,14 +17,16 @@ static func set_dev_runner_hint(enabled: bool) -> void:
 	_dev_runner_hint_set = true
 	_dev_runner_hint = enabled
 
-static func list_maps() -> Array[String]:
+static func list_maps(usage: String = "") -> Array[String]:
 	var out: Array[String] = []
-	for path_any in MAP_REGISTRY.list_map_paths():
+	for path_any in MAP_REGISTRY.list_map_paths(usage):
 		var path: String = str(path_any).strip_edges()
 		if path.is_empty():
 			continue
 		var map_id: String = MAP_REGISTRY.map_id_from_path(path).strip_edges().to_upper()
 		if map_id == "MAP_TEST":
+			continue
+		if not usage.is_empty() and not bool(load_map(path).get("ok", false)):
 			continue
 		out.append(path)
 	out.sort_custom(func(a: String, b: String) -> bool:
@@ -40,8 +43,19 @@ static func display_name_for_map(path_or_id: String) -> String:
 
 static func load_map(path_or_id: String) -> Dictionary:
 	var resolved: String = _resolve_map_path(path_or_id)
+	return _load_resolved_map(resolved, path_or_id)
+
+static func load_authoring_map(path: String) -> Dictionary:
+	# Offline preview validates unpublished files with the SAME runtime conversion
+	# and opening checks. This never admits a draft to the public catalog.
+	if not OS.is_debug_build():
+		return _fail("authoring_requires_debug_build")
+	var resolved: String = MAP_SCHEMA.normalize_path(path)
+	return _load_resolved_map(resolved if FileAccess.file_exists(resolved) else "", path)
+
+static func _load_resolved_map(resolved: String, requested: String) -> Dictionary:
 	if resolved.is_empty():
-		return _fail("map_not_found path=%s" % path_or_id)
+		return _fail("map_not_found path=%s" % requested)
 
 	SFLog.debug("MAP_LOADER: load_map path=%s" % resolved)
 	var f: FileAccess = FileAccess.open(resolved, FileAccess.READ)
@@ -65,6 +79,10 @@ static func load_map(path_or_id: String) -> Dictionary:
 	if typeof(data_v) != TYPE_DICTIONARY:
 		return _fail("root_not_dict path=%s" % resolved)
 	var data: Dictionary = data_v as Dictionary
+	if data.has("map_usage"):
+		var source_layout: Dictionary = Layout.validate(data)
+		if not source_layout.ok:
+			return _fail("layout_contract_failed: %s" % "; ".join(source_layout.errors))
 
 	var schema_id: String = str(data.get("_schema", ""))
 	if schema_id == MAP_SCHEMA.SCHEMA_ID:
@@ -94,6 +112,12 @@ static func load_map(path_or_id: String) -> Dictionary:
 			return _fail("v1.xy load failed path=%s" % resolved)
 		if FORCE_RUNTIME_STD_GRID:
 			model = _normalize_model_to_runtime_grid(model, resolved)
+		if data.has("map_usage"):
+			model["map_usage"] = data.map_usage
+			model["layout_symmetry"] = data.get("layout_symmetry", {})
+			var runtime_layout: Dictionary = Layout.validate(model)
+			if not runtime_layout.ok:
+				return _fail("runtime_layout_contract_failed: %s" % "; ".join(runtime_layout.errors))
 		var model_w: int = int(model.get("grid_w", width))
 		var model_h: int = int(model.get("grid_h", height))
 		var opening_validation: Dictionary = _validate_opening_lane_availability(model)
@@ -108,6 +132,10 @@ static func load_map(path_or_id: String) -> Dictionary:
 	var normalized_data: Dictionary = data
 	if FORCE_RUNTIME_STD_GRID:
 		normalized_data = _normalize_model_to_runtime_grid(data, resolved)
+	if data.has("map_usage"):
+		var runtime_layout: Dictionary = Layout.validate(normalized_data)
+		if not runtime_layout.ok:
+			return _fail("runtime_layout_contract_failed: %s" % "; ".join(runtime_layout.errors))
 	var grid_w: int = int(normalized_data.get("grid_width", normalized_data.get("grid_w", normalized_data.get("width", 0))))
 	var grid_h: int = int(normalized_data.get("grid_height", normalized_data.get("grid_h", normalized_data.get("height", 0))))
 	if grid_w <= 0 or grid_h <= 0:
@@ -179,7 +207,35 @@ static func _validate_opening_lane_availability(model: Dictionary) -> Dictionary
 	for owner_id in owners:
 		if not _owner_has_opening_lane(state, owner_id):
 			failures.append({"owner_id": owner_id, "reason": "no_opening_lane"})
+	if str(model.get("map_usage", "")) in ["multiplayer", "both"]:
+		failures.append_array(_validate_connection_symmetry(model, state))
 	return {"ok": failures.is_empty(), "failures": failures}
+
+static func _validate_connection_symmetry(model: Dictionary, state: GameState) -> Array:
+	# Geometry alone is insufficient: port offsets and hive blocking are evaluated
+	# by simulation. Verify the complete directed connection graph on a local state.
+	var symmetry: Dictionary = model.get("layout_symmetry", {})
+	var operations: Array = Layout.PRESETS.get(str(symmetry.get("kind", "none")), [])
+	var center: Vector2 = Layout.point(symmetry.get("center", [8.5, 13.5]))
+	var by_position: Dictionary = {}
+	var connections: Dictionary = {}
+	for hive in state.hives:
+		by_position[Layout.point_key(Vector2(hive.grid_pos))] = hive.id
+		for other in state.hives:
+			connections[Vector2i(hive.id, other.id)] = state.can_connect(hive.id, other.id)
+	for operation in operations:
+		var counterpart: Dictionary = {}
+		for hive in state.hives:
+			var p: Vector2 = Layout.transform_point(Vector2(hive.grid_pos), operation, center)
+			if not by_position.has(Layout.point_key(p)):
+				return [{"reason": "missing_runtime_counterpart", "operation": operation}]
+			counterpart[hive.id] = by_position[Layout.point_key(p)]
+		for edge: Vector2i in connections:
+			var mapped := Vector2i(counterpart[edge.x], counterpart[edge.y])
+			if connections[edge] != connections[mapped]:
+				return [{"reason": "asymmetric_legal_connection", "operation": operation,
+					"hives": [edge.x, edge.y], "counterparts": [mapped.x, mapped.y]}]
+	return []
 
 static func _owner_has_opening_lane(state: GameState, owner_id: int) -> bool:
 	if state == null:

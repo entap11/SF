@@ -23,6 +23,7 @@ func _test_finalize_adds_tags_and_centroid_structure_slots() -> bool:
 		"name": "Authoring Finalize Smoke",
 		"family": "test",
 		"mode": "1p",
+		"map_usage": "campaign",
 		"grid": {"w": 18, "h": 28, "quant": "full_or_half"},
 		"defaults": {"player_start_power": 10, "npc_start_power": 5},
 		"nodes": [

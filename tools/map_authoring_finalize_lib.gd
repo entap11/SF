@@ -5,6 +5,8 @@ const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
 const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
 const MapModeRules := preload("res://scripts/maps/map_mode_rules.gd")
+const Layout := preload("res://scripts/maps/map_layout_contract.gd")
+const SketchCompiler := preload("res://tools/map_sketch_compile.gd")
 
 const SCHEMA_ID: String = "swarmfront.map.v1.xy"
 const DEFAULT_GRID_W: int = 18
@@ -15,6 +17,12 @@ static func finalize_map(draft: Dictionary, options: Dictionary = {}) -> Diction
 	var out: Dictionary = draft.duplicate(true)
 	var warnings: Array[String] = []
 	var errors: Array[String] = []
+	if out.has("authoring"):
+		var compiled: Dictionary = SketchCompiler.compile(out)
+		if not bool(compiled.ok):
+			return compiled
+		out = compiled.data
+		for note in compiled.get("warnings", []): warnings.append(str(note))
 
 	_normalize_schema_and_grid(out)
 	_apply_metadata(out, options)
@@ -28,6 +36,8 @@ static func finalize_map(draft: Dictionary, options: Dictionary = {}) -> Diction
 	for error in slot_result.get("errors", []) as Array:
 		errors.append(str(error))
 	_remove_authoring_only_fields(out)
+	var layout_check: Dictionary = Layout.validate(out)
+	for error in layout_check.errors: errors.append(str(error))
 
 	var static_validation: Dictionary = _validate_finalized_map_static(out)
 	for warning in static_validation.get("warnings", []) as Array:
@@ -36,7 +46,7 @@ static func finalize_map(draft: Dictionary, options: Dictionary = {}) -> Diction
 		errors.append(str(error))
 
 	if errors.is_empty():
-		var mode_summary: Dictionary = MapModeRules.map_supports_game_mode(_mode_rule_data(out), str(out.get("mode", "")))
+		var mode_summary: Dictionary = MapModeRules.map_supports_game_mode(_mode_rule_data(out), str(out.get("mode", "")), false)
 		if not bool(mode_summary.get("ok", false)):
 			errors.append("map/mode eligibility failed: %s" % str(mode_summary.get("reason", "invalid")))
 
@@ -74,40 +84,37 @@ static func save_json(path: String, data: Dictionary) -> Dictionary:
 	var clean_path: String = path.strip_edges()
 	if clean_path.is_empty():
 		return {"ok": false, "err": "missing_output_path"}
-	var file: FileAccess = FileAccess.open(clean_path, FileAccess.WRITE)
+	var layout_check: Dictionary = Layout.validate(data)
+	if not layout_check.ok:
+		return {"ok": false, "err": "; ".join(layout_check.errors)}
+	# Validate the staged bytes through the actual loader before replacing a map.
+	var temporary: String = clean_path + ".pending.json"
+	var file: FileAccess = FileAccess.open(temporary, FileAccess.WRITE)
 	if file == null:
 		return {"ok": false, "err": "open_failed: %s" % clean_path}
 	file.store_string(JSON.stringify(data, "  "))
 	file.store_string("\n")
 	file.close()
+	var loaded_check: Dictionary = validate_saved_map(temporary, str(data.get("mode", "")))
+	if not loaded_check.ok:
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(temporary))
+		return {"ok": false, "err": loaded_check.err}
+	var rename_error := DirAccess.rename_absolute(ProjectSettings.globalize_path(temporary), ProjectSettings.globalize_path(clean_path))
+	if rename_error != OK:
+		return {"ok": false, "err": "atomic_replace_failed: %s" % error_string(rename_error)}
 	return {"ok": true, "err": ""}
 
 static func validate_saved_map(path: String, mode_id: String = "") -> Dictionary:
-	var loaded: Dictionary = MAP_LOADER.load_map(path)
+	var loaded: Dictionary = MAP_LOADER.load_authoring_map(path)
 	var data: Dictionary = {}
 	if bool(loaded.get("ok", false)):
 		data = loaded.get("data", {}) as Dictionary
 	else:
-		var raw: Dictionary = load_json(path)
-		if not bool(raw.get("ok", false)):
-			return {
-				"ok": false,
-				"err": str(raw.get("err", loaded.get("err", "load_failed"))),
-				"data": {}
-			}
-		data = raw.get("data", {}) as Dictionary
-		var static_validation: Dictionary = _validate_finalized_map_static(data)
-		var errors: Array = static_validation.get("errors", []) as Array
-		if not errors.is_empty():
-			return {
-				"ok": false,
-				"err": "static_validation_failed: %s" % ", ".join(PackedStringArray(errors)),
-				"data": data
-			}
+		return {"ok": false, "err": str(loaded.get("err", "load_failed")), "data": {}}
 	var mode: String = mode_id.strip_edges()
 	if mode.is_empty():
 		mode = str(data.get("mode", ""))
-	var mode_summary: Dictionary = MapModeRules.map_supports_game_mode(data if bool(loaded.get("ok", false)) else _mode_rule_data(data), mode)
+	var mode_summary: Dictionary = MapModeRules.map_supports_game_mode(data, mode, false)
 	if not bool(mode_summary.get("ok", false)):
 		return {
 			"ok": false,
@@ -138,6 +145,8 @@ static func _normalize_schema_and_grid(map_data: Dictionary) -> void:
 		}
 
 static func _apply_metadata(map_data: Dictionary, options: Dictionary) -> void:
+	if options.has("map_usage"):
+		map_data["map_usage"] = str(options.map_usage)
 	var map_id: String = str(options.get("id", map_data.get("id", ""))).strip_edges()
 	if not map_id.is_empty():
 		map_data["id"] = map_id

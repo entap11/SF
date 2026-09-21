@@ -1,5 +1,18 @@
 # Map Authoring Governance
 
+## Usage and fairness
+
+Every newly finalized map explicitly declares `map_usage`: `campaign`,
+`multiplayer`, or `both`. Multiplayer and Both require exact layout symmetry and
+equivalent player-start orbits. Walls, hives, neutral power, start power, slots,
+and structure control relationships participate. Unequal counterparts must be
+resolved in the retained source sector and regenerated, never accepted as close
+enough. Only numerical floating-point tolerance is permitted.
+
+The compiler, runtime contract, preview, and rollout boundaries are documented in
+`docs/map_authoring_pipeline.md`; authoring controls and the grid template are in
+`addons/map_sketch_tracer/README.md`. Public wall-map rollout remains sandboxed.
+
 ## Structure Slots
 
 Tower and barracks placement should be authored as legal slots, not as random coordinates.

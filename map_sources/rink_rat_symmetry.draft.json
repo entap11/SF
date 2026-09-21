@@ -1,0 +1,109 @@
+{
+  "_schema": "swarmfront.map.draft.v1",
+  "id": "MAP_rink_rat__SYMMETRY_PILOT__4p",
+  "name": "Rink Rat \u2014 Corner Symmetry Pilot",
+  "family": "rink_rat",
+  "mode": "4p",
+  "map_usage": "both",
+  "layout_symmetry": {
+    "kind": "both_mirrors",
+    "center": [
+      9,
+      14
+    ]
+  },
+  "player_buckets": [
+    "4P_FFA",
+    "2V2"
+  ],
+  "strict_player_buckets": true,
+  "defaults": {
+    "player_start_power": 10,
+    "npc_start_power": 5
+  },
+  "nodes": [
+    {
+      "id": "start",
+      "kind": "hive",
+      "owner": "P1",
+      "pos": {
+        "x": 1,
+        "y": 1
+      }
+    },
+    {
+      "id": "inner",
+      "kind": "hive",
+      "owner": "NPC",
+      "pos": {
+        "x": 4,
+        "y": 5
+      }
+    },
+    {
+      "id": "side",
+      "kind": "hive",
+      "owner": "NPC",
+      "pos": {
+        "x": 1,
+        "y": 14
+      }
+    },
+    {
+      "id": "top",
+      "kind": "hive",
+      "owner": "NPC",
+      "pos": {
+        "x": 9,
+        "y": 1
+      }
+    },
+    {
+      "id": "center",
+      "kind": "hive",
+      "owner": "NPC",
+      "pos": {
+        "x": 9,
+        "y": 14
+      }
+    }
+  ],
+  "structure_slots": [],
+  "authoring": {
+    "single_sector": true,
+    "reference_map": "res://maps/_future/rink_rat/MAP_rink_rat__SBASE__4p.json",
+    "wall_strokes": [
+      {
+        "id": "outer_arc",
+        "smooth": true,
+        "points": [
+          [
+            4.7,
+            2.8
+          ],
+          [
+            3.7,
+            3.8
+          ],
+          [
+            2.8,
+            5.1
+          ],
+          [
+            2.2,
+            6.8
+          ],
+          [
+            2.0,
+            8.8
+          ],
+          [
+            2,
+            13
+          ]
+        ]
+      }
+    ],
+    "playability_notes": "Retain the 13 reference hive cells. Shorten each upper/lower arc to (4.7, 2.8) and its exact counterparts; extend each side tip to y=13 and its counterparts. This equalizes all legal connections under the current simulation port/blocking rules. Original drawing/reference remains unchanged."
+  }
+}

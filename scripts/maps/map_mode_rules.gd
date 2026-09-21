@@ -2,6 +2,7 @@ class_name MapModeRules
 extends RefCounted
 
 const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
+const Layout := preload("res://scripts/maps/map_layout_contract.gd")
 
 const HIDDEN_CTF_ALLOTMENT_ROLL: String = "roll"
 const HIDDEN_CTF_ALLOTMENT_PATTERNS: Array[String] = [
@@ -15,8 +16,11 @@ const HIDDEN_CTF_ALLOTMENT_PATTERNS: Array[String] = [
 const CAPTURE_FLAG_CENTER_NEUTRAL_MIN_HIVES: int = 8
 const CAPTURE_FLAG_CENTER_NEUTRAL_MAX_COUNT: int = 4
 
-static func map_supports_game_mode(map_data: Dictionary, mode_id: String) -> Dictionary:
-	if not MAP_REGISTRY.WALL_MAPS_PLAYABLE and MAP_REGISTRY.map_data_has_walls(map_data):
+static func map_supports_usage(map_data: Dictionary, usage: String) -> Dictionary:
+	return Layout.supports_usage(map_data, usage)
+
+static func map_supports_game_mode(map_data: Dictionary, mode_id: String, enforce_rollout: bool = true) -> Dictionary:
+	if enforce_rollout and not MAP_REGISTRY.WALL_MAPS_PLAYABLE and MAP_REGISTRY.map_data_has_walls(map_data):
 		return {"ok": false, "reason": MAP_REGISTRY.WALL_MAP_SANDBOX_REASON}
 	var clean_mode: String = _normalize_mode_id(mode_id)
 	var is_3p_game: bool = clean_mode == "3P_FFA" or clean_mode == "3P"

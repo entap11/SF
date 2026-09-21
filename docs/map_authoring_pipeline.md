@@ -1,0 +1,88 @@
+# Sketch-to-map authoring
+
+Authorized September 21, 2026: interpret rough drawings as layout intent, produce
+continuous finished walls, and require equivalent multiplayer starting positions.
+
+## Contract
+
+- `map_usage` is explicitly `campaign`, `multiplayer`, or `both`, independent of
+  the legacy `1p`/`2p` filename convention. Missing usage means unclassified legacy
+  content, never a multiplayer certification.
+- Multiplayer/both exports must pass geometric symmetry and player-orbit checks.
+  Hives, powers, neutral resources, structures, slots, wall segments and initial
+  starts participate. Every player must be reachable from every other by an
+  allowed symmetry that preserves the entire layout and permutes owners.
+- The runtime loader verifies the complete legal-connection graph under each
+  symmetry using a local simulation instance. Visually matched geometry alone
+  cannot certify unequal gameplay connections.
+- Author one sector and generate its counterparts. Wall cleanup happens once,
+  before reflection/rotation. Endpoints are retained so intentional gaps survive.
+- Final wall segments are the gameplay input; continuous wall rendering is a
+  read-only projection. No renderer may move a hive or change blocking geometry.
+- Campaign-only layouts may be asymmetric. A shared battlefield's encounter
+  setup is separate from its base layout and must be revalidated for multiplayer
+  after changing ownership/power. Geometry alone is not a balance claim.
+- Existing maps are reference material until re-authored. Keep their geometry and
+  IDs intact. Wall-map public rollout remains sandboxed. This work does not enable
+  public wall maps or alter live competitive catalogs.
+- New selectors can call `MapLoader.list_maps("campaign")` or
+  `MapLoader.list_maps("multiplayer")` for explicitly designated, runtime-valid
+  maps. `MapModeRules.map_supports_usage` checks designation/layout eligibility;
+  loading/exporting additionally checks actual simulation connections.
+
+## Implementation boundary
+
+Upgrade the existing Godot tracer to the native grid, wall strokes, explicit usage,
+symmetry generation, saveable drafts and gameplay/finished previews. Reuse the
+existing finalizer and loader for validated deterministic exports. Add a Rink Rat
+pilot with equivalent corner starts and continuous wall art; use Swirly to check
+junction handling. Preserve the original references.
+
+The pilot keeps all 13 reference hive cells. Its source arc starts at (4.7, 2.8)
+and ends at (2, 13), with exact generated counterparts. The longer reference arc
+intersected the simulation's downward-offset hive ports differently above and
+below the board. Shorter top/bottom arcs and longer side tips make the complete
+initial legal-connection graph equivalent. The original mirrored arc is retained
+as a regression case: geometric validation passes, runtime validation rejects it.
+
+The first symmetry presets are mirror X, mirror Y, half-turn, both mirrors, and
+quarter-turn. Quarter-turn requires a square playable layout that fits the board.
+Three-player 120-degree geometry cannot be represented exactly by the current
+integer hive-coordinate contract; it must not be approximated and certified.
+
+## Acceptance evidence
+
+Reject an unequal wall, shifted counterpart, unequal start power, asymmetric
+resource/slot, missing designation, and visually symmetric but inequivalent
+starts. Accept asymmetric campaign content. Verify deterministic sector expansion,
+stroke endpoint retention, actual loader round-trip, and unchanged simulation
+connectivity after a visual-only renderer replacement. Capture actual Godot wall
+previews at phone scale, with a gameplay-overlay toggle.
+
+## Verification — September 21, 2026
+
+Runtime: pinned Godot `4.7.1.stable.official.a13da4feb`. Tests use an isolated
+project/user-data directory with service URLs cleared; no live profile is used.
+
+- `run_map_authoring_gate.sh`: pass (symmetry, studio, finalizer, wall renderer).
+  Covers deterministic output/freshness, geometric and actual connection
+  asymmetry rejection, native-grid enforcement, campaign asymmetry, atomic export,
+  retained drafts/undo/redo, continuous paths/junctions and unchanged simulation
+  geometry after rendering.
+- Real editor plugin boot: pass with `Engine.is_editor_hint() == true`, pilot
+  runtime validation and 26 legal connections. Standalone graphical studio: pass.
+- Existing map lane availability (16 maps), map layout rules and PvP 1v1 map
+  contract checks: pass.
+- `map_mode_contract_smoke_test.gd` and `map_public_alias_smoke_test.gd` reproduce
+  the same failures on untouched base commit `c758b75`: Corkscrew owner 2 has no
+  opening lane; the alias test has 17 stale catalog/tutorial expectations.
+  Original maps/catalog policy are preserved rather than weakening the checks.
+- Actual OpenGL Godot captures: `wall-comparison.png`,
+  `wall-comparison-barriers.png`, and `map-studio.png` in the local
+  `SF/artifacts/map-authoring-2026-09-21/` evidence directory. Comparison panels
+  are approximately phone width; hive markers are schematic. This is desktop
+  implementation evidence, not a supported-device or competitive-balance pilot.
+
+The drawing template generator was run with Pillow 11.3.0 and system Helvetica;
+Godot regenerated import metadata. The compiled map's byte-for-byte freshness is
+enforced by the symmetry smoke test.

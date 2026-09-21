@@ -1,14 +1,17 @@
+@tool
 extends Node2D
 class_name WallRenderer
 
 const SFLog := preload("res://scripts/util/sf_log.gd")
-const WallGrowthBarrierSegmentScene: PackedScene = preload("res://scenes/renderers/WallGrowthBarrierSegment.tscn")
+const PathGeometry = preload("res://scripts/renderers/wall_path_geometry.gd")
+const Ribbon = preload("res://scripts/renderers/wall_ribbon.gd")
 
 const SEGMENT_KEY_PRECISION: float = 10.0
 
 var _segment_nodes_by_key: Dictionary = {}
 var _segment_data_by_key: Dictionary = {}
-var _last_sig: int = -1
+var _last_keys: Array = []
+var _ribbons: Array[Node2D] = []
 
 func _ready() -> void:
 	SFLog.allow_tag("WALL_VIS_SEGMENTS")
@@ -16,43 +19,36 @@ func _ready() -> void:
 
 func set_wall_segments(segments: Array) -> void:
 	var normalized: Array = _normalize_segments(segments)
-	var sig: int = _compute_segment_sig(normalized)
-	if sig == _last_sig:
+	var unique: Dictionary = {}
+	for segment in normalized:
+		if (segment.a as Vector2).distance_to(segment.b) > 0.00001:
+			unique[PathGeometry.edge_key(segment.a, segment.b)] = true
+	var keys: Array = unique.keys()
+	keys.sort()
+	if keys == _last_keys:
 		return
-	_last_sig = sig
-	var desired_keys: Dictionary = {}
-	for seg_any in normalized:
-		if typeof(seg_any) != TYPE_DICTIONARY:
-			continue
-		var seg: Dictionary = seg_any as Dictionary
-		var a: Vector2 = seg.get("a", Vector2.ZERO) as Vector2
-		var b: Vector2 = seg.get("b", Vector2.ZERO) as Vector2
-		var key: String = _segment_key(a, b)
-		desired_keys[key] = true
-		_segment_data_by_key[key] = {
-			"a": a,
-			"b": b
-		}
-		var node: Node = _segment_nodes_by_key.get(key, null) as Node
-		if node == null or not is_instance_valid(node):
-			node = WallGrowthBarrierSegmentScene.instantiate() as Node
-			node.name = "WallSegment_%s" % key.replace("|", "_").replace(":", "_")
-			_segment_nodes_by_key[key] = node
-			add_child(node)
-		node.call("set_segment", a, b)
-	for key_any in _segment_nodes_by_key.keys():
-		var key_str: String = str(key_any)
-		if desired_keys.has(key_str):
-			continue
-		var stale_node: Node = _segment_nodes_by_key.get(key_str, null) as Node
-		if stale_node != null and is_instance_valid(stale_node):
-			stale_node.queue_free()
-		_segment_nodes_by_key.erase(key_str)
-		_segment_data_by_key.erase(key_str)
-	SFLog.warn("WALL_VIS_SEGMENTS", {
-		"segments": normalized.size(),
-		"instances": _segment_nodes_by_key.size()
-	})
+	_last_keys = keys
+	var geometry: Dictionary = PathGeometry.build(normalized)
+	for ribbon in _ribbons:
+		ribbon.free()
+	_ribbons.clear()
+	_segment_nodes_by_key.clear()
+	_segment_data_by_key.clear()
+	for path in geometry.paths:
+		var ribbon := Ribbon.new()
+		add_child(ribbon)
+		ribbon.setup(path.points, path.start_cap, path.end_cap)
+		_ribbons.append(ribbon)
+		for key in path.edges:
+			_segment_nodes_by_key[key] = ribbon
+	for p in geometry.junctions:
+		var junction := Ribbon.new()
+		add_child(junction)
+		junction._brace(p, 0.0, true)
+		_ribbons.append(junction)
+	for segment in normalized:
+		_segment_data_by_key[PathGeometry.edge_key(segment.a, segment.b)] = segment
+	SFLog.warn("WALL_VIS_SEGMENTS", {"segments": keys.size(), "continuous_paths": geometry.paths.size(), "junctions": geometry.junctions.size()})
 
 func set_wall_pairs(pairs: Array, hive_pos_by_id: Dictionary) -> void:
 	var segments: Array = []
@@ -71,7 +67,7 @@ func set_wall_pairs(pairs: Array, hive_pos_by_id: Dictionary) -> void:
 	set_wall_segments(segments)
 
 func tick_visuals(delta: float) -> void:
-	for node_any in _segment_nodes_by_key.values():
+	for node_any in _ribbons:
 		var node: Node = node_any as Node
 		if node == null or not is_instance_valid(node):
 			continue
@@ -107,32 +103,6 @@ func _normalize_segments(segments: Array) -> Array:
 			"b": b_any as Vector2
 		})
 	return out
-
-func _segment_key(a: Vector2, b: Vector2) -> String:
-	var first: Vector2 = a
-	var second: Vector2 = b
-	if a.x > b.x or (is_equal_approx(a.x, b.x) and a.y > b.y):
-		first = b
-		second = a
-	return "%d:%d|%d:%d" % [
-		int(round(first.x * SEGMENT_KEY_PRECISION)),
-		int(round(first.y * SEGMENT_KEY_PRECISION)),
-		int(round(second.x * SEGMENT_KEY_PRECISION)),
-		int(round(second.y * SEGMENT_KEY_PRECISION))
-	]
-
-func _compute_segment_sig(segments: Array) -> int:
-	var sig: int = segments.size()
-	var mix: int = 0
-	for seg_any in segments:
-		if typeof(seg_any) != TYPE_DICTIONARY:
-			continue
-		var seg: Dictionary = seg_any as Dictionary
-		var a: Vector2 = seg.get("a", Vector2.ZERO) as Vector2
-		var b: Vector2 = seg.get("b", Vector2.ZERO) as Vector2
-		mix = mix ^ hash(_segment_key(a, b))
-	sig = (sig * 31 + mix) & 0x7fffffff
-	return sig
 
 func _find_intersecting_segment_key(a: Vector2, b: Vector2) -> String:
 	var midpoint: Vector2 = (a + b) * 0.5
