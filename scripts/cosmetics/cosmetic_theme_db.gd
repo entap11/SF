@@ -21,7 +21,7 @@ const DEFAULT_FLOOR_ITEM_ID: String = "floor_standard"
 const DEFAULT_VFX_ITEM_ID: String = "vfx_ion_pop"
 const DEFAULT_UNIT_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/unit_v5.png"
 const DEFAULT_LANE_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/lane_white_5space.png"
-const DEFAULT_FLOOR_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/dark_floor.png"
+const DEFAULT_FLOOR_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/floor_graphite.svg"
 const DEFAULT_VFX_TEXTURE_PATH: String = "res://assets/sprites/sf_skin_v1/light_projection.png"
 
 static var _powerbar_themes: Dictionary = {

@@ -100,6 +100,17 @@ func _run() -> void:
 	check(is_equal_approx(float(arena.call("_arena_playfield_top_screen_y")), float(layout.top_inset)), "actual battlefield meets header")
 	check(not quit_on_go_back, "Android Back cannot silently quit a match")
 	await capture("arena-no-buffs")
+	var floor_node: Node = arena.find_child("FloorRenderer", true, false)
+	var circuits: Node2D = floor_node.get_node_or_null("AmbientCircuits") as Node2D
+	check(circuits != null and circuits.visible, "standard floor exposes ambient circuits")
+	if circuits != null:
+		circuits.set("preview_time_sec", 1.5)
+		circuits.queue_redraw()
+		await capture("floor-glow-a")
+		circuits.set("preview_time_sec", 7.1)
+		circuits.queue_redraw()
+		await capture("floor-glow-b")
+		circuits.set("preview_time_sec", -1.0)
 	var match_state: GameState = ops.call("get_state")
 	var selected_source: int = -1
 	for hive: HiveData in match_state.hives:

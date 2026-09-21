@@ -16,7 +16,13 @@ then improve hive artwork and its power/lane indicators, followed by growth,
 shrinkage, pressure and related effects. The effects should have a polished,
 premium finish. This explicitly extends arena visual finish beyond floor art.
 
-Recommended review order (visual direction proposed, not yet approved):
+Floor direction approved: fewer circuit lines with randomized soft glows, on a
+restrained graphite surface. Hive changes will be fleshed out separately.
+The existing work was committed and pushed as `da80c79` before floor changes began.
+The first floor implementation uses 16 edge-biased traces, at most two softly
+glowing at once; ambient lighting is independent of ownership and simulation.
+
+Recommended review order (hive/effect direction remains proposed):
 
 1. Compare the current floor with a restrained graphite/metal treatment using
    the same camera, hive sizes, and gameplay samples. Keep the center quiet,
