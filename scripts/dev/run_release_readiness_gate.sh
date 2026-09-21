@@ -36,9 +36,10 @@ Usage:
   scripts/dev/run_release_readiness_gate.sh [options]
 
 Default stages:
-  1. Lane grab regression checks
-  2. MVP smoke
-  3. Player config matrix gate, fast tier
+  1. Map authoring and multiplayer symmetry checks
+  2. Lane grab regression checks
+  3. MVP smoke
+  4. Player config matrix gate, fast tier
 
 Options:
   --matrix-gate <fast|pr|nightly>  Player config matrix tier.
@@ -203,6 +204,8 @@ run_stage() {
 }
 
 echo "RELEASE_READINESS_BEGIN matrix_gate=${MATRIX_GATE_TIER} matrix_seed=${MATRIX_SEED} matrix_seed_runs=${MATRIX_SEED_RUNS}"
+
+run_stage map_authoring 400 bash "${ROOT_DIR}/scripts/dev/run_map_authoring_gate.sh"
 
 run_stage lane_grab_regression 650 bash "${LANE_GRAB_GATE}"
 

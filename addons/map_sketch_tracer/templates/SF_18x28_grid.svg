@@ -1,0 +1,1060 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1152" height="1792" viewBox="0 0 1152 1792">
+<rect width="1152" height="1792" fill="white"/>
+<path d="M0,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M64,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M128,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M192,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M256,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M320,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M384,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M448,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M512,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M576,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M640,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M704,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M768,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M832,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M896,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M960,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M1024,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M1088,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M1152,0 V1792" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,0 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,64 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,128 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,192 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,256 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,320 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,384 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,448 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,512 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,576 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,640 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,704 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,768 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,832 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,896 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,960 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,1024 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,1088 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,1152 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,1216 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,1280 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,1344 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,1408 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,1472 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,1536 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,1600 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,1664 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,1728 H1152" stroke="#c3ccda" stroke-width="1"/>
+<path d="M0,1792 H1152" stroke="#c3ccda" stroke-width="1"/>
+<circle cx="32.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,0</text>
+<circle cx="96.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,0</text>
+<circle cx="160.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,0</text>
+<circle cx="224.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,0</text>
+<circle cx="288.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,0</text>
+<circle cx="352.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,0</text>
+<circle cx="416.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,0</text>
+<circle cx="480.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,0</text>
+<circle cx="544.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,0</text>
+<circle cx="608.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,0</text>
+<circle cx="672.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,0</text>
+<circle cx="736.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,0</text>
+<circle cx="800.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,0</text>
+<circle cx="864.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,0</text>
+<circle cx="928.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,0</text>
+<circle cx="992.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,0</text>
+<circle cx="1056.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,0</text>
+<circle cx="1120.0" cy="32.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="13" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,0</text>
+<circle cx="32.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,1</text>
+<circle cx="96.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,1</text>
+<circle cx="160.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,1</text>
+<circle cx="224.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,1</text>
+<circle cx="288.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,1</text>
+<circle cx="352.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,1</text>
+<circle cx="416.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,1</text>
+<circle cx="480.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,1</text>
+<circle cx="544.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,1</text>
+<circle cx="608.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,1</text>
+<circle cx="672.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,1</text>
+<circle cx="736.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,1</text>
+<circle cx="800.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,1</text>
+<circle cx="864.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,1</text>
+<circle cx="928.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,1</text>
+<circle cx="992.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,1</text>
+<circle cx="1056.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,1</text>
+<circle cx="1120.0" cy="96.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="77" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,1</text>
+<circle cx="32.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,2</text>
+<circle cx="96.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,2</text>
+<circle cx="160.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,2</text>
+<circle cx="224.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,2</text>
+<circle cx="288.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,2</text>
+<circle cx="352.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,2</text>
+<circle cx="416.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,2</text>
+<circle cx="480.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,2</text>
+<circle cx="544.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,2</text>
+<circle cx="608.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,2</text>
+<circle cx="672.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,2</text>
+<circle cx="736.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,2</text>
+<circle cx="800.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,2</text>
+<circle cx="864.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,2</text>
+<circle cx="928.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,2</text>
+<circle cx="992.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,2</text>
+<circle cx="1056.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,2</text>
+<circle cx="1120.0" cy="160.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="141" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,2</text>
+<circle cx="32.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,3</text>
+<circle cx="96.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,3</text>
+<circle cx="160.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,3</text>
+<circle cx="224.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,3</text>
+<circle cx="288.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,3</text>
+<circle cx="352.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,3</text>
+<circle cx="416.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,3</text>
+<circle cx="480.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,3</text>
+<circle cx="544.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,3</text>
+<circle cx="608.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,3</text>
+<circle cx="672.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,3</text>
+<circle cx="736.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,3</text>
+<circle cx="800.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,3</text>
+<circle cx="864.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,3</text>
+<circle cx="928.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,3</text>
+<circle cx="992.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,3</text>
+<circle cx="1056.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,3</text>
+<circle cx="1120.0" cy="224.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="205" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,3</text>
+<circle cx="32.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,4</text>
+<circle cx="96.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,4</text>
+<circle cx="160.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,4</text>
+<circle cx="224.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,4</text>
+<circle cx="288.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,4</text>
+<circle cx="352.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,4</text>
+<circle cx="416.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,4</text>
+<circle cx="480.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,4</text>
+<circle cx="544.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,4</text>
+<circle cx="608.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,4</text>
+<circle cx="672.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,4</text>
+<circle cx="736.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,4</text>
+<circle cx="800.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,4</text>
+<circle cx="864.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,4</text>
+<circle cx="928.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,4</text>
+<circle cx="992.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,4</text>
+<circle cx="1056.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,4</text>
+<circle cx="1120.0" cy="288.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="269" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,4</text>
+<circle cx="32.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,5</text>
+<circle cx="96.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,5</text>
+<circle cx="160.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,5</text>
+<circle cx="224.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,5</text>
+<circle cx="288.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,5</text>
+<circle cx="352.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,5</text>
+<circle cx="416.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,5</text>
+<circle cx="480.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,5</text>
+<circle cx="544.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,5</text>
+<circle cx="608.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,5</text>
+<circle cx="672.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,5</text>
+<circle cx="736.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,5</text>
+<circle cx="800.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,5</text>
+<circle cx="864.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,5</text>
+<circle cx="928.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,5</text>
+<circle cx="992.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,5</text>
+<circle cx="1056.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,5</text>
+<circle cx="1120.0" cy="352.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="333" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,5</text>
+<circle cx="32.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,6</text>
+<circle cx="96.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,6</text>
+<circle cx="160.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,6</text>
+<circle cx="224.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,6</text>
+<circle cx="288.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,6</text>
+<circle cx="352.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,6</text>
+<circle cx="416.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,6</text>
+<circle cx="480.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,6</text>
+<circle cx="544.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,6</text>
+<circle cx="608.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,6</text>
+<circle cx="672.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,6</text>
+<circle cx="736.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,6</text>
+<circle cx="800.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,6</text>
+<circle cx="864.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,6</text>
+<circle cx="928.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,6</text>
+<circle cx="992.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,6</text>
+<circle cx="1056.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,6</text>
+<circle cx="1120.0" cy="416.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="397" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,6</text>
+<circle cx="32.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,7</text>
+<circle cx="96.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,7</text>
+<circle cx="160.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,7</text>
+<circle cx="224.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,7</text>
+<circle cx="288.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,7</text>
+<circle cx="352.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,7</text>
+<circle cx="416.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,7</text>
+<circle cx="480.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,7</text>
+<circle cx="544.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,7</text>
+<circle cx="608.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,7</text>
+<circle cx="672.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,7</text>
+<circle cx="736.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,7</text>
+<circle cx="800.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,7</text>
+<circle cx="864.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,7</text>
+<circle cx="928.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,7</text>
+<circle cx="992.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,7</text>
+<circle cx="1056.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,7</text>
+<circle cx="1120.0" cy="480.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="461" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,7</text>
+<circle cx="32.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,8</text>
+<circle cx="96.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,8</text>
+<circle cx="160.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,8</text>
+<circle cx="224.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,8</text>
+<circle cx="288.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,8</text>
+<circle cx="352.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,8</text>
+<circle cx="416.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,8</text>
+<circle cx="480.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,8</text>
+<circle cx="544.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,8</text>
+<circle cx="608.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,8</text>
+<circle cx="672.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,8</text>
+<circle cx="736.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,8</text>
+<circle cx="800.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,8</text>
+<circle cx="864.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,8</text>
+<circle cx="928.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,8</text>
+<circle cx="992.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,8</text>
+<circle cx="1056.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,8</text>
+<circle cx="1120.0" cy="544.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="525" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,8</text>
+<circle cx="32.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,9</text>
+<circle cx="96.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,9</text>
+<circle cx="160.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,9</text>
+<circle cx="224.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,9</text>
+<circle cx="288.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,9</text>
+<circle cx="352.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,9</text>
+<circle cx="416.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,9</text>
+<circle cx="480.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,9</text>
+<circle cx="544.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,9</text>
+<circle cx="608.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,9</text>
+<circle cx="672.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,9</text>
+<circle cx="736.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,9</text>
+<circle cx="800.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,9</text>
+<circle cx="864.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,9</text>
+<circle cx="928.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,9</text>
+<circle cx="992.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,9</text>
+<circle cx="1056.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,9</text>
+<circle cx="1120.0" cy="608.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="589" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,9</text>
+<circle cx="32.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,10</text>
+<circle cx="96.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,10</text>
+<circle cx="160.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,10</text>
+<circle cx="224.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,10</text>
+<circle cx="288.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,10</text>
+<circle cx="352.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,10</text>
+<circle cx="416.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,10</text>
+<circle cx="480.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,10</text>
+<circle cx="544.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,10</text>
+<circle cx="608.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,10</text>
+<circle cx="672.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,10</text>
+<circle cx="736.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,10</text>
+<circle cx="800.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,10</text>
+<circle cx="864.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,10</text>
+<circle cx="928.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,10</text>
+<circle cx="992.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,10</text>
+<circle cx="1056.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,10</text>
+<circle cx="1120.0" cy="672.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="653" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,10</text>
+<circle cx="32.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,11</text>
+<circle cx="96.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,11</text>
+<circle cx="160.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,11</text>
+<circle cx="224.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,11</text>
+<circle cx="288.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,11</text>
+<circle cx="352.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,11</text>
+<circle cx="416.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,11</text>
+<circle cx="480.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,11</text>
+<circle cx="544.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,11</text>
+<circle cx="608.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,11</text>
+<circle cx="672.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,11</text>
+<circle cx="736.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,11</text>
+<circle cx="800.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,11</text>
+<circle cx="864.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,11</text>
+<circle cx="928.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,11</text>
+<circle cx="992.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,11</text>
+<circle cx="1056.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,11</text>
+<circle cx="1120.0" cy="736.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="717" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,11</text>
+<circle cx="32.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,12</text>
+<circle cx="96.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,12</text>
+<circle cx="160.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,12</text>
+<circle cx="224.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,12</text>
+<circle cx="288.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,12</text>
+<circle cx="352.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,12</text>
+<circle cx="416.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,12</text>
+<circle cx="480.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,12</text>
+<circle cx="544.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,12</text>
+<circle cx="608.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,12</text>
+<circle cx="672.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,12</text>
+<circle cx="736.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,12</text>
+<circle cx="800.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,12</text>
+<circle cx="864.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,12</text>
+<circle cx="928.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,12</text>
+<circle cx="992.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,12</text>
+<circle cx="1056.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,12</text>
+<circle cx="1120.0" cy="800.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="781" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,12</text>
+<circle cx="32.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,13</text>
+<circle cx="96.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,13</text>
+<circle cx="160.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,13</text>
+<circle cx="224.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,13</text>
+<circle cx="288.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,13</text>
+<circle cx="352.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,13</text>
+<circle cx="416.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,13</text>
+<circle cx="480.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,13</text>
+<circle cx="544.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,13</text>
+<circle cx="608.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,13</text>
+<circle cx="672.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,13</text>
+<circle cx="736.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,13</text>
+<circle cx="800.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,13</text>
+<circle cx="864.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,13</text>
+<circle cx="928.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,13</text>
+<circle cx="992.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,13</text>
+<circle cx="1056.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,13</text>
+<circle cx="1120.0" cy="864.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="845" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,13</text>
+<circle cx="32.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,14</text>
+<circle cx="96.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,14</text>
+<circle cx="160.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,14</text>
+<circle cx="224.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,14</text>
+<circle cx="288.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,14</text>
+<circle cx="352.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,14</text>
+<circle cx="416.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,14</text>
+<circle cx="480.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,14</text>
+<circle cx="544.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,14</text>
+<circle cx="608.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,14</text>
+<circle cx="672.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,14</text>
+<circle cx="736.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,14</text>
+<circle cx="800.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,14</text>
+<circle cx="864.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,14</text>
+<circle cx="928.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,14</text>
+<circle cx="992.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,14</text>
+<circle cx="1056.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,14</text>
+<circle cx="1120.0" cy="928.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="909" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,14</text>
+<circle cx="32.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,15</text>
+<circle cx="96.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,15</text>
+<circle cx="160.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,15</text>
+<circle cx="224.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,15</text>
+<circle cx="288.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,15</text>
+<circle cx="352.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,15</text>
+<circle cx="416.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,15</text>
+<circle cx="480.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,15</text>
+<circle cx="544.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,15</text>
+<circle cx="608.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,15</text>
+<circle cx="672.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,15</text>
+<circle cx="736.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,15</text>
+<circle cx="800.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,15</text>
+<circle cx="864.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,15</text>
+<circle cx="928.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,15</text>
+<circle cx="992.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,15</text>
+<circle cx="1056.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,15</text>
+<circle cx="1120.0" cy="992.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="973" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,15</text>
+<circle cx="32.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,16</text>
+<circle cx="96.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,16</text>
+<circle cx="160.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,16</text>
+<circle cx="224.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,16</text>
+<circle cx="288.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,16</text>
+<circle cx="352.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,16</text>
+<circle cx="416.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,16</text>
+<circle cx="480.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,16</text>
+<circle cx="544.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,16</text>
+<circle cx="608.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,16</text>
+<circle cx="672.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,16</text>
+<circle cx="736.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,16</text>
+<circle cx="800.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,16</text>
+<circle cx="864.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,16</text>
+<circle cx="928.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,16</text>
+<circle cx="992.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,16</text>
+<circle cx="1056.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,16</text>
+<circle cx="1120.0" cy="1056.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="1037" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,16</text>
+<circle cx="32.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,17</text>
+<circle cx="96.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,17</text>
+<circle cx="160.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,17</text>
+<circle cx="224.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,17</text>
+<circle cx="288.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,17</text>
+<circle cx="352.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,17</text>
+<circle cx="416.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,17</text>
+<circle cx="480.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,17</text>
+<circle cx="544.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,17</text>
+<circle cx="608.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,17</text>
+<circle cx="672.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,17</text>
+<circle cx="736.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,17</text>
+<circle cx="800.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,17</text>
+<circle cx="864.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,17</text>
+<circle cx="928.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,17</text>
+<circle cx="992.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,17</text>
+<circle cx="1056.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,17</text>
+<circle cx="1120.0" cy="1120.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="1101" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,17</text>
+<circle cx="32.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,18</text>
+<circle cx="96.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,18</text>
+<circle cx="160.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,18</text>
+<circle cx="224.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,18</text>
+<circle cx="288.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,18</text>
+<circle cx="352.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,18</text>
+<circle cx="416.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,18</text>
+<circle cx="480.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,18</text>
+<circle cx="544.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,18</text>
+<circle cx="608.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,18</text>
+<circle cx="672.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,18</text>
+<circle cx="736.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,18</text>
+<circle cx="800.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,18</text>
+<circle cx="864.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,18</text>
+<circle cx="928.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,18</text>
+<circle cx="992.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,18</text>
+<circle cx="1056.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,18</text>
+<circle cx="1120.0" cy="1184.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="1165" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,18</text>
+<circle cx="32.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,19</text>
+<circle cx="96.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,19</text>
+<circle cx="160.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,19</text>
+<circle cx="224.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,19</text>
+<circle cx="288.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,19</text>
+<circle cx="352.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,19</text>
+<circle cx="416.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,19</text>
+<circle cx="480.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,19</text>
+<circle cx="544.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,19</text>
+<circle cx="608.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,19</text>
+<circle cx="672.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,19</text>
+<circle cx="736.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,19</text>
+<circle cx="800.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,19</text>
+<circle cx="864.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,19</text>
+<circle cx="928.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,19</text>
+<circle cx="992.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,19</text>
+<circle cx="1056.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,19</text>
+<circle cx="1120.0" cy="1248.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="1229" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,19</text>
+<circle cx="32.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,20</text>
+<circle cx="96.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,20</text>
+<circle cx="160.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,20</text>
+<circle cx="224.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,20</text>
+<circle cx="288.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,20</text>
+<circle cx="352.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,20</text>
+<circle cx="416.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,20</text>
+<circle cx="480.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,20</text>
+<circle cx="544.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,20</text>
+<circle cx="608.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,20</text>
+<circle cx="672.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,20</text>
+<circle cx="736.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,20</text>
+<circle cx="800.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,20</text>
+<circle cx="864.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,20</text>
+<circle cx="928.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,20</text>
+<circle cx="992.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,20</text>
+<circle cx="1056.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,20</text>
+<circle cx="1120.0" cy="1312.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="1293" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,20</text>
+<circle cx="32.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,21</text>
+<circle cx="96.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,21</text>
+<circle cx="160.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,21</text>
+<circle cx="224.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,21</text>
+<circle cx="288.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,21</text>
+<circle cx="352.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,21</text>
+<circle cx="416.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,21</text>
+<circle cx="480.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,21</text>
+<circle cx="544.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,21</text>
+<circle cx="608.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,21</text>
+<circle cx="672.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,21</text>
+<circle cx="736.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,21</text>
+<circle cx="800.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,21</text>
+<circle cx="864.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,21</text>
+<circle cx="928.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,21</text>
+<circle cx="992.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,21</text>
+<circle cx="1056.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,21</text>
+<circle cx="1120.0" cy="1376.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="1357" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,21</text>
+<circle cx="32.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,22</text>
+<circle cx="96.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,22</text>
+<circle cx="160.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,22</text>
+<circle cx="224.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,22</text>
+<circle cx="288.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,22</text>
+<circle cx="352.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,22</text>
+<circle cx="416.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,22</text>
+<circle cx="480.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,22</text>
+<circle cx="544.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,22</text>
+<circle cx="608.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,22</text>
+<circle cx="672.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,22</text>
+<circle cx="736.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,22</text>
+<circle cx="800.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,22</text>
+<circle cx="864.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,22</text>
+<circle cx="928.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,22</text>
+<circle cx="992.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,22</text>
+<circle cx="1056.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,22</text>
+<circle cx="1120.0" cy="1440.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="1421" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,22</text>
+<circle cx="32.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,23</text>
+<circle cx="96.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,23</text>
+<circle cx="160.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,23</text>
+<circle cx="224.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,23</text>
+<circle cx="288.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,23</text>
+<circle cx="352.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,23</text>
+<circle cx="416.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,23</text>
+<circle cx="480.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,23</text>
+<circle cx="544.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,23</text>
+<circle cx="608.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,23</text>
+<circle cx="672.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,23</text>
+<circle cx="736.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,23</text>
+<circle cx="800.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,23</text>
+<circle cx="864.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,23</text>
+<circle cx="928.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,23</text>
+<circle cx="992.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,23</text>
+<circle cx="1056.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,23</text>
+<circle cx="1120.0" cy="1504.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="1485" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,23</text>
+<circle cx="32.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,24</text>
+<circle cx="96.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,24</text>
+<circle cx="160.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,24</text>
+<circle cx="224.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,24</text>
+<circle cx="288.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,24</text>
+<circle cx="352.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,24</text>
+<circle cx="416.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,24</text>
+<circle cx="480.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,24</text>
+<circle cx="544.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,24</text>
+<circle cx="608.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,24</text>
+<circle cx="672.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,24</text>
+<circle cx="736.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,24</text>
+<circle cx="800.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,24</text>
+<circle cx="864.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,24</text>
+<circle cx="928.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,24</text>
+<circle cx="992.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,24</text>
+<circle cx="1056.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,24</text>
+<circle cx="1120.0" cy="1568.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="1549" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,24</text>
+<circle cx="32.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,25</text>
+<circle cx="96.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,25</text>
+<circle cx="160.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,25</text>
+<circle cx="224.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,25</text>
+<circle cx="288.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,25</text>
+<circle cx="352.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,25</text>
+<circle cx="416.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,25</text>
+<circle cx="480.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,25</text>
+<circle cx="544.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,25</text>
+<circle cx="608.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,25</text>
+<circle cx="672.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,25</text>
+<circle cx="736.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,25</text>
+<circle cx="800.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,25</text>
+<circle cx="864.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,25</text>
+<circle cx="928.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,25</text>
+<circle cx="992.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,25</text>
+<circle cx="1056.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,25</text>
+<circle cx="1120.0" cy="1632.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="1613" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,25</text>
+<circle cx="32.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,26</text>
+<circle cx="96.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,26</text>
+<circle cx="160.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,26</text>
+<circle cx="224.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,26</text>
+<circle cx="288.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,26</text>
+<circle cx="352.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,26</text>
+<circle cx="416.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,26</text>
+<circle cx="480.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,26</text>
+<circle cx="544.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,26</text>
+<circle cx="608.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,26</text>
+<circle cx="672.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,26</text>
+<circle cx="736.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,26</text>
+<circle cx="800.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,26</text>
+<circle cx="864.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,26</text>
+<circle cx="928.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,26</text>
+<circle cx="992.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,26</text>
+<circle cx="1056.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,26</text>
+<circle cx="1120.0" cy="1696.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="1677" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,26</text>
+<circle cx="32.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="3" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">0,27</text>
+<circle cx="96.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="67" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">1,27</text>
+<circle cx="160.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="131" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">2,27</text>
+<circle cx="224.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="195" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">3,27</text>
+<circle cx="288.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="259" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">4,27</text>
+<circle cx="352.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="323" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">5,27</text>
+<circle cx="416.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="387" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">6,27</text>
+<circle cx="480.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="451" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">7,27</text>
+<circle cx="544.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="515" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">8,27</text>
+<circle cx="608.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="579" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">9,27</text>
+<circle cx="672.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="643" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">10,27</text>
+<circle cx="736.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="707" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">11,27</text>
+<circle cx="800.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="771" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">12,27</text>
+<circle cx="864.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="835" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">13,27</text>
+<circle cx="928.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="899" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">14,27</text>
+<circle cx="992.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="963" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">15,27</text>
+<circle cx="1056.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="1027" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">16,27</text>
+<circle cx="1120.0" cy="1760.0" r="2" fill="#a4b0bf"/>
+<text x="1091" y="1741" font-family="sans-serif" font-size="10" fill="#a4b0bf">17,27</text>
+<rect x="1" y="1" width="1150" height="1790" fill="none" stroke="#394f6a" stroke-width="2"/>
+</svg>

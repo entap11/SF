@@ -2,585 +2,424 @@
 extends Control
 class_name MapSketchCanvas
 
+const Compiler = preload("res://tools/map_sketch_compile.gd")
+const Layout = preload("res://scripts/maps/map_layout_contract.gd")
+const Finalizer = preload("res://tools/map_authoring_finalize_lib.gd")
+const WallRendererScript = preload("res://scripts/renderers/wall_renderer.gd")
+const COLS := 18
+const ROWS := 28
+const AUTOSAVE := "user://map_sketch_draft_v2.json"
+
 signal status_changed(message: String)
 signal hover_changed(message: String)
+signal draft_changed
 
-const COLS := 12
-const ROWS := 8
-const CELL_SIZE := 64.0
-const GRID_COLOR := Color(0.32, 0.32, 0.32)
-const GRID_BORDER := Color(0.18, 0.18, 0.18)
-const LANE_COLOR := Color(0.15, 0.15, 0.15, 0.6)
-const LANE_SELECTED_COLOR := Color(1.0, 0.8, 0.2, 0.9)
-const NODE_OUTLINE_COLOR := Color(0.1, 0.1, 0.1)
-const SNAP_COLOR := Color(0.2, 0.6, 1.0, 0.25)
-
+var draft: Dictionary = new_draft()
+var mode := "select"
+var place_type := "hive"
+var place_owner := "P1"
+var preview_mode := "layout"
+var show_connections := false
+var show_barriers := true
 var sketch_texture: Texture2D
-var sketch_opacity: float = 0.35
+var sketch_opacity := 0.35
+var zoom := 1.0
+var pan := Vector2.ZERO
+var _stroke: Array = []
+var _drag_index := -1
+var _selected_node := -1
+var _selected_wall := -1
+var _selected_slot := -1
+var _drag_slot := -1
+var _panning := false
+var _align_first := Vector2(-1, -1)
+var _history: Array[Dictionary] = []
+var _redo: Array[Dictionary] = []
+var _compiled: Dictionary = {}
+var _issues: Array = []
+var _connections: Array = []
+var _walls: Node2D
+var _barrier_overlay: Node2D
+var _dirty := true
 
-var zoom: float = 1.0
-var pan: Vector2 = Vector2.ZERO
-var min_zoom: float = 0.2
-var max_zoom: float = 4.0
-var user_panned := false
-
-var mode: String = "select"
-var place_type: String = "player_hive"
-var place_owner: String = "P1"
-
-var nodes: Array = []
-var lanes: Array = []
-
-var selected_node_id: String = ""
-var selected_lane_index: int = -1
-var pending_lane_start: String = ""
-
-var hover_cell: Vector2i = Vector2i(-1, -1)
-var hover_valid := false
-
-var dragging_node_id: String = ""
-var dragging := false
-var panning := false
-var pan_start: Vector2 = Vector2.ZERO
-var pan_origin: Vector2 = Vector2.ZERO
-
-var id_counts: Dictionary = {}
+static func new_draft() -> Dictionary:
+	return {"_schema": "swarmfront.map.draft.v1", "id": "MAP_custom__SBASE__1p", "name": "Untitled map",
+		"map_usage": "campaign", "mode": "1p", "layout_symmetry": {"kind": "none", "center": [8.5, 13.5]},
+		"defaults": {"player_start_power": 10, "npc_start_power": 5}, "nodes": [], "structure_slots": [],
+		"authoring": {"single_sector": false, "wall_strokes": []}}
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_STOP
-	set_focus_mode(Control.FOCUS_ALL)
-	_center_grid()
+	focus_mode = Control.FOCUS_ALL
+	_walls = WallRendererScript.new()
+	add_child(_walls)
+	_barrier_overlay = Node2D.new()
+	_barrier_overlay.z_index = 100
+	add_child(_barrier_overlay)
+	_refresh()
 
 func _notification(what: int) -> void:
-	if what == NOTIFICATION_RESIZED and not user_panned:
-		_center_grid()
+	if what == NOTIFICATION_RESIZED: queue_redraw()
+
+func _scale_factor() -> float:
+	return maxf(1.0, minf((size.x - 44.0) / COLS, (size.y - 44.0) / ROWS)) * zoom
+
+func _origin() -> Vector2:
+	return (size - Vector2(COLS, ROWS) * _scale_factor()) * 0.5 + pan
+
+func _screen(p: Vector2) -> Vector2:
+	return _origin() + (p + Vector2(0.5, 0.5)) * _scale_factor()
+
+func _grid(p: Vector2) -> Vector2:
+	return (p - _origin()) / _scale_factor() - Vector2(0.5, 0.5)
+
+func _inside(p: Vector2) -> bool:
+	return p.x >= -0.5 and p.y >= -0.5 and p.x < COLS - 0.5 and p.y < ROWS - 0.5
 
 func set_mode(value: String) -> void:
 	mode = value
-	pending_lane_start = ""
+	_stroke.clear()
+	_align_first = Vector2(-1, -1)
 	queue_redraw()
 
-func set_place_type(value: String) -> void:
-	place_type = value
-
-func set_place_owner(value: String) -> void:
-	place_owner = value
-
+func set_place_type(value: String) -> void: place_type = value
+func set_place_owner(value: String) -> void: place_owner = value
 func set_sketch_opacity(value: float) -> void:
-	sketch_opacity = clamp(value, 0.0, 1.0)
+	sketch_opacity = value
 	queue_redraw()
-
 func clear_sketch() -> void:
+	_checkpoint()
 	sketch_texture = null
-	queue_redraw()
+	draft.authoring.erase("sketch_path")
+	_changed()
+
+func set_policy(usage: String, symmetry: String) -> void:
+	_checkpoint()
+	draft.map_usage = usage
+	draft.layout_symmetry = {"kind": symmetry, "center": draft.layout_symmetry.get("center", [8.5, 13.5])}
+	draft.authoring.single_sector = symmetry != "none"
+	var count: int = Layout.PRESETS.get(symmetry, []).size()
+	draft.mode = "4p" if count == 4 else "1p"
+	draft.player_buckets = ["4P_FFA", "2V2"] if count == 4 else ["1P"]
+	draft.strict_player_buckets = true
+	_changed()
 
 func load_sketch(path: String) -> bool:
 	var img := Image.new()
-	var err := img.load(path)
-	if err != OK:
-		_emit_status("Failed to load image: %s" % path)
+	if img.load(path) != OK:
+		status_changed.emit("Could not open sketch")
 		return false
 	sketch_texture = ImageTexture.create_from_image(img)
-	_emit_status("Loaded sketch: %s" % path)
-	queue_redraw()
+	draft.authoring.sketch_path = path
+	draft.authoring.erase("sketch_crop")
+	_changed()
+	status_changed.emit("Sketch loaded. Use Align sketch to crop screenshot margins; click opposite grid corners.")
 	return true
 
-func clear_all() -> void:
-	nodes.clear()
-	lanes.clear()
-	selected_node_id = ""
-	selected_lane_index = -1
-	pending_lane_start = ""
-	id_counts.clear()
-	queue_redraw()
-
-func export_json(map_name: String, description: String) -> String:
-	var data := _build_export_dict(map_name, description)
-	return JSON.stringify(data, "\t")
-
-func export_json_to_path(path: String, map_name: String, description: String) -> bool:
-	var file_path := path
-	if not file_path.ends_with(".json"):
-		file_path += ".json"
-	var json_text := export_json(map_name, description)
-	var file := FileAccess.open(file_path, FileAccess.WRITE)
-	if file == null:
-		_emit_status("Failed to open: %s" % file_path)
+func load_draft(path: String) -> bool:
+	var data: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+	if not data is Dictionary or not data.get("authoring") is Dictionary or not data.get("nodes") is Array:
+		status_changed.emit("Choose an authoring draft, not a compiled map")
 		return false
-	file.store_string(json_text)
-	_emit_status("Exported: %s" % file_path)
+	var base := new_draft()
+	for key in ["authoring", "layout_symmetry", "defaults"]:
+		if data.has(key) and not data[key] is Dictionary:
+			status_changed.emit("Invalid draft field: " + key)
+			return false
+		var value: Dictionary = base[key].duplicate(true)
+		value.merge(data.get(key, {}), true)
+		data[key] = value
+	base.merge(data, true)
+	var compiled: Dictionary = Compiler.compile(base)
+	if not compiled.ok:
+		status_changed.emit("Cannot open draft: " + "; ".join(compiled.errors))
+		return false
+	_checkpoint()
+	draft = base
+	_reset_selection()
+	_changed()
 	return true
 
-func validate_map(map_name: String, description: String) -> Dictionary:
-	var errors: Array = []
-	var data := _build_export_dict(map_name, description)
-	if data.keys().is_empty() or str(data.keys()[0]) != "_schema":
-		errors.append("_schema must be first key")
-	if nodes.is_empty():
-		errors.append("No nodes placed")
-	var seen_cells: Dictionary = {}
-	var seen_ids: Dictionary = {}
-	for node in nodes:
-		var pos: Vector2i = node.get("grid", Vector2i(-1, -1))
-		if pos.x < 0 or pos.x >= COLS or pos.y < 0 or pos.y >= ROWS:
-			errors.append("Node out of bounds: %s" % node.get("id", ""))
-		var cell_key := "%d,%d" % [pos.x, pos.y]
-		if seen_cells.has(cell_key):
-			errors.append("Duplicate node cell %s" % cell_key)
-		else:
-			seen_cells[cell_key] = true
-		var id_str := str(node.get("id", ""))
-		if id_str.is_empty():
-			errors.append("Node missing id")
-		elif seen_ids.has(id_str):
-			errors.append("Duplicate node id %s" % id_str)
-		else:
-			seen_ids[id_str] = true
-	var lane_keys: Dictionary = {}
-	for lane in lanes:
-		var a_id := str(lane.get("from_id", ""))
-		var b_id := str(lane.get("to_id", ""))
-		if not seen_ids.has(a_id) or not seen_ids.has(b_id):
-			errors.append("Lane endpoint missing: %s-%s" % [a_id, b_id])
-			continue
-		if a_id == b_id:
-			errors.append("Lane self-link: %s" % a_id)
-			continue
-		var key := _lane_key(a_id, b_id)
-		if lane_keys.has(key):
-			errors.append("Duplicate lane: %s" % key)
-		else:
-			lane_keys[key] = true
-	var ok := errors.is_empty()
-	return {"ok": ok, "errors": errors}
+func save_draft(path: String) -> bool:
+	var file := FileAccess.open(path + ".tmp", FileAccess.WRITE)
+	if file == null: return false
+	file.store_string(JSON.stringify(draft, "  ") + "\n")
+	file.close()
+	return DirAccess.rename_absolute(ProjectSettings.globalize_path(path + ".tmp"), ProjectSettings.globalize_path(path)) == OK
+
+func _checkpoint() -> void:
+	_history.append(draft.duplicate(true))
+	if _history.size() > 60: _history.pop_front()
+	_redo.clear()
+
+func undo() -> void:
+	if _history.is_empty(): return
+	_redo.append(draft.duplicate(true))
+	draft = _history.pop_back()
+	_reset_selection()
+	_changed()
+
+func redo() -> void:
+	if _redo.is_empty(): return
+	_history.append(draft.duplicate(true))
+	draft = _redo.pop_back()
+	_reset_selection()
+	_changed()
+
+func _reset_selection() -> void:
+	_selected_node = -1
+	_selected_wall = -1
+	_selected_slot = -1
+	_drag_index = -1
+	_drag_slot = -1
+	_stroke.clear()
+	var sketch: String = str(draft.get("authoring", {}).get("sketch_path", ""))
+	sketch_texture = null
+	if FileAccess.file_exists(sketch):
+		var img := Image.new()
+		if img.load(sketch) == OK: sketch_texture = ImageTexture.create_from_image(img)
+
+func _changed() -> void:
+	_dirty = true
+	_refresh()
+	draft_changed.emit()
+	if not save_draft(AUTOSAVE): status_changed.emit("Draft autosave failed. Save a draft before closing.")
+
+func _refresh() -> void:
+	var result: Dictionary = Compiler.compile(draft)
+	_compiled = result.get("data", {})
+	_issues = result.get("errors", []).duplicate()
+	if not _compiled.is_empty():
+		_issues.append_array(Layout.validate(_compiled).errors)
+	_connections.clear()
+	if show_connections and not _compiled.is_empty():
+		# Preview uses the real loader conversion and GameState connection rule.
+		var Loader = preload("res://scripts/maps/map_loader.gd")
+		var expanded: Dictionary = Loader._expand_v1xy_compact_if_needed(_compiled, "authoring-preview")
+		var model: Dictionary = Loader._load_v1xy(expanded, "authoring-preview")
+		if not model.is_empty():
+			var state := GameState.new()
+			state.load_from_map_dict(model)
+			for a in state.hives:
+				for b in state.hives:
+					if a.id < b.id and state.can_connect(a.id, b.id):
+						_connections.append([Vector2(a.grid_pos), Vector2(b.grid_pos)])
+	_dirty = true
+	queue_redraw()
+
+func validate_map(_map_name: String = "", _description: String = "") -> Dictionary:
+	var result: Dictionary = Finalizer.finalize_map(draft)
+	if result.ok:
+		var path := "user://map_studio_validation.json"
+		var runtime_check: Dictionary = Finalizer.save_json(path, result.data)
+		DirAccess.remove_absolute(ProjectSettings.globalize_path(path))
+		if not runtime_check.ok:
+			result.ok = false
+			result.errors.append(str(runtime_check.err))
+	return result
+
+func export_json(_map_name: String = "", _description: String = "") -> String:
+	var result := validate_map()
+	return JSON.stringify(result.data, "  ") if result.ok else ""
+
+func export_json_to_path(path: String, _map_name: String = "", _description: String = "") -> bool:
+	var result := validate_map()
+	if not result.ok:
+		status_changed.emit("Export blocked: " + "; ".join(result.errors))
+		return false
+	var saved: Dictionary = Finalizer.save_json(path, result.data)
+	status_changed.emit("Validated map exported: " + path if saved.ok else "Export blocked: " + str(saved.err))
+	return saved.ok
 
 func _gui_input(event: InputEvent) -> void:
 	if event is InputEventMouseButton:
-		var mb := event as InputEventMouseButton
-		if mb.button_index == MOUSE_BUTTON_WHEEL_UP and mb.pressed:
-			_zoom_at(mb.position, 1.1)
-			return
-		if mb.button_index == MOUSE_BUTTON_WHEEL_DOWN and mb.pressed:
-			_zoom_at(mb.position, 0.9)
-			return
-		if mb.button_index == MOUSE_BUTTON_MIDDLE:
-			if mb.pressed:
-				panning = true
-				pan_start = mb.position
-				pan_origin = pan
-				user_panned = true
-			else:
-				panning = false
-			return
-		if mb.button_index == MOUSE_BUTTON_RIGHT and mb.pressed:
-			pending_lane_start = ""
+		var p := _grid(event.position)
+		if event.button_index == MOUSE_BUTTON_WHEEL_UP and event.pressed:
+			zoom = minf(4, zoom * 1.12)
 			queue_redraw()
-			return
-		if mb.button_index == MOUSE_BUTTON_LEFT:
+		elif event.button_index == MOUSE_BUTTON_WHEEL_DOWN and event.pressed:
+			zoom = maxf(0.5, zoom / 1.12)
+			queue_redraw()
+		elif event.button_index == MOUSE_BUTTON_MIDDLE: _panning = event.pressed
+		elif event.button_index == MOUSE_BUTTON_RIGHT and event.pressed:
+			_stroke.clear()
+			queue_redraw()
+		elif event.button_index == MOUSE_BUTTON_LEFT:
 			grab_focus()
-			if mb.pressed:
-				_handle_left_press(mb.position)
-			else:
-				_drag_end()
-			return
+			if mode == "align" and event.pressed:
+				_align_click(event.position)
+			elif event.pressed and _inside(p):
+				if mode in ["curve", "straight"]: _stroke = [[p.x, p.y]]
+				elif mode == "corners": _stroke.append([p.x, p.y])
+				elif mode == "place": _place(p.round())
+				else: _select(p)
+			elif not event.pressed:
+				if mode in ["curve", "straight"]: _finish_stroke()
+				if _drag_index >= 0 or _drag_slot >= 0:
+					_drag_index = -1
+					_drag_slot = -1
+					_changed()
 	elif event is InputEventMouseMotion:
-		var mm := event as InputEventMouseMotion
-		_update_hover(mm.position)
-		if panning:
-			pan = pan_origin + (mm.position - pan_start)
-			queue_redraw()
-			return
-		if dragging:
-			_drag_move(mm.position)
-			return
+		var p := _grid(event.position)
+		hover_changed.emit("Cell %d, %d" % [roundi(p.x), roundi(p.y)])
+		if _panning: pan += event.relative
+		elif _inside(p):
+			if _drag_index >= 0:
+				draft.nodes[_drag_index].pos = {"x": roundi(p.x), "y": roundi(p.y)}
+				_refresh()
+			elif _drag_slot >= 0:
+				draft.structure_slots[_drag_slot].pos = {"x": roundi(p.x), "y": roundi(p.y)}
+				_refresh()
+			elif mode in ["curve", "straight"] and not _stroke.is_empty():
+				if Layout.point(_stroke[-1]).distance_to(p) > 0.10: _stroke.append([p.x, p.y])
+		queue_redraw()
 
 func _unhandled_key_input(event: InputEvent) -> void:
-	if event is InputEventKey and event.pressed and not event.echo:
-		var key := (event as InputEventKey).keycode
-		if key == KEY_DELETE or key == KEY_BACKSPACE:
-			_delete_selected()
-
-func _handle_left_press(pos: Vector2) -> void:
-	_update_hover(pos)
-	if mode == "place":
-		_place_node_at_hover()
-		return
-	if mode == "connect":
-		_handle_connect_click(pos)
-		return
-	_select_at_point(pos)
-
-func _select_at_point(pos: Vector2) -> void:
-	selected_lane_index = -1
-	var node: Dictionary = _node_at_point(pos)
-	if not node.is_empty():
-		selected_node_id = str(node.get("id", ""))
-		dragging_node_id = selected_node_id
-		dragging = true
-		return
-	selected_node_id = ""
-	var lane_idx := _lane_at_point(pos)
-	if lane_idx != -1:
-		selected_lane_index = lane_idx
-	queue_redraw()
-
-func _handle_connect_click(pos: Vector2) -> void:
-	var node: Dictionary = _node_at_point(pos)
-	if node.is_empty():
-		return
-	if not _is_hive_node(node):
-		_emit_status("Only hives can be lane endpoints")
-		return
-	var node_id := str(node.get("id", ""))
-	if pending_lane_start.is_empty():
-		pending_lane_start = node_id
+	if not has_focus() or not event is InputEventKey or not event.pressed: return
+	if event.keycode == KEY_ENTER: _finish_stroke()
+	elif event.keycode == KEY_ESCAPE:
+		_stroke.clear()
 		queue_redraw()
-		return
-	if pending_lane_start == node_id:
-		pending_lane_start = ""
-		queue_redraw()
-		return
-	_add_lane(pending_lane_start, node_id)
-	pending_lane_start = ""
-	queue_redraw()
+	elif event.keycode in [KEY_DELETE, KEY_BACKSPACE]:
+		_checkpoint()
+		if _selected_node >= 0 and _selected_node < draft.nodes.size(): draft.nodes.remove_at(_selected_node)
+		elif _selected_wall >= 0 and _selected_wall < draft.authoring.wall_strokes.size(): draft.authoring.wall_strokes.remove_at(_selected_wall)
+		elif _selected_slot >= 0 and _selected_slot < draft.structure_slots.size(): draft.structure_slots.remove_at(_selected_slot)
+		_reset_selection()
+		_changed()
+	elif event.keycode == KEY_Z and (event.ctrl_pressed or event.meta_pressed):
+		if event.shift_pressed: redo()
+		else: undo()
 
-func _place_node_at_hover() -> void:
-	if not hover_valid:
-		_emit_status("Click inside the grid")
-		return
-	if not _node_at_cell(hover_cell, "").is_empty():
-		_emit_status("Cell already occupied")
-		return
-	var node: Dictionary = _create_node(hover_cell)
-	nodes.append(node)
-	queue_redraw()
+func _place(p: Vector2) -> void:
+	_checkpoint()
+	var id := "h_%d" % Time.get_ticks_usec()
+	if place_type == "slot":
+		draft.structure_slots.append({"id": id, "pos": {"x": p.x, "y": p.y}, "allowed": ["tower", "barracks"]})
+	else:
+		draft.nodes.append({"id": id, "kind": "hive", "pos": {"x": p.x, "y": p.y}, "owner": "NPC" if place_type == "npc" else place_owner})
+	_changed()
 
-func _drag_move(pos: Vector2) -> void:
-	if dragging_node_id.is_empty():
-		return
-	if not hover_valid:
-		return
-	var node: Dictionary = _node_by_id(dragging_node_id)
-	if node.is_empty():
-		return
-	if not _node_at_cell(hover_cell, dragging_node_id).is_empty():
-		return
-	node["grid"] = hover_cell
-	queue_redraw()
-
-func _drag_end() -> void:
-	dragging = false
-	dragging_node_id = ""
-
-func _delete_selected() -> void:
-	if not selected_node_id.is_empty():
-		_delete_node(selected_node_id)
-		selected_node_id = ""
-		queue_redraw()
-		return
-	if selected_lane_index != -1:
-		lanes.remove_at(selected_lane_index)
-		selected_lane_index = -1
-		queue_redraw()
-
-func _delete_node(node_id: String) -> void:
-	for i in range(nodes.size() - 1, -1, -1):
-		if str(nodes[i].get("id", "")) == node_id:
-			nodes.remove_at(i)
-			break
-	for i in range(lanes.size() - 1, -1, -1):
-		var lane: Dictionary = lanes[i]
-		if str(lane.get("from_id", "")) == node_id or str(lane.get("to_id", "")) == node_id:
-			lanes.remove_at(i)
-
-func _update_hover(pos: Vector2) -> void:
-	var cell: Vector2i = _screen_to_grid(pos)
-	if cell.x < 0 or cell.x >= COLS or cell.y < 0 or cell.y >= ROWS:
-		hover_valid = false
-		hover_cell = Vector2i(-1, -1)
-		hover_changed.emit("Hover: --")
-		return
-	hover_valid = true
-	hover_cell = cell
-	hover_changed.emit("Hover: %d,%d" % [cell.x, cell.y])
-	queue_redraw()
-
-func _node_at_point(pos: Vector2) -> Dictionary:
-	var hit_radius := CELL_SIZE * 0.25 * zoom
-	for node in nodes:
-		var center := _grid_to_screen(node.get("grid", Vector2i.ZERO))
-		if center.distance_to(pos) <= hit_radius:
-			return node
-	return {}
-
-func _node_at_cell(cell: Vector2i, ignore_id: String) -> Dictionary:
-	for node in nodes:
-		if ignore_id != "" and str(node.get("id", "")) == ignore_id:
-			continue
-		if node.get("grid", Vector2i(-1, -1)) == cell:
-			return node
-	return {}
-
-func _node_by_id(node_id: String) -> Dictionary:
-	for node in nodes:
-		if str(node.get("id", "")) == node_id:
-			return node
-	return {}
-
-func _lane_at_point(pos: Vector2) -> int:
-	var threshold := max(6.0, 6.0 * zoom)
-	for i in range(lanes.size()):
-		var lane: Dictionary = lanes[i]
-		var a_node: Dictionary = _node_by_id(str(lane.get("from_id", "")))
-		var b_node: Dictionary = _node_by_id(str(lane.get("to_id", "")))
-		if a_node.is_empty() or b_node.is_empty():
-			continue
-		var a_pos := _grid_to_screen(a_node.get("grid", Vector2i.ZERO))
-		var b_pos := _grid_to_screen(b_node.get("grid", Vector2i.ZERO))
-		var dist_t := _segment_distance_t(pos, a_pos, b_pos)
-		if dist_t.x <= threshold and dist_t.y > 0.0 and dist_t.y < 1.0:
-			return i
-	return -1
-
-func _add_lane(a_id: String, b_id: String) -> void:
-	if a_id == b_id:
-		return
-	var key := _lane_key(a_id, b_id)
-	for lane in lanes:
-		if _lane_key(str(lane.get("from_id", "")), str(lane.get("to_id", ""))) == key:
-			_emit_status("Lane already exists")
+func _select(p: Vector2) -> void:
+	_selected_node = -1
+	_selected_wall = -1
+	_selected_slot = -1
+	for i in range(draft.nodes.size()):
+		if Layout.point(draft.nodes[i]).distance_to(p) < 0.65:
+			_checkpoint()
+			_selected_node = i
+			_drag_index = i
 			return
-	lanes.append({"from_id": a_id, "to_id": b_id})
-	_emit_status("Lane added %s" % key)
-
-func _is_hive_node(node: Dictionary) -> bool:
-	var t := str(node.get("type", ""))
-	return t == "player_hive" or t == "npc_hive"
-
-func _create_node(cell: Vector2i) -> Dictionary:
-	var node_type := place_type
-	var owner := ""
-	if node_type == "player_hive":
-		owner = place_owner
-	elif node_type == "npc_hive":
-		owner = "NPC"
-	var node_id := _next_node_id(node_type, owner)
-	return {
-		"id": node_id,
-		"type": node_type,
-		"owner": owner,
-		"grid": cell
-	}
-
-func _next_node_id(node_type: String, owner: String) -> String:
-	var key := node_type
-	if node_type == "player_hive":
-		key = owner
-	if node_type == "npc_hive":
-		key = "NPC"
-	if not id_counts.has(key):
-		id_counts[key] = 0
-	var count := int(id_counts[key]) + 1
-	id_counts[key] = count
-	var base := "N"
-	match node_type:
-		"player_hive":
-			base = "%s_H" % owner
-		"npc_hive":
-			base = "NPC_H"
-		"tower":
-			base = "T"
-		"barracks":
-			base = "B"
-	return "%s%d" % [base, count]
-
-func _build_export_dict(map_name: String, description: String) -> Dictionary:
-	var entities: Array = []
-	var sorted_nodes := nodes.duplicate()
-	sorted_nodes.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		var a_id := str(a.get("id", ""))
-		var b_id := str(b.get("id", ""))
-		return a_id < b_id
-	)
-	for node in sorted_nodes:
-		var pos: Vector2i = node.get("grid", Vector2i.ZERO)
-		var entry: Dictionary = {
-			"id": str(node.get("id", "")),
-			"type": str(node.get("type", "")),
-			"x": pos.x,
-			"y": pos.y,
-			"grid_x": pos.x,
-			"grid_y": pos.y
-		}
-		var owner := str(node.get("owner", ""))
-		if not owner.is_empty():
-			entry["owner"] = owner
-		entities.append(entry)
-	var lanes_out: Array = []
-	var lane_sorted := lanes.duplicate()
-	lane_sorted.sort_custom(func(a: Dictionary, b: Dictionary) -> bool:
-		return _lane_key(str(a.get("from_id", "")), str(a.get("to_id", ""))) < _lane_key(str(b.get("from_id", "")), str(b.get("to_id", "")))
-	)
-	for lane in lane_sorted:
-		lanes_out.append({
-			"from_id": str(lane.get("from_id", "")),
-			"to_id": str(lane.get("to_id", ""))
-		})
-	var data: Dictionary = {}
-	data["_schema"] = "swarmfront.map.v1.xy"
-	data["width"] = COLS
-	data["height"] = ROWS
-	if not map_name.strip_edges().is_empty():
-		data["name"] = map_name.strip_edges()
-	if not description.strip_edges().is_empty():
-		data["description"] = description.strip_edges()
-	data["entities"] = entities
-	data["lanes"] = lanes_out
-	return data
-
-func _lane_key(a_id: String, b_id: String) -> String:
-	if a_id < b_id:
-		return "%s:%s" % [a_id, b_id]
-	return "%s:%s" % [b_id, a_id]
-
-func _segment_distance_t(p: Vector2, a: Vector2, b: Vector2) -> Vector2:
-	var ab: Vector2 = b - a
-	var ab_len_sq: float = ab.length_squared()
-	if ab_len_sq <= 0.000001:
-		return Vector2(p.distance_to(a), 0.0)
-	var t: float = ((p - a).dot(ab)) / ab_len_sq
-	var t_clamped: float = clamp(t, 0.0, 1.0)
-	var closest: Vector2 = a + ab * t_clamped
-	return Vector2(p.distance_to(closest), t)
-
-func _grid_to_screen(cell: Vector2i) -> Vector2:
-	return pan + Vector2((cell.x + 0.5) * CELL_SIZE * zoom, (cell.y + 0.5) * CELL_SIZE * zoom)
-
-func _screen_to_grid(pos: Vector2) -> Vector2i:
-	var grid_pos: Vector2 = (pos - pan) / (CELL_SIZE * zoom)
-	var gx := int(round(grid_pos.x - 0.5))
-	var gy := int(round(grid_pos.y - 0.5))
-	return Vector2i(gx, gy)
-
-func _center_grid() -> void:
-	var grid_size := Vector2(COLS * CELL_SIZE, ROWS * CELL_SIZE) * zoom
-	pan = (size - grid_size) * 0.5
+	for i in range(draft.structure_slots.size()):
+		if Layout.point(draft.structure_slots[i]).distance_to(p) < 0.65:
+			_checkpoint()
+			_selected_slot = i
+			_drag_slot = i
+			return
+	var closest := 0.5
+	for i in range(draft.authoring.wall_strokes.size()):
+		var pts: Array = draft.authoring.wall_strokes[i].points
+		for j in range(pts.size() - 1):
+			var distance: float = Layout.Schema._point_segment_distance(p, Layout.point(pts[j]), Layout.point(pts[j + 1]))
+			if distance < closest:
+				closest = distance
+				_selected_wall = i
 	queue_redraw()
 
-func _zoom_at(pos: Vector2, factor: float) -> void:
-	var old_zoom := zoom
-	zoom = clamp(zoom * factor, min_zoom, max_zoom)
-	var world_before := (pos - pan) / old_zoom
-	pan = pos - world_before * zoom
-	queue_redraw()
+func _finish_stroke() -> void:
+	if _stroke.size() < 2:
+		_stroke.clear()
+		return
+	_checkpoint()
+	if mode == "straight": _stroke = [_stroke[0], _stroke[-1]]
+	draft.authoring.wall_strokes.append({"id": "wall_%d" % Time.get_ticks_usec(), "points": _stroke.duplicate(true), "smooth": mode == "curve"})
+	_stroke.clear()
+	_changed()
+
+func _image_rect() -> Rect2:
+	var image_size := Vector2(sketch_texture.get_size())
+	var factor := minf(size.x / image_size.x, size.y / image_size.y)
+	return Rect2((size - image_size * factor) / 2, image_size * factor)
+
+func _align_click(p: Vector2) -> void:
+	if sketch_texture == null: return
+	var rect := _image_rect()
+	if not rect.has_point(p): return
+	var pixel := (p - rect.position) / rect.size * Vector2(sketch_texture.get_size())
+	if _align_first.x < 0:
+		_align_first = pixel
+		status_changed.emit("Now click the opposite corner of the drawing grid")
+	else:
+		var minimum := _align_first.min(pixel)
+		var extent := (_align_first - pixel).abs()
+		if extent.x < 10 or extent.y < 10: return
+		draft.authoring.sketch_crop = [minimum.x, minimum.y, extent.x, extent.y]
+		mode = "select"
+		_changed()
+		status_changed.emit("Sketch aligned to 18×28")
 
 func _draw() -> void:
-	draw_rect(Rect2(Vector2.ZERO, size), Color(0.1, 0.1, 0.1), true)
-	var grid_rect := Rect2(pan, Vector2(COLS * CELL_SIZE, ROWS * CELL_SIZE) * zoom)
-	if sketch_texture != null:
-		draw_texture_rect(sketch_texture, grid_rect, false, Color(1.0, 1.0, 1.0, sketch_opacity))
-	_draw_grid(grid_rect)
-	_draw_lanes()
-	_draw_nodes()
-	_draw_selection()
-	_draw_pending_lane()
-	_draw_hover_cell()
-
-func _draw_grid(grid_rect: Rect2) -> void:
-	var width := COLS * CELL_SIZE * zoom
-	var height := ROWS * CELL_SIZE * zoom
-	for x in range(COLS + 1):
-		var px := pan.x + x * CELL_SIZE * zoom
-		var color := GRID_BORDER if x == 0 or x == COLS else GRID_COLOR
-		draw_line(Vector2(px, pan.y), Vector2(px, pan.y + height), color, 1.0)
-	for y in range(ROWS + 1):
-		var py := pan.y + y * CELL_SIZE * zoom
-		var color := GRID_BORDER if y == 0 or y == ROWS else GRID_COLOR
-		draw_line(Vector2(pan.x, py), Vector2(pan.x + width, py), color, 1.0)
-
-func _draw_nodes() -> void:
-	for node in nodes:
-		var pos: Vector2i = node.get("grid", Vector2i.ZERO)
-		var center := _grid_to_screen(pos)
-		var radius := CELL_SIZE * 0.25 * zoom
-		var color := _node_color(node)
-		var t := str(node.get("type", ""))
-		if t == "tower" or t == "barracks":
-			var size := radius * 1.6
-			var rect := Rect2(center.x - size * 0.5, center.y - size * 0.5, size, size)
-			draw_rect(rect, color, true)
-			draw_rect(rect, NODE_OUTLINE_COLOR, false, 1.0)
-		else:
-			draw_circle(center, radius, color)
-			draw_arc(center, radius, 0.0, TAU, 24, NODE_OUTLINE_COLOR, 1.0)
-		var label := str(node.get("id", ""))
-		if not label.is_empty():
-			draw_string(ThemeDB.fallback_font, center + Vector2(-radius, radius * 0.2), label, HORIZONTAL_ALIGNMENT_CENTER, radius * 2.0, 10, Color(1, 1, 1))
-
-func _draw_lanes() -> void:
-	var width := max(1.0, 2.0 * zoom)
-	for i in range(lanes.size()):
-		var lane: Dictionary = lanes[i]
-		var a_node: Dictionary = _node_by_id(str(lane.get("from_id", "")))
-		var b_node: Dictionary = _node_by_id(str(lane.get("to_id", "")))
-		if a_node.is_empty() or b_node.is_empty():
-			continue
-		var a_pos := _grid_to_screen(a_node.get("grid", Vector2i.ZERO))
-		var b_pos := _grid_to_screen(b_node.get("grid", Vector2i.ZERO))
-		var color := LANE_SELECTED_COLOR if i == selected_lane_index else LANE_COLOR
-		draw_line(a_pos, b_pos, color, width)
-
-func _draw_selection() -> void:
-	if selected_node_id.is_empty():
+	var origin := _origin()
+	var cell := _scale_factor()
+	var board := Rect2(origin, Vector2(COLS, ROWS) * cell)
+	draw_rect(Rect2(Vector2.ZERO, size), Color("10141c"))
+	if mode == "align" and sketch_texture != null:
+		draw_texture_rect(sketch_texture, _image_rect(), false)
+		if _walls != null: _walls.visible = false
 		return
-	var node: Dictionary = _node_by_id(selected_node_id)
-	if node.is_empty():
-		return
-	var center := _grid_to_screen(node.get("grid", Vector2i.ZERO))
-	var radius := CELL_SIZE * 0.32 * zoom
-	draw_arc(center, radius, 0.0, TAU, 28, Color(1.0, 1.0, 1.0), 2.0)
+	draw_rect(board, Color("202936"))
+	if sketch_texture != null and preview_mode == "sketch":
+		var crop: Array = draft.authoring.get("sketch_crop", [0, 0, sketch_texture.get_width(), sketch_texture.get_height()])
+		draw_texture_rect_region(sketch_texture, board, Rect2(crop[0], crop[1], crop[2], crop[3]), Color(1, 1, 1, sketch_opacity))
+	for x in range(COLS + 1): draw_line(origin + Vector2(x * cell, 0), origin + Vector2(x * cell, ROWS * cell), Color(0.5, 0.6, 0.75, 0.10))
+	for y in range(ROWS + 1): draw_line(origin + Vector2(0, y * cell), origin + Vector2(COLS * cell, y * cell), Color(0.5, 0.6, 0.75, 0.10))
+	var font := ThemeDB.fallback_font
+	for x in range(COLS): draw_string(font, origin + Vector2((x + 0.3) * cell, -4), str(x), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("8091a6"))
+	for y in range(ROWS): draw_string(font, origin + Vector2(-20, (y + 0.65) * cell), str(y), HORIZONTAL_ALIGNMENT_LEFT, -1, 10, Color("8091a6"))
+	for connection in _connections: draw_line(_screen(connection[0]), _screen(connection[1]), Color(0.3, 0.9, 0.75, 0.25), 1, true)
+	var segments: Array = Layout.walls(_compiled)
+	if _walls != null:
+		_walls.visible = preview_mode == "finished"
+		if _dirty:
+			var world: Array = []
+			for segment in segments: world.append({"a": segment.a * 64, "b": segment.b * 64})
+			_walls.set_wall_segments(world)
+			_raise_preview_layers(_walls)
+			for child in _barrier_overlay.get_children(): child.free()
+			for segment in world:
+				var line := Line2D.new()
+				line.points = PackedVector2Array([segment.a, segment.b])
+				line.width = 2.5
+				line.default_color = Color("e6b76c")
+				line.antialiased = true
+				_barrier_overlay.add_child(line)
+			_dirty = false
+		_walls.position = origin + Vector2(0.5, 0.5) * cell
+		_walls.scale = Vector2.ONE * cell / 64.0
+		_barrier_overlay.position = _walls.position
+		_barrier_overlay.scale = _walls.scale
+		_barrier_overlay.visible = show_barriers and preview_mode == "finished"
+	if preview_mode != "finished" or show_barriers:
+		for segment in segments: draw_line(_screen(segment.a), _screen(segment.b), Color("e6b76c"), 2.0, true)
+	for hive in Layout.hive_entries(_compiled):
+		var color: Color = [Color("91a3ba"), Color("e9b852"), Color("ec757a"), Color("71aef2"), Color("8ac997")][clampi(hive.owner, 0, 4)]
+		draw_circle(_screen(hive.pos), cell * 0.30, color)
+		draw_arc(_screen(hive.pos), cell * 0.40, 0, TAU, 24, color.darkened(0.4), 1, true)
+		if hive.owner > 0: draw_string(font, _screen(hive.pos) + Vector2(-6, -cell * 0.5), "P%d" % hive.owner, HORIZONTAL_ALIGNMENT_LEFT, -1, 11, color)
+	for slot in _compiled.get("structure_slots", []): draw_rect(Rect2(_screen(Layout.point(slot)) - Vector2.ONE * cell * 0.25, Vector2.ONE * cell * 0.5), Color("a994d0"), false, 2)
+	if _selected_node >= 0 and _selected_node < draft.nodes.size(): draw_circle(_screen(Layout.point(draft.nodes[_selected_node])), cell * 0.5, Color.WHITE, false, 2)
+	if _selected_slot >= 0 and _selected_slot < draft.structure_slots.size(): draw_circle(_screen(Layout.point(draft.structure_slots[_selected_slot])), cell * 0.5, Color.WHITE, false, 2)
+	if preview_mode == "sketch" or _selected_wall >= 0:
+		for i in range(draft.authoring.wall_strokes.size()):
+			if preview_mode != "sketch" and i != _selected_wall: continue
+			var pts: Array = draft.authoring.wall_strokes[i].points
+			for j in range(pts.size() - 1): draw_line(_screen(Layout.point(pts[j])), _screen(Layout.point(pts[j + 1])), Color(0.6, 0.75, 1, 0.65), 1, true)
+	for i in range(_stroke.size() - 1): draw_line(_screen(Layout.point(_stroke[i])), _screen(Layout.point(_stroke[i + 1])), Color.WHITE, 2, true)
 
-func _draw_pending_lane() -> void:
-	if pending_lane_start.is_empty():
-		return
-	var node: Dictionary = _node_by_id(pending_lane_start)
-	if node.is_empty():
-		return
-	var start := _grid_to_screen(node.get("grid", Vector2i.ZERO))
-	var end := start
-	if hover_valid:
-		end = _grid_to_screen(hover_cell)
-	var color := Color(0.2, 0.7, 1.0, 0.8)
-	draw_line(start, end, color, max(1.0, 1.5 * zoom))
-
-func _draw_hover_cell() -> void:
-	if not hover_valid:
-		return
-	var cell_rect := Rect2(
-		pan + Vector2(hover_cell.x * CELL_SIZE * zoom, hover_cell.y * CELL_SIZE * zoom),
-		Vector2(CELL_SIZE * zoom, CELL_SIZE * zoom)
-	)
-	draw_rect(cell_rect, SNAP_COLOR, true)
-
-func _node_color(node: Dictionary) -> Color:
-	var t := str(node.get("type", ""))
-	if t == "tower":
-		return Color(0.45, 0.3, 0.7)
-	if t == "barracks":
-		return Color(0.3, 0.6, 0.4)
-	if t == "npc_hive":
-		return Color(0.55, 0.65, 0.75)
-	var owner := str(node.get("owner", ""))
-	match owner:
-		"P1":
-			return Color(0.2, 0.2, 0.2)
-		"P2":
-			return Color(0.85, 0.2, 0.2)
-		"P3":
-			return Color(0.2, 0.4, 0.9)
-		"P4":
-			return Color(0.95, 0.85, 0.2)
-	return Color(0.6, 0.6, 0.6)
-
-func _emit_status(message: String) -> void:
-	status_changed.emit(message)
+func _raise_preview_layers(node: Node) -> void:
+	# The editor Control draws its floor at z=0; lift presentation children only.
+	for child in node.get_children():
+		if child is CanvasItem and not child.z_as_relative:
+			child.z_index += 20
+			child.z_as_relative = true
+		_raise_preview_layers(child)

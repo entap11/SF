@@ -103,6 +103,7 @@ func _print_usage() -> void:
 		"  --family=nomansland",
 		"  --display-family=No Man's Land",
 		"  --mode=1p|2p|3p|4p",
+		"  --map-usage=campaign|multiplayer|both (required in draft or option)",
 		"  --player-buckets=1P,2V2,4P_FFA",
 		"  --playstyle-tags=FFA,STRATEGY",
 		"  --season-tags=nomansland,545",

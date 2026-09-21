@@ -2,6 +2,7 @@ class_name MapRegistry
 extends RefCounted
 
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
+const Layout := preload("res://scripts/maps/map_layout_contract.gd")
 
 const MAP_ROOT: String = "res://maps"
 const SKIP_DIR_TOKENS: Array[String] = ["/_legacy", "/templates"]
@@ -219,7 +220,7 @@ const PUBLIC_MAP_ALIASES: Dictionary = {
 	}
 }
 
-static func list_map_paths() -> Array[String]:
+static func list_map_paths(usage: String = "") -> Array[String]:
 	var out: Array[String] = []
 	_collect_json_map_files(MAP_ROOT, out)
 	var filtered: Array[String] = []
@@ -227,6 +228,10 @@ static func list_map_paths() -> Array[String]:
 		var path: String = str(path_any)
 		if not is_map_path_allowed(path):
 			continue
+		if not usage.is_empty():
+			var data: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))
+			if not data is Dictionary or not Layout.supports_usage(data, usage).ok:
+				continue
 		filtered.append(path)
 	filtered.sort()
 	return filtered
