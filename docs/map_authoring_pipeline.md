@@ -73,6 +73,15 @@ project/user-data directory with service URLs cleared; no live profile is used.
   runtime validation and 26 legal connections. Standalone graphical studio: pass.
 - Existing map lane availability (16 maps), map layout rules and PvP 1v1 map
   contract checks: pass.
+- Required fast release run: authoring, all five lane/input/presentation checks,
+  MVP (26 checks), soak-launch contract and matrix contract (15 pass, 13 skipped)
+  pass. Matrix boot finishes with seven configurations passing, one failing and
+  five skipped: the 2v2 stage-race arena misses its startup deadline. The same
+  route passes on targeted repeat in both this branch and untouched base; both
+  emit the existing unit-color shader compiler diagnostic. The original full
+  gate therefore remains recorded as failed, not a clean release certification.
+  The skipped fast soak stage was subsequently run with its exact standard
+  settings: all three selected routes pass (seed 123, one pair, ten seconds).
 - `map_mode_contract_smoke_test.gd` and `map_public_alias_smoke_test.gd` reproduce
   the same failures on untouched base commit `c758b75`: Corkscrew owner 2 has no
   opening lane; the alias test has 17 stale catalog/tutorial expectations.
