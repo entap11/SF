@@ -2,6 +2,7 @@ extends SceneTree
 
 const Observation := preload("res://scripts/bot/bot_observation.gd")
 const HumanPolicy := preload("res://scripts/bot/human_bot_policy.gd")
+const FrozenV2 := preload("res://tools/fixtures/bot/human_balancer_v2.gd")
 const Command := preload("res://scripts/bot/bot_command.gd")
 const Baseline := preload("res://scripts/bot/baseline_bot_policy.gd")
 const Random := preload("res://scripts/bot/bot_random.gd")
@@ -27,9 +28,12 @@ func _initialize() -> void:
 	_test_defense_and_resume()
 	_test_supply_sequence()
 	_test_attention_moves_between_commitments()
+	_test_uncontested_expansion_releases_attention()
+	_test_bounded_attention_capacity()
 	_test_supported_defense_does_not_panic()
 	_test_donor_preserves_lane_capacity()
 	_test_backline_development()
+	_test_spare_capacity_supports_active_front()
 	_test_supported_frontier_can_expand()
 	_test_counterpressure_and_concentration()
 	_test_fragile_counterattack_waits()
@@ -170,6 +174,92 @@ func _test_attention_moves_between_commitments() -> void:
 	var reviewed := policy.choose(_view(state, 14000), memory, {"allow_swarm": false}, 14000)
 	_expect(str(reviewed.get("intent", "")) == "retract" and int(reviewed.get("dst", 0)) == 2, "a remembered front is still reviewed and withdrawn when stalled")
 
+func _test_uncontested_expansion_releases_attention() -> void:
+	var state := _reset({"hives": [
+		{"id": 1, "x": 0, "y": 0, "owner_id": 1, "power": 10},
+		{"id": 2, "x": 2, "y": 0, "owner_id": 0, "power": 5},
+		{"id": 3, "x": 0, "y": 2, "owner_id": 0, "power": 5},
+		{"id": 4, "x": 6, "y": 4, "owner_id": 2, "power": 10}],
+		"lane_candidates": [{"a_id": 1, "b_id": 2}, {"a_id": 1, "b_id": 3}, {"a_id": 4, "b_id": 2}]})
+	_expect(bool(Command.apply(_ops, 1, {"src": 1, "dst": 2, "intent": "attack"}).get("ok", false)), "expansion fixture opens its first neutral route")
+	var original := {"plan": {"goal": "expand", "source": 1, "target": 2, "progress_ms": 0, "best_power": 5, "review_ms": 6000}}
+	var profile: Dictionary = _ops.call("get_bot_profile", 1)
+	var policy := HumanPolicy.new()
+	var view := _view(state, 2000)
+	var before := view.duplicate(true)
+	var memory := original.duplicate(true)
+	var choice := policy.choose(view, memory, profile, 2000)
+	_expect(choice.get("intent") == "attack" and int(choice.get("dst", 0)) == 3,
+		"an uncontested expansion lets the next ordinary decision use the spare neutral route")
+	_expect(memory.get("watching", []).size() == 1 and int(memory.get("plan", {}).get("target", 0)) == 3,
+		"the first expansion stays watched while attention moves to the second")
+	_expect(view == before and state.is_outgoing_lane_active(1, 2) and not state.is_outgoing_lane_active(1, 3),
+		"planning leaves the observation and authoritative routes unchanged")
+	var control := profile.duplicate(true)
+	control["human_review_uncontested_expansion"] = false
+	_expect(policy.choose(view, original.duplicate(true), control, 2000).is_empty(),
+		"the control reproduces the six-second expansion wait")
+	profile["blocked_intents_until_ms"] = {"1|3|attack": 5000}
+	var blocked_choice := policy.choose(view, original.duplicate(true), profile, 2000)
+	_expect(not (blocked_choice.get("intent") == "attack" and int(blocked_choice.get("dst", 0)) == 3),
+		"early attention release still respects command cooldowns")
+	profile.erase("blocked_intents_until_ms")
+	# A visible convoy still contests the neutral after its source stops sending.
+	state.units_by_lane["_all"] = [{"from_id": 4, "to_id": 2, "owner_id": 2, "t": 0.8, "amount": 5}]
+	_expect(policy.choose(_view(state, 2000), original.duplicate(true), profile, 2000).is_empty(),
+		"a visible rival convoy keeps the current expansion in focus")
+	state.units_by_lane["_all"] = []
+	_expect(bool(Command.apply(_ops, 2, {"src": 4, "dst": 2, "intent": "attack"}).get("ok", false)), "expansion fixture opens rival pressure")
+	_expect(policy.choose(_view(state, 2000), original.duplicate(true), profile, 2000).is_empty(),
+		"a competing enemy route keeps the current expansion in focus")
+
+func _test_bounded_attention_capacity() -> void:
+	var state := _reset({"hives": [
+		{"id": 1, "x": 0, "y": 0, "owner_id": 1, "power": 35},
+		{"id": 2, "x": 4, "y": 0, "owner_id": 2, "power": 50},
+		{"id": 3, "x": 0, "y": 4, "owner_id": 2, "power": 50},
+		{"id": 4, "x": -4, "y": 0, "owner_id": 2, "power": 50},
+		{"id": 5, "x": 8, "y": 8, "owner_id": 1, "power": 10},
+		{"id": 6, "x": 12, "y": 8, "owner_id": 0, "power": 5},
+		{"id": 7, "x": 8, "y": 12, "owner_id": 0, "power": 5}],
+		"lane_candidates": [{"a_id": 1, "b_id": 2}, {"a_id": 1, "b_id": 3}, {"a_id": 1, "b_id": 4}, {"a_id": 5, "b_id": 6}, {"a_id": 5, "b_id": 7}]})
+	for target in [2, 3, 4]:
+		_expect(bool(Command.apply(_ops, 1, {"src": 1, "dst": target, "intent": "attack"}).get("ok", false)), "attention fixture opens an existing commitment")
+	var primary := {"goal": "pressure", "source": 1, "target": 2, "progress_ms": 6000, "best_power": 50, "review_ms": 6000}
+	var original := {"plan": primary.duplicate(true), "watching": []}
+	for target in [3, 4]:
+		var watched := primary.duplicate(true)
+		watched["target"] = target
+		original["watching"].append(watched)
+	var profile: Dictionary = _ops.call("get_bot_profile", 1)
+	profile["human_watch_limit"] = 3
+	var control := profile.duplicate(true)
+	control["human_watch_limit"] = 2
+	var policy := HumanPolicy.new()
+	var observation := _view(state, 7000)
+	var before := observation.duplicate(true)
+	_expect(policy.choose(observation, original.duplicate(true), control, 7000).is_empty(), "two watched commitments reproduce the blocked expansion")
+	var memory := original.duplicate(true)
+	var choice := policy.choose(observation, memory, profile, 7000)
+	_expect(choice.get("intent") == "attack" and int(choice.get("src", 0)) == 5 and int(choice.get("dst", 0)) == 6,
+		"one additional watched commitment lets an idle hive expand after the review interval")
+	_expect(memory.get("watching", []).size() == 3 and int(memory.get("plan", {}).get("target", 0)) == 6,
+		"the previous commitments stay remembered alongside the new current plan")
+	_expect(int(memory.get("watch_cursor", 0)) == 1, "a decision still reviews only one watched commitment")
+	_expect(observation == before and not state.is_outgoing_lane_active(5, 6), "attention planning leaves observation and authoritative routes unchanged")
+	_expect(bool(Command.apply(_ops, 1, choice).get("ok", false)), "the additional expansion uses the authoritative command path")
+	_expect(policy.choose(_view(state, 8000), memory, profile, 8000).is_empty() and memory.get("watching", []).size() == 3,
+		"three watched plans plus the current plan still block a fifth commitment")
+	var bounded := memory.duplicate(true)
+	profile["human_watch_limit"] = 999
+	_expect(policy.choose(_view(state, 8000), bounded, profile, 8000).is_empty() and bounded.get("watching", []).size() == 3,
+		"an excessive profile value cannot remove the attention bound")
+	profile["human_watch_limit"] = 3
+	# An emergency must still interrupt even when every attention slot is full.
+	state.units_by_lane["_all"] = [{"from_id": 2, "to_id": 5, "owner_id": 2, "t": 0.8, "amount": 25}]
+	_expect(policy.choose(_view(state, 9000), memory, profile, 9000).get("intent") == "retract",
+		"full attention does not prevent withdrawal from an exposed source")
+
 func _test_blocked_candidate() -> void:
 	var state := _reset()
 	var profile := {"team_by_seat": {1: 1, 2: 2}, "randomness": 0.0, "aggression": 1.0, "feed_bias": 0.0,
@@ -216,6 +306,36 @@ func _test_backline_development() -> void:
 	Command.apply(_ops, 1, choice)
 	var second := policy._develop_supply(_view(state), {}, {}, 3000)
 	_expect(second.is_empty(), "development does not create a reciprocal feeding loop")
+
+func _test_spare_capacity_supports_active_front() -> void:
+	var state := _reset({"hives": [
+		{"id": 1, "x": 0, "y": 0, "owner_id": 1, "power": 35},
+		{"id": 2, "x": -3, "y": 0, "owner_id": 1, "power": 45},
+		{"id": 3, "x": 3, "y": 0, "owner_id": 1, "power": 15},
+		{"id": 4, "x": 6, "y": 0, "owner_id": 2, "power": 50}]})
+	_expect(bool(Command.apply(_ops, 1, {"src": 1, "dst": 2, "intent": "feed"}).get("ok", false)), "reserve fixture already supplies another hive")
+	_expect(bool(Command.apply(_ops, 1, {"src": 3, "dst": 4, "intent": "attack"}).get("ok", false)), "reserve fixture has an active unsupported front")
+	var memory := {"plan": {"goal": "pressure", "source": 3, "target": 4, "progress_ms": 0, "best_power": 50, "review_ms": 6000}}
+	var view := _view(state, 1000)
+	var before := JSON.stringify(view)
+	_expect(FrozenV2.new().choose(view, memory.duplicate(true), {}, 1000).is_empty(), "frozen v2 reproduces the unsupported-front hesitation")
+	var policy := HumanPolicy.new()
+	var choice := policy.choose(view, memory, {}, 1000)
+	_expect(str(choice.get("goal", "")) == "develop" and int(choice.get("src", 0)) == 1 and int(choice.get("dst", 0)) == 3, "a reserve with spare capacity reinforces an active front")
+	_expect(JSON.stringify(view) == before and not state.is_outgoing_lane_active(1, 3), "planning support leaves observation and gameplay unchanged")
+	_expect(int(memory["plan"]["target"]) == 4 and int(memory["plan"]["review_ms"]) == 6000, "routine support retains the current focus and review deadline")
+	# The spare route is not a mandate to fill every lane: it needs an active front.
+	Command.apply(_ops, 1, {"src": 3, "dst": 4, "intent": "retract"})
+	_expect(policy._develop_supply(_view(state), {}, {}, 1000).is_empty(), "a busy reserve does not add routine supply to an inactive front")
+	Command.apply(_ops, 1, {"src": 3, "dst": 4, "intent": "attack"})
+	_expect(policy._develop_supply(_view(state), {}, {"1": 8.0}, 1000).is_empty(), "a threatened reserve keeps its spare capacity")
+	_expect(policy._develop_supply(_view(state), {"blocked_intents_until_ms": {"1|3|feed": 2000}}, {}, 1000).is_empty(), "spare supply respects known command cooldowns")
+	state.find_hive_by_id(1).power = 9
+	_expect(policy._develop_supply(_view(state), {}, {}, 1000).is_empty(), "a depleted reserve cannot use nonexistent lane capacity")
+	state.find_hive_by_id(1).power = 35
+	_expect(bool(Command.apply(_ops, 1, choice).get("ok", false)), "spare supply executes through the authoritative command path")
+	_expect(state.is_outgoing_lane_active(1, 2) and state.is_outgoing_lane_active(1, 3) and state.is_outgoing_lane_active(3, 4), "reinforcement preserves the existing supply and attack routes")
+	_expect(policy._develop_supply(_view(state), {}, {}, 3000).is_empty(), "the next review does not duplicate supply or circulate it back")
 
 func _test_supported_frontier_can_expand() -> void:
 	var state := _reset({"hives": [

@@ -22,6 +22,11 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 		+ float(profile.get("compact_min_attack_power_bonus", 0.0)) * compact_board
 	))
 	var min_attack_power: int = maxi(1, int(profile.get("min_attack_power", 8)) + attack_power_adjustment)
+	var min_neutral_attack_power: int = min_attack_power
+	if bool(profile.get("neutral_uses_base_attack_power", false)):
+		# Keep the base reserve for expansion without the board-size surcharge
+		# used for enemy attacks. Never raise an already lower neutral threshold.
+		min_neutral_attack_power = mini(min_attack_power, maxi(1, int(profile.get("min_attack_power", 8))))
 	var min_feed_power: int = maxi(1, int(profile.get("min_feed_power", 11)))
 	var min_swarm_power: int = maxi(1, int(profile.get("min_swarm_power", min_attack_power + 6)))
 	var allow_swarm: bool = bool(profile.get("allow_swarm", true))
@@ -172,7 +177,8 @@ func choose_intent(state_ref: GameState, seat: int, profile: Dictionary, now_ms:
 					"tier": tier_id
 				})
 			else:
-				if src_power < min_attack_power:
+				var required_power: int = min_neutral_attack_power if dst_owner <= 0 else min_attack_power
+				if src_power < required_power:
 					continue
 				var attack_score: float = _score_attack(
 					src,

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Paired v1/current pilot evaluation with fixed maps, opponents, seeds and clocks."""
+"""Paired frozen/current pilot evaluation with matched maps, opponents, seeds and clocks."""
 import argparse
 from collections import Counter, defaultdict
 import hashlib
@@ -15,7 +15,7 @@ OPPONENTS = ["raider", "turtle", "greedy"]
 SEED = 4101
 ITERATIONS = 2
 ANSI = re.compile(r"\x1b\[[0-9;]*m")
-SOURCES = ["tools/fixtures/bot/human_balancer_v1.gd", "scripts/bot/human_bot_policy.gd",
+SOURCES = ["tools/fixtures/bot/human_balancer_v1.gd", "tools/fixtures/bot/human_balancer_v2.gd", "scripts/bot/human_bot_policy.gd",
            "scripts/bot/bot_observation.gd", "scripts/systems/bot_system.gd",
            "scripts/systems/sim_runner.gd", "scripts/ops/ops_state.gd",
            "tools/bot_tournament_runner.gd", "tools/run_bot_calibration.py"]
@@ -29,7 +29,7 @@ def key(row):
     return row["map_id"], row["a"], row["b"], row["seed"]
 
 
-def evaluate(godot, folder, arm):
+def evaluate(godot, folder, arm, schedule):
     hashes = source_hashes()
     manifest = folder / f"{arm}_manifest.json"
     manifest.unlink(missing_ok=True)
@@ -39,10 +39,10 @@ def evaluate(godot, folder, arm):
     log = folder / f"{arm}_final.log"
     args = [godot, "--headless", "--path", str(ROOT), "--script", "res://tools/bot_tournament_runner.gd", "--",
             "--styles=balancer," + ",".join(OPPONENTS), "--focus-style=balancer", "--variants=1p",
-            "--map-ids=" + ",".join(MAPS), f"--iterations={ITERATIONS}", f"--seed={SEED}",
+            "--map-ids=" + ",".join(schedule["maps"]), f"--iterations={schedule['iterations']}", f"--seed={schedule['seed']}",
             "--report-samples", f"--output={output}"]
     if arm == "control":
-        args.append("--pilot-control")
+        args.append("--pilot-control-v2" if schedule["control_policy"] == "v2" else "--pilot-control")
     with log.open("w") as handle:
         process = subprocess.run(args, cwd=ROOT, stdout=handle, stderr=subprocess.STDOUT, timeout=1200)
     content = ANSI.sub("", log.read_text(errors="replace"))
@@ -50,19 +50,25 @@ def evaluate(godot, folder, arm):
         raise RuntimeError(f"{arm} failed; see {log}")
     payload = json.loads(output.read_text())
     expected = {(m, a + ":medium", b + ":medium", s)
-                for m in MAPS for opponent in OPPONENTS
+                for m in schedule["maps"] for opponent in OPPONENTS
                 for a, b in [("balancer", opponent), (opponent, "balancer")]
-                for s in range(SEED, SEED + ITERATIONS)}
+                for s in range(schedule["seed"], schedule["seed"] + schedule["iterations"])}
     if {key(row) for row in payload["results"]} != expected or len(payload["results"]) != len(expected):
         raise RuntimeError(f"{arm} silently omitted or duplicated requested matchups")
     if any(not row["completed"] for row in payload["results"]):
         raise RuntimeError(f"{arm} contains incomplete matches; do not count them as completed results")
-    expected_controller = "v1_control" if arm == "control" else "current"
+    expected_controller = schedule["control_policy"] + "_control" if arm == "control" else "current"
     if any(row["pilot_controller"] != expected_controller for row in payload["results"]):
         raise RuntimeError(f"{arm} ran the wrong pilot controller")
+    expected_policy = "human_balancer_" + (schedule["control_policy"] if arm == "control" else "v3")
+    for row in payload["results"]:
+        seat = 1 if row["a"] == "balancer:medium" else 2
+        applied = [event for event in row["trace"] if event["seat"] == seat and event["event"] == "applied"]
+        if not applied or any(event.get("policy") != expected_policy for event in applied):
+            raise RuntimeError(f"{arm} did not execute the expected policy: {expected_policy}")
     if source_hashes() != hashes:
         raise RuntimeError(f"Source changed during {arm}; rerun against a fixed revision")
-    manifest.write_text(json.dumps({"source_hashes": hashes, "result_sha256": hashlib.sha256(output.read_bytes()).hexdigest()}, indent=2) + "\n")
+    manifest.write_text(json.dumps({"schedule": schedule, "source_hashes": hashes, "result_sha256": hashlib.sha256(output.read_bytes()).hexdigest()}, indent=2) + "\n")
     print(f"PASS {arm}: {len(expected)} completed matches", flush=True)
 
 
@@ -125,7 +131,13 @@ def compare(folder):
             raise RuntimeError("Evaluation output changed after validation")
     if manifests[0]["source_hashes"] != manifests[1]["source_hashes"]:
         raise RuntimeError("Control and candidate were evaluated against different source revisions")
-    control, candidate = [json.loads(path.read_text())["results"] for path in paths]
+    if manifests[0]["schedule"] != manifests[1]["schedule"]:
+        raise RuntimeError("Control and candidate used different evaluation schedules")
+    schedule = manifests[0]["schedule"]
+    payloads = [json.loads(path.read_text()) for path in paths]
+    if payloads[0]["engine"] != payloads[1]["engine"] or payloads[0]["canonical_tick_ms"] != payloads[1]["canonical_tick_ms"]:
+        raise RuntimeError("Control and candidate used different engines or canonical clocks")
+    control, candidate = [payload["results"] for payload in payloads]
     if {key(row) for row in control} != {key(row) for row in candidate}:
         raise RuntimeError("Control/candidate schedules differ")
     old = {key(row): row for row in control}
@@ -139,7 +151,10 @@ def compare(folder):
             for field in ("human_timing", "opening_delay_ms", "opening_stagger_ms"):
                 if profile.get(field) != current.get(field):
                     raise RuntimeError(f"Timing changed: {field}")
-    report = {"maps": MAPS, "opponents": OPPONENTS, "seeds": list(range(SEED, SEED + ITERATIONS)),
+    report = {"maps": schedule["maps"], "opponents": OPPONENTS,
+              "seeds": list(range(schedule["seed"], schedule["seed"] + schedule["iterations"])),
+              "control_policy": schedule["control_policy"],
+              "engine": payloads[0]["engine"],
               "control": summarize(control), "candidate": summarize(candidate),
               "source_hashes": manifests[0]["source_hashes"],
               "report_source_sha256": hashlib.sha256(Path(__file__).read_bytes()).hexdigest()}
@@ -152,11 +167,19 @@ def main():
     parser.add_argument("--arm", choices=["control", "candidate", "both", "compare"], default="both")
     parser.add_argument("--artifacts", type=Path, default=ROOT / "artifacts/bot-calibration")
     parser.add_argument("--godot", default=os.environ.get("GODOT_BIN", "godot"))
+    parser.add_argument("--control-policy", choices=["v1", "v2"], default="v1")
+    parser.add_argument("--seed", type=int, default=SEED)
+    parser.add_argument("--iterations", type=int, default=ITERATIONS)
+    parser.add_argument("--map-ids", default=",".join(MAPS))
     options = parser.parse_args()
+    maps = [value.strip() for value in options.map_ids.split(",") if value.strip()]
+    if options.iterations < 1 or not maps or len(set(maps)) != len(maps):
+        parser.error("Require positive iterations and a nonempty list of distinct map IDs")
+    schedule = {"maps": maps, "seed": options.seed, "iterations": options.iterations, "control_policy": options.control_policy}
     folder = options.artifacts.resolve()
     folder.mkdir(parents=True, exist_ok=True)
     for arm in (["control", "candidate"] if options.arm == "both" else ([] if options.arm == "compare" else [options.arm])):
-        evaluate(options.godot, folder, arm)
+        evaluate(options.godot, folder, arm, schedule)
     if options.arm in ("both", "compare"):
         compare(folder)
 

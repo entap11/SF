@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SMOKES = [
     ("bot_runtime_smoke_test", "BOT_RUNTIME_SMOKE: PASS"),
     ("bot_style_separation_smoke_test", "BOT_STYLE_SEPARATION_SMOKE: PASS"),
+    ("bot_neutral_expansion_smoke_test", "BOT_NEUTRAL_EXPANSION_SMOKE: PASS"),
     ("progressive_bot_grace_smoke_test", "PROGRESSIVE_BOT_GRACE_SMOKE: PASS"),
     ("match_telemetry_hooks_smoke_test", "MATCH_TELEMETRY_HOOKS_SMOKE: PASS"),
     ("player_telemetry_report_smoke_test", "PLAYER_TELEMETRY_REPORT_SMOKE: PASS"),
@@ -59,7 +60,7 @@ def main():
     results = runs[0]["results"]
     if len(results) != 2 or any(not row["completed"] or not row["trace"] for row in results):
         raise RuntimeError("Canonical tournament did not finish both seat-swapped matches with real CPU decisions")
-    if not any(event.get("policy") == "human_balancer_v2" and event["event"] == "applied" for row in results for event in row["trace"]):
+    if not any(event.get("policy") == "human_balancer_v3" and event["event"] == "applied" for row in results for event in row["trace"]):
         raise RuntimeError("Canonical tournament never exercised the human-behavior pilot")
     print("PASS repeated canonical match results and decision traces", flush=True)
     horizon = artifacts / "horizon.json"

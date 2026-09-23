@@ -1,5 +1,11 @@
 # Balancer behavior calibration — September 16, 2026
 
+September 22 continuation: see the [next behavior checkpoint](bot_human_continuation_2026-09-22.md)
+for spare-capacity support, Godot 4.7.1 snapshot trace repair and the v2/v3 comparison.
+The latest experiment is [reinforcement need](bot_reinforcement_need_2026-09-22.md).
+The owner's [phone comparison proposal](bot_phone_comparison_2026-09-23.md)
+records the next human session and the TestFlight preparation still required.
+
 ## Checkpoint
 
 The second medium Balancer pilot addresses unnecessary defensive swarms, unused
