@@ -1,6 +1,6 @@
 extends "res://scripts/hive/hive_distress_light.gd"
-## Review candidate: inherits all existing pressure rules and timers unchanged.
-const SURFACE := preload("res://tools/hive_pressure_study/pressure.gdshader")
+## Frozen first review candidate: inherits all existing pressure rules and timers unchanged.
+const SURFACE := preload("res://tools/hive_pressure_study/pressure_v1.gdshader")
 var _surface: ShaderMaterial
 
 func _ready() -> void:
@@ -22,20 +22,10 @@ func _draw() -> void:
 	if _surge_elapsed >= 0.0 and _surge_duration > 0.0:
 		surge = sin(clampf(_surge_elapsed / _surge_duration, 0.0, 1.0) * PI) * _surge_strength
 	var moving := _motion_mode == "full"
-	# A clear two-beat warning rhythm; reduced/static paths keep steady illumination.
-	# This is sampled from the existing presentation clock, never the simulation RNG.
-	var pulse := 0.0
-	if moving and _critical_active:
-		var wave := 0.5 + 0.5 * cos(_presentation_t * TAU * 2.0)
-		pulse = wave * wave * wave
-	var onset := 0.0
-	if moving and _burst_kind != HiveDistressRules.BURST_NONE:
-		onset = smoothstep(0.0, 0.035, progress) * (1.0 - smoothstep(0.08, 0.26, progress))
 	var size := _current_size
 	_surface.set_shader_parameter("owner_color", _owner_color)
-	_surface.set_shader_parameter("energy", _critical_base_intensity * (0.92 + pulse * 1.70) + burst * 1.28 + surge * 0.70 + onset * 0.48)
+	_surface.set_shader_parameter("energy", _critical_base_intensity * 0.66 + burst * 0.95 + surge * 0.45)
 	_surface.set_shader_parameter("burst", burst)
-	_surface.set_shader_parameter("pulse", pulse)
 	_surface.set_shader_parameter("progress", progress)
 	_surface.set_shader_parameter("phase", _presentation_t if moving else 0.0)
 	_surface.set_shader_parameter("seed", float(_stable_seed % 23) * 0.43)

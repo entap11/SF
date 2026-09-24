@@ -5,6 +5,7 @@ ROOT=Path(__file__).resolve().parents[1]
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('--godot',required=True)
 p.add_argument('--output',type=Path,required=True)
+p.add_argument('--motion',choices=['full','reduced','none'],default='full')
 p.add_argument('--capture',action='store_true')
 p.add_argument('--stills',action='store_true')
 a=p.parse_args()
@@ -33,7 +34,7 @@ window/vsync/vsync_mode=0
 [rendering]
 renderer/rendering_method="gl_compatibility"
 ''')
-env=os.environ.copy(); env['SF_PRESSURE_OUTPUT']=str(out)
+env=os.environ.copy(); env['SF_PRESSURE_OUTPUT']=str(out); env['SF_PRESSURE_MOTION']=a.motion
 cmd=[a.godot,'--path',str(runtime),'--script','res://tools/hive_pressure_study/study.gd']
 if a.capture or a.stills: cmd+=['--','--capture' if a.capture else '--stills']
 with (out/'capture.log').open('w') as log:

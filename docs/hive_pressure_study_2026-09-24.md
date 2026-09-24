@@ -22,3 +22,33 @@ approved tier transformation integration.
 Reproduce with `tools/run_hive_pressure_study.py` and
 `tools/build_hive_pressure_review.py`. Physical-phone profiling is still needed
 before a production pressure replacement.
+
+## Revision 2 — combat recognition
+
+The owner liked the first direction but found it too subtle during battle. The
+second candidate increases ignition contrast, doubles the visible vent reach,
+broadens the vents, increases ember size and adds a two-pulse-per-second rhythm
+while pressure is active. Warm amber/orange light with white-hot peaks separates
+the warning from the team-colored hive body. The vents splay around a protected
+centre so the power number remains legible. Major rupture retains the stronger
+burst; recovery still follows the inherited timing.
+
+The revised comparison places the preserved first candidate on the left and the
+stronger treatment on the right. Both compact views now include moving traffic
+and crossing lanes. This is a synthetic readability fixture, not a running match
+or evidence of human recognition speed.
+
+Review: `../artifacts/hive-pressure-2026-09-24-v2/index.html`.
+The original video remains at the original path. `pressure_v1.gd` and its shader
+preserve the first candidate for a direct comparison. Reproduction commands now
+produce revision 2. Pass `--motion reduced` or `--motion none` to inspect the
+steady alternatives; the added pulse and ignition flash are full-motion only.
+
+The production pressure renderer and all simulation files remain unchanged. The
+candidate still uses the same rectangle, one shader material, no child nodes,
+and four fixed ember paths. It reuses the existing shimmer for plume width;
+brightness does not add draw calls, particles or screen-space effects. The added
+pulse is sampled from the existing presentation clock. Both candidates still
+match pressure state, hold time, intensity, counters and surge index on every
+sample, in full, reduced and static motion. Physical-phone profiling remains part
+of production validation.

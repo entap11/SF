@@ -1,7 +1,7 @@
 extends SceneTree
 
 const Body := preload("res://tools/hive_transition_study/presenter.gd")
-const Existing := preload("res://scripts/hive/hive_distress_light.gd")
+const Existing := preload("res://tools/hive_pressure_study/pressure_v1.gd")
 const Candidate := preload("res://tools/hive_pressure_study/pressure.gd")
 const Rules := preload("res://scripts/hive/hive_distress_rules.gd")
 const Layout := preload("res://tools/hive_transition_study/study.gd")
@@ -12,6 +12,7 @@ var bodies: Array[Node2D] = []
 var effects: Array[Node2D] = []
 var indicators: Array[Node2D] = []
 var panels: Array[Panel] = []
+var fields: Array[Node2D] = []
 var stage: Node2D
 var caption: Label
 var phase_label: Label
@@ -22,6 +23,29 @@ var time := 0.0
 var preview_paused := false
 var speed := 1.0
 var capture := false
+var preview_motion := "full"
+
+class CombatField:
+	extends Node2D
+	var phase := 0.0
+	func _draw() -> void:
+		for x in range(28,630,52):
+			draw_line(Vector2(x,490),Vector2(x,650),Color(0.22,0.35,0.42,0.12),1.0)
+		for y in range(490,651,40):
+			draw_line(Vector2(18,y),Vector2(614,y),Color(0.22,0.35,0.42,0.12),1.0)
+		var starts := [Vector2(18,635),Vector2(20,510),Vector2(275,650),Vector2(596,625)]
+		var ends := [Vector2(605,510),Vector2(595,635),Vector2(365,493),Vector2(112,515)]
+		for i in range(4):
+			var a: Vector2 = starts[i]
+			var b: Vector2 = ends[i]
+			var color := Color(0.27,0.57,0.67) if i%2 else Color(0.76,0.48,0.22)
+			draw_line(a,b,Color(color,0.32),1.1,true)
+			var heading := (b-a).normalized()
+			var normal := Vector2(-heading.y,heading.x)
+			for j in range(6):
+				var t := fposmod(phase*0.16+float(j)/6.0+float(i)*0.13,1.0)
+				var at := a.lerp(b,t)
+				draw_colored_polygon(PackedVector2Array([at+heading*3.8,at-heading*2.3+normal*2.0,at-heading*2.3-normal*2.0]),color.lightened(0.25))
 
 func _init() -> void:
 	call_deferred("run")
@@ -38,6 +62,8 @@ func label(text: String, at: Vector2, size: int, color := Color(0.89,0.92,0.94))
 
 func run() -> void:
 	output = OS.get_environment("SF_PRESSURE_OUTPUT")
+	preview_motion = OS.get_environment("SF_PRESSURE_MOTION")
+	if preview_motion.is_empty(): preview_motion = "full"
 	capture = "--capture" in OS.get_cmdline_user_args() or "--stills" in OS.get_cmdline_user_args()
 	font = FontFile.new()
 	assert(font.load_dynamic_font("res://assets/Iceland-Regular.ttf") == OK)
@@ -54,7 +80,7 @@ func run() -> void:
 	root.add_child(stage)
 	label("SWARMFRONT   /   MATERIAL & MOTION",Vector2(64,36),23,Color(0.60,0.69,0.76))
 	label("Hive pressure",Vector2(61,79),68)
-	label("A hot outlet. Contained venting. A quick, clean recovery.",Vector2(64,158),27,Color(0.65,0.73,0.79))
+	label("Brighter onset. White-hot vents. A clear warning pulse.",Vector2(64,158),27,Color(0.65,0.73,0.79))
 	for x in [64,744]:
 		var panel := Panel.new()
 		panel.position = Vector2(x,224)
@@ -68,14 +94,17 @@ func run() -> void:
 		panel.clip_contents = true
 		stage.add_child(panel)
 		panels.append(panel)
-	label("CURRENT",Vector2(92,244),25,Color(0.61,0.69,0.75))
-	label("REFINED   /   REVIEW CANDIDATE",Vector2(772,244),25,Color(0.95,0.79,0.52))
+		var field := CombatField.new()
+		panel.add_child(field)
+		fields.append(field)
+	label("PREVIOUS   /   SUBTLE",Vector2(92,244),25,Color(0.61,0.69,0.75))
+	label("REVISED   /   COMBAT READABILITY",Vector2(772,244),25,Color(0.95,0.79,0.52))
 	for column in range(2):
 		var x := 380.0+680.0*column
 		add_hive(Vector2(x,471),1.55,column == 1,Color(1.0,0.77,0.08))
 		add_hive(Vector2(x-136,789),0.54,column == 1,Color(1.0,0.77,0.08))
 		add_hive(Vector2(x+136,789),0.54,column == 1,Color(0.29,0.82,1.0))
-		label("BATTLEFIELD SCALE",Vector2(x-285,709),19,Color(0.47,0.58,0.67))
+		label("BUSY FIELD   /   COMPACT SCALE",Vector2(x-285,709),19,Color(0.47,0.58,0.67))
 		var line := Line2D.new()
 		line.z_index = -1
 		line.points = PackedVector2Array([Vector2(x-127,838),Vector2(x+124,838)])
@@ -104,7 +133,7 @@ func add_hive(at: Vector2, size: float, candidate: bool, tint: Color) -> void:
 	body.configure(textures,tint)
 	body.position = at-panel.position
 	body.scale = Vector2.ONE*size
-	var effect := Candidate.new() if candidate else Existing.new()
+	var effect: Node2D = Candidate.new() if candidate else Existing.new()
 	body.add_child(effect)
 	effect.z_index = 0 # Keep the close-up inside its comparison panel.
 	var indicator := Layout.Indicators.new()
@@ -117,6 +146,9 @@ func add_hive(at: Vector2, size: float, candidate: bool, tint: Color) -> void:
 	indicators.append(indicator)
 
 func step(seconds: float, delta: float) -> void:
+	for field in fields:
+		field.phase = seconds if preview_motion == "full" else 0.0
+		field.queue_redraw()
 	var segment := int(seconds/SEGMENT_SEC)%4
 	var local := fposmod(seconds,SEGMENT_SEC)
 	if segment != previous_segment:
@@ -147,7 +179,7 @@ func step(seconds: float, delta: float) -> void:
 			if segment == 3 and event == 1: old_power=5; new_power=6
 			var pressure: String = Rules.classify_pressure_transition(true,1,1,1,old_power,new_power,segment==0 or segment==3)
 			var burst: String = Rules.classify_tier_rupture(3 if segment==1 else 2 if segment==2 else 1,tier) if event==0 else Rules.BURST_NONE
-			effects[i].apply_presentation(1, effects[i].position, bodies[i].owner_color, "full", {
+			effects[i].apply_presentation(1, effects[i].position, bodies[i].owner_color, preview_motion, {
 				"pressure_transition":pressure,"burst_kind":burst,"play_pressure_entry":pressure==Rules.PRESSURE_TRIGGER and event==0,
 				"critical_surge_delay":Rules.CRITICAL_ENTRY_HANDOFF_SEC,
 				"current_size":size,"pre_transition_size":bodies[i]._size_for(tier+1)*256.0 if segment in [1,2] else size
