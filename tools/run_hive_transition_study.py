@@ -18,6 +18,8 @@ def main():
     project = output / 'runtime'
     (project / 'tools').mkdir(parents=True, exist_ok=True)
     (project / 'assets').mkdir(exist_ok=True)
+    (project / 'scripts/hive').mkdir(parents=True,exist_ok=True)
+    shutil.copyfile(ROOT/'scripts/hive/hive_transition_timing.gd',project/'scripts/hive/hive_transition_timing.gd')
     source = project / 'tools/hive_transition_study'
     if not source.exists():
         source.symlink_to(ROOT / 'tools/hive_transition_study', target_is_directory=True)

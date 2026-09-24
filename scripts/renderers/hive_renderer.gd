@@ -29,6 +29,9 @@ const HIVE_FALLBACK_WIDTH_SCALE: float = 0.90
 @export var cell_px: float = 64.0
 @export var animations_enabled := true
 
+# Bound expensive presentation during simultaneous tier storms. No sim input changes.
+const MAX_FULL_HIVE_TRANSFORMS := 6
+
 const HEARTBEAT_HZ := 20.0
 const HEARTBEAT_DT := 1.0 / HEARTBEAT_HZ
 var _heartbeat_accum := 0.0
@@ -667,8 +670,18 @@ func _growth_contexts_for_model(rm: Dictionary) -> Dictionary:
 		return contexts
 	var mode: String = _growth_motion_mode()
 	if mode == "none":
+		_cancel_all_growth_transitions("motion_disabled")
 		return contexts
-	var hives: Array = rm.get("hives", []) as Array
+	var full_ids: Dictionary = {}
+	if mode == "full":
+		for active_id in hive_nodes_by_id:
+			var active_node: Node = hive_nodes_by_id[active_id] as Node
+			var active_pose: Dictionary = active_node.call("get_growth_transition_debug_snapshot") as Dictionary
+			if bool(active_pose.get("active", false)) and str(active_pose.get("mode", "none")) == "full":
+				full_ids[active_id] = true
+	var hives: Array = (rm.get("hives", []) as Array).duplicate()
+	# Stable presentation priority across render-model orderings.
+	hives.sort_custom(func(a: Dictionary, b: Dictionary): return _resolve_hive_id(a.get("id",0)) < _resolve_hive_id(b.get("id",0)))
 	for hive_any in hives:
 		if typeof(hive_any) != TYPE_DICTIONARY:
 			continue
@@ -679,15 +692,31 @@ func _growth_contexts_for_model(rm: Dictionary) -> Dictionary:
 		if not hive_nodes_by_id.has(hive_id):
 			continue
 		var previous: Dictionary = _growth_projection_by_id[hive_id] as Dictionary
+		if mode == "reduced":
+			var render_node: Node = hive_nodes_by_id[hive_id] as Node
+			var presentation: Dictionary = render_node.call("get_growth_transition_debug_snapshot") as Dictionary
+			if bool(presentation.get("active", false)) and str(presentation.get("mode", "none")) == "full":
+				render_node.call("cancel_growth_transition", "motion_reduced")
+		if int(previous.get("owner_id", 0)) != _owner_id_for_hive_model(hive):
+			var node: Node = hive_nodes_by_id[hive_id] as Node
+			if node != null and node.has_method("cancel_growth_transition"):
+				node.call("cancel_growth_transition", "ownership_changed")
+			continue
 		var old_tier: int = int(previous.get("tier", HiveGrowthRules.TIER_SMALL))
 		var new_tier: int = int(hive.get("growth_tier", old_tier))
-		if new_tier <= old_tier:
+		if new_tier == old_tier:
 			continue
 		var old_budget: int = int(previous.get("lane_budget_max", old_tier))
 		var new_budget: int = int(hive.get("lane_budget_max", new_tier))
+		var edge_mode: String = mode
+		if mode == "full" and not full_ids.has(hive_id):
+			if full_ids.size() >= MAX_FULL_HIVE_TRANSFORMS:
+				edge_mode = "reduced"
+			else:
+				full_ids[hive_id] = true
 		contexts[hive_id] = {
 			"play": true,
-			"mode": mode,
+			"mode": edge_mode,
 			"old_tier": old_tier,
 			"new_tier": new_tier,
 			"old_lane_budget_max": old_budget,

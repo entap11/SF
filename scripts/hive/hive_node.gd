@@ -288,7 +288,7 @@ func apply_render(
 	var transition_will_cover_swap: bool = (
 		bool(growth_transition.get("play", false))
 		and transition_mode != "none"
-		and desired_growth_tier > previous_growth_tier
+		and desired_growth_tier != int(growth_transition.get("old_tier", previous_growth_tier))
 	)
 	if not (_defer_match_shadow_swap and _growth_transition_active()):
 		_defer_match_shadow_swap = transition_will_cover_swap
@@ -386,9 +386,9 @@ func _bind_growth_transition_shadow_swap() -> void:
 	var started_callback := Callable(self, "_on_growth_transition_started_for_distress")
 	if transition.has_signal("transition_started") and not transition.is_connected("transition_started", started_callback):
 		transition.connect("transition_started", started_callback)
-	var reveal_callback := Callable(self, "_on_final_ring_reveal_started")
-	if transition.has_signal("final_ring_reveal_started") and not transition.is_connected("final_ring_reveal_started", reveal_callback):
-		transition.connect("final_ring_reveal_started", reveal_callback)
+	var reveal_callback := Callable(self, "_on_reveal_started")
+	if transition.has_signal("reveal_started") and not transition.is_connected("reveal_started", reveal_callback):
+		transition.connect("reveal_started", reveal_callback)
 	var finished_callback := Callable(self, "_on_growth_transition_finished_for_shadow")
 	if transition.has_signal("transition_finished") and not transition.is_connected("transition_finished", finished_callback):
 		transition.connect("transition_finished", finished_callback)
@@ -396,7 +396,7 @@ func _bind_growth_transition_shadow_swap() -> void:
 	if transition.has_signal("transition_cancelled") and not transition.is_connected("transition_cancelled", cancelled_callback):
 		transition.connect("transition_cancelled", cancelled_callback)
 
-func _on_final_ring_reveal_started(_new_tier: int) -> void:
+func _on_reveal_started(_new_tier: int) -> void:
 	_commit_pending_growth_presentation()
 
 func _on_growth_transition_finished_for_shadow(_new_tier: int) -> void:
@@ -407,15 +407,13 @@ func _on_growth_transition_cancelled_for_shadow(_reason: String) -> void:
 	_commit_pending_growth_presentation()
 	_set_distress_growth_suppressed(false)
 
-func _on_growth_transition_started_for_distress(_old_tier: int, _new_tier: int) -> void:
-	_set_distress_growth_suppressed(true)
+func _on_growth_transition_started_for_distress(old_tier: int, new_tier: int) -> void:
+	_set_distress_growth_suppressed(new_tier > old_tier)
 
 func _commit_pending_growth_presentation() -> void:
 	if _pending_growth_tier > 0:
 		growth_tier = _pending_growth_tier
 		_pending_growth_tier = 0
-	if visual != null and visual.has_method("commit_growth_presentation"):
-		visual.call("commit_growth_presentation")
 	_update_selector_visual()
 	_update_capture_flag_layout()
 	if _selected:
@@ -620,7 +618,8 @@ func _refresh_distress_presentation() -> void:
 		bool(_latest_distress_presentation.get("hostile_capture_pressure", false))
 	)
 	if distress.has_method("set_growth_suppressed"):
-		distress.call("set_growth_suppressed", _growth_transition_active())
+		var transform: Dictionary = get_growth_transition_debug_snapshot()
+		distress.call("set_growth_suppressed", bool(transform.get("active", false)) and int(transform.get("new_tier", 0)) > int(transform.get("old_tier", 0)))
 
 func _ensure_distress_light() -> Node2D:
 	if _distress_light != null and is_instance_valid(_distress_light):
@@ -648,8 +647,6 @@ func _set_distress_growth_suppressed(suppressed: bool) -> void:
 	var distress: Node2D = _ensure_distress_light()
 	if distress != null and distress.has_method("set_growth_suppressed"):
 		distress.call("set_growth_suppressed", suppressed)
-	if not suppressed:
-		_refresh_distress_presentation()
 
 func set_distress_lifecycle_suspended(suspended: bool) -> void:
 	var distress: Node2D = _ensure_distress_light()

@@ -1,0 +1,43 @@
+"""Build the offline current/refined pressure comparison; no game autoloads."""
+import argparse, os, shutil, subprocess
+from pathlib import Path
+ROOT=Path(__file__).resolve().parents[1]
+p=argparse.ArgumentParser(description=__doc__)
+p.add_argument('--godot',required=True)
+p.add_argument('--output',type=Path,required=True)
+p.add_argument('--capture',action='store_true')
+p.add_argument('--stills',action='store_true')
+a=p.parse_args()
+out=a.output.resolve(); runtime=out/'runtime'
+for folder in ['tools','scripts/hive','scripts/sim','assets']: (runtime/folder).mkdir(parents=True,exist_ok=True)
+for name in ['hive_transition_study','hive_pressure_study']:
+ dest=runtime/'tools'/name
+ if not dest.exists(): dest.symlink_to(ROOT/'tools'/name,target_is_directory=True)
+for name in ['hive_distress_light.gd','hive_distress_rules.gd','hive_transition_timing.gd']:
+ shutil.copyfile(ROOT/'scripts/hive'/name,runtime/'scripts/hive'/name)
+shutil.copyfile(ROOT/'scripts/sim/hive_growth_rules.gd',runtime/'scripts/sim/hive_growth_rules.gd')
+for name in ['hive_small_flatop.png','hive_medium_flatop.png','hive_large_flatop_alpha.png']:
+ shutil.copyfile(ROOT/'assets/sprites/sf_skin_v1'/name,runtime/'assets'/name)
+shutil.copyfile(ROOT/'assets/fonts/brand/Iceland/Iceland-Regular.ttf',runtime/'assets/Iceland-Regular.ttf')
+(runtime/'project.godot').write_text('''config_version=5
+[application]
+config/name="Swarmfront Pressure Study"
+config/use_custom_user_dir=true
+config/custom_user_dir_name="SwarmfrontPressureStudy"
+[display]
+window/size/viewport_width=1440
+window/size/viewport_height=1000
+window/size/window_width_override=1152
+window/size/window_height_override=800
+window/vsync/vsync_mode=0
+[rendering]
+renderer/rendering_method="gl_compatibility"
+''')
+env=os.environ.copy(); env['SF_PRESSURE_OUTPUT']=str(out)
+cmd=[a.godot,'--path',str(runtime),'--script','res://tools/hive_pressure_study/study.gd']
+if a.capture or a.stills: cmd+=['--','--capture' if a.capture else '--stills']
+with (out/'capture.log').open('w') as log:
+ r=subprocess.run(cmd,env=env,stdout=log,stderr=subprocess.STDOUT,timeout=300 if a.capture or a.stills else None)
+text=(out/'capture.log').read_text()
+if r.returncode or 'ERROR' in text: raise SystemExit(text)
+print(text)
