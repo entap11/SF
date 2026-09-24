@@ -66,23 +66,22 @@ func _on_continue_pressed() -> void:
 	onboarding_done.emit()
 
 func _register_backend_identity(call_sign: String) -> Dictionary:
-	var rank_state: Node = get_node_or_null("/root/RankState")
-	if rank_state == null or not rank_state.has_method("intent_register_player"):
+	var identity: Node = get_node_or_null("/root/PlayerIdentityRuntime")
+	if identity == null or not identity.has_method("intent_register_player"):
 		return _debug_offline_registration(call_sign, "account_service_unavailable")
-	var install_metadata: Dictionary = {
-		"client": "swarmfront",
-		"platform": OS.get_name()
-	}
-	var result: Dictionary = rank_state.call("intent_register_player", "", call_sign, "NA", [], install_metadata, true) as Dictionary
+	var result: Dictionary = identity.call("intent_register_player", call_sign) as Dictionary
 	if bool(result.get("ok", false)):
 		return result
 	var reason: String = str(result.get("err", result.get("reason", ""))).strip_edges()
 	if _is_backend_unavailable_reason(reason):
 		return _debug_offline_registration(call_sign, reason)
+	if reason == "existing_device_call_sign":
+		var player: Dictionary = result.get("player", {}) as Dictionary
+		display_name_input.text = str(player.get("call_sign", call_sign))
 	return result
 
 func _debug_offline_registration(call_sign: String, reason: String) -> Dictionary:
-	if not OS.is_debug_build():
+	if not OS.is_debug_build() or OS.has_feature("store_release"):
 		return {"ok": false, "reason": reason}
 	return {
 		"ok": true,
@@ -103,7 +102,7 @@ func _is_backend_unavailable_reason(reason: String) -> bool:
 		"rank_backend_unavailable",
 		"transport_not_configured",
 		"backend_unavailable"
-	].has(reason)
+	].has(reason) or (reason == "secure_credential_store_unavailable" and OS.get_name() not in ["Android", "iOS"])
 
 func _registration_error_message(result: Dictionary) -> String:
 	var reason: String = str(result.get("err", result.get("reason", ""))).strip_edges()
@@ -113,7 +112,17 @@ func _registration_error_message(result: Dictionary) -> String:
 		"invalid_call_sign":
 			return "Use letters, numbers, and underscore only."
 		"rank_backend_not_configured", "rank_backend_unavailable", "account_service_unavailable":
-			return "Account service is unavailable. Check your connection and try again."
+			return "Account setup is temporarily unavailable. Please try again."
+		"connect_failed", "connect_timeout", "response_timeout", "connection_closed", "poll_failed", "request_failed":
+			return "We couldn't reach the account service. Please try again."
+		"secure_credential_store_unavailable", "device_public_key_unavailable", "device_challenge_signing_failed":
+			return "We couldn't secure your account on this device. Restart the app and try again."
+		"identity_state_save_failed":
+			return "We couldn't save your account on this device. Check available storage and try again."
+		"existing_device_call_sign":
+			return "This device already has an account. Tap Continue to finish with the call sign shown."
+		"account_deletion_pending", "device_revoked":
+			return "This account has been closed. Contact support if you need help."
 		_:
 			return "Account setup failed. Please try again."
 
@@ -166,6 +175,11 @@ func _age_years_from_input() -> int:
 	return age_years
 
 func _initial_handle_text() -> String:
+	var identity := get_node_or_null("/root/PlayerIdentityRuntime")
+	if identity != null and identity.has_method("onboarding_call_sign"):
+		var pending_call_sign: String = str(identity.call("onboarding_call_sign")).strip_edges()
+		if not pending_call_sign.is_empty():
+			return pending_call_sign
 	if ProfileManager.has_method("is_handle_chosen") and bool(ProfileManager.call("is_handle_chosen")):
 		return ProfileManager.get_display_name()
 	var uid: String = ProfileManager.get_user_id()

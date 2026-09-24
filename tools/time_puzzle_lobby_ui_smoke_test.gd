@@ -13,8 +13,8 @@ func _init() -> void:
 	get_root().add_child(lobby)
 	await process_frame
 
-	var title: Label = lobby.get_node_or_null("Panel/VBox/Header/Title") as Label
-	var back: Button = lobby.get_node_or_null("Panel/VBox/Header/Back") as Button
+	var title: Label = lobby.get("title_label") as Label
+	var back: Button = lobby.get("back_button") as Button
 	if title == null or title.text != "STAGE RACE TOURNAMENTS":
 		push_error("TIME_PUZZLE_LOBBY_UI_SMOKE: readable title missing")
 		quit(1)
@@ -55,8 +55,8 @@ func _init() -> void:
 	var hub: Control = hub_any as Control
 	get_root().add_child(hub)
 	await process_frame
-	var play: Button = hub.get_node_or_null("Panel/VBox/StageRaceActions/StageRacePlay") as Button
-	var hub_back: Button = hub.get_node_or_null("Panel/VBox/Header/Back") as Button
+	var play: Button = hub.get("stage_race_play_button") as Button
+	var hub_back: Button = hub.get("back_button") as Button
 	if play == null or play.custom_minimum_size.y < 56.0:
 		push_error("TIME_PUZZLE_LOBBY_UI_SMOKE: stage race play button too small")
 		quit(1)

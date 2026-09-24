@@ -35,14 +35,20 @@ text = "Back"
 [node name="ModeLabel" type="Label" parent="Panel/VBox/ModeRow"]
 text = "Mode"
 
-[node name="ModeButtons" type="HBoxContainer" parent="Panel/VBox/ModeRow"]
+[node name="ModeButtons" type="GridContainer" parent="Panel/VBox/ModeRow"]
+columns = 2
+theme_override_constants/h_separation = 16
+theme_override_constants/v_separation = 16
 
 [node name="MapRow" type="VBoxContainer" parent="Panel/VBox"]
 
 [node name="MapLabel" type="Label" parent="Panel/VBox/MapRow"]
 text = "Map Count"
 
-[node name="MapButtons" type="HBoxContainer" parent="Panel/VBox/MapRow"]
+[node name="MapButtons" type="GridContainer" parent="Panel/VBox/MapRow"]
+columns = 2
+theme_override_constants/h_separation = 16
+theme_override_constants/v_separation = 16
 
 [node name="CtfSettingsRow" type="VBoxContainer" parent="Panel/VBox"]
 visible = false
@@ -50,33 +56,45 @@ visible = false
 [node name="CtfLabel" type="Label" parent="Panel/VBox/CtfSettingsRow"]
 text = "CTF Setup"
 
-[node name="CtfSelectRow" type="HBoxContainer" parent="Panel/VBox/CtfSettingsRow"]
+[node name="CtfSelectRow" type="VBoxContainer" parent="Panel/VBox/CtfSettingsRow"]
 
 [node name="CtfSelectPrompt" type="Label" parent="Panel/VBox/CtfSettingsRow/CtfSelectRow"]
 text = "Player Pick"
 
-[node name="CtfSelectButtons" type="HBoxContainer" parent="Panel/VBox/CtfSettingsRow/CtfSelectRow"]
+[node name="CtfSelectButtons" type="GridContainer" parent="Panel/VBox/CtfSettingsRow/CtfSelectRow"]
+columns = 3
+theme_override_constants/h_separation = 16
+theme_override_constants/v_separation = 16
 
-[node name="CtfMoveRow" type="HBoxContainer" parent="Panel/VBox/CtfSettingsRow"]
+[node name="CtfMoveRow" type="VBoxContainer" parent="Panel/VBox/CtfSettingsRow"]
 
 [node name="CtfMovePrompt" type="Label" parent="Panel/VBox/CtfSettingsRow/CtfMoveRow"]
 text = "Flag Moves"
 
-[node name="CtfMoveButtons" type="HBoxContainer" parent="Panel/VBox/CtfSettingsRow/CtfMoveRow"]
+[node name="CtfMoveButtons" type="GridContainer" parent="Panel/VBox/CtfSettingsRow/CtfMoveRow"]
+columns = 3
+theme_override_constants/h_separation = 16
+theme_override_constants/v_separation = 16
 
-[node name="CtfRevealRow" type="HBoxContainer" parent="Panel/VBox/CtfSettingsRow"]
+[node name="CtfRevealRow" type="VBoxContainer" parent="Panel/VBox/CtfSettingsRow"]
 
 [node name="CtfRevealPrompt" type="Label" parent="Panel/VBox/CtfSettingsRow/CtfRevealRow"]
 text = "Move Reveal"
 
-[node name="CtfRevealButtons" type="HBoxContainer" parent="Panel/VBox/CtfSettingsRow/CtfRevealRow"]
+[node name="CtfRevealButtons" type="GridContainer" parent="Panel/VBox/CtfSettingsRow/CtfRevealRow"]
+columns = 2
+theme_override_constants/h_separation = 16
+theme_override_constants/v_separation = 16
 
 [node name="PriceRow" type="VBoxContainer" parent="Panel/VBox"]
 
 [node name="PriceLabel" type="Label" parent="Panel/VBox/PriceRow"]
 text = "Entry"
 
-[node name="PriceButtons" type="HBoxContainer" parent="Panel/VBox/PriceRow"]
+[node name="PriceButtons" type="GridContainer" parent="Panel/VBox/PriceRow"]
+columns = 3
+theme_override_constants/h_separation = 16
+theme_override_constants/v_separation = 16
 
 [node name="Summary" type="Label" parent="Panel/VBox"]
 text = "Summary"

@@ -10,6 +10,7 @@ const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 const HiveGeometry := preload("res://scripts/sim/hive_geometry.gd")
 const HiveGrowthRules := preload("res://scripts/sim/hive_growth_rules.gd")
 const HiveDistressLightScript := preload("res://scripts/hive/hive_distress_light.gd")
+const HiveInteractionLightScript := preload("res://scripts/hive/hive_interaction_light.gd")
 const SELECTOR_PULSE_SHADER := preload("res://shaders/selector_pulse.gdshader")
 const SELECTOR_SMALL_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_small.tres"
 const SELECTOR_MEDIUM_PATH := "res://assets/sprites/sf_skin_v1/selector_ring_medium.tres"
@@ -109,6 +110,7 @@ var _selector_state: int = SELECTOR_STATE_INACTIVE
 var _last_kind: String = ""
 var _sim_events: Node = null
 var _distress_light: Node2D = null
+var _interaction_light: Node2D = null
 var _latest_distress_presentation: Dictionary = {}
 var _distress_pre_transition_footprint: Vector2 = Vector2.ZERO
 var _distress_current_footprint: Vector2 = Vector2.ZERO
@@ -288,7 +290,7 @@ func apply_render(
 	var transition_will_cover_swap: bool = (
 		bool(growth_transition.get("play", false))
 		and transition_mode != "none"
-		and desired_growth_tier > previous_growth_tier
+		and desired_growth_tier != int(growth_transition.get("old_tier", previous_growth_tier))
 	)
 	if not (_defer_match_shadow_swap and _growth_transition_active()):
 		_defer_match_shadow_swap = transition_will_cover_swap
@@ -386,9 +388,9 @@ func _bind_growth_transition_shadow_swap() -> void:
 	var started_callback := Callable(self, "_on_growth_transition_started_for_distress")
 	if transition.has_signal("transition_started") and not transition.is_connected("transition_started", started_callback):
 		transition.connect("transition_started", started_callback)
-	var reveal_callback := Callable(self, "_on_final_ring_reveal_started")
-	if transition.has_signal("final_ring_reveal_started") and not transition.is_connected("final_ring_reveal_started", reveal_callback):
-		transition.connect("final_ring_reveal_started", reveal_callback)
+	var reveal_callback := Callable(self, "_on_reveal_started")
+	if transition.has_signal("reveal_started") and not transition.is_connected("reveal_started", reveal_callback):
+		transition.connect("reveal_started", reveal_callback)
 	var finished_callback := Callable(self, "_on_growth_transition_finished_for_shadow")
 	if transition.has_signal("transition_finished") and not transition.is_connected("transition_finished", finished_callback):
 		transition.connect("transition_finished", finished_callback)
@@ -396,7 +398,7 @@ func _bind_growth_transition_shadow_swap() -> void:
 	if transition.has_signal("transition_cancelled") and not transition.is_connected("transition_cancelled", cancelled_callback):
 		transition.connect("transition_cancelled", cancelled_callback)
 
-func _on_final_ring_reveal_started(_new_tier: int) -> void:
+func _on_reveal_started(_new_tier: int) -> void:
 	_commit_pending_growth_presentation()
 
 func _on_growth_transition_finished_for_shadow(_new_tier: int) -> void:
@@ -407,15 +409,13 @@ func _on_growth_transition_cancelled_for_shadow(_reason: String) -> void:
 	_commit_pending_growth_presentation()
 	_set_distress_growth_suppressed(false)
 
-func _on_growth_transition_started_for_distress(_old_tier: int, _new_tier: int) -> void:
-	_set_distress_growth_suppressed(true)
+func _on_growth_transition_started_for_distress(old_tier: int, new_tier: int) -> void:
+	_set_distress_growth_suppressed(new_tier > old_tier)
 
 func _commit_pending_growth_presentation() -> void:
 	if _pending_growth_tier > 0:
 		growth_tier = _pending_growth_tier
 		_pending_growth_tier = 0
-	if visual != null and visual.has_method("commit_growth_presentation"):
-		visual.call("commit_growth_presentation")
 	_update_selector_visual()
 	_update_capture_flag_layout()
 	if _selected:
@@ -620,7 +620,8 @@ func _refresh_distress_presentation() -> void:
 		bool(_latest_distress_presentation.get("hostile_capture_pressure", false))
 	)
 	if distress.has_method("set_growth_suppressed"):
-		distress.call("set_growth_suppressed", _growth_transition_active())
+		var transform: Dictionary = get_growth_transition_debug_snapshot()
+		distress.call("set_growth_suppressed", bool(transform.get("active", false)) and int(transform.get("new_tier", 0)) > int(transform.get("old_tier", 0)))
 
 func _ensure_distress_light() -> Node2D:
 	if _distress_light != null and is_instance_valid(_distress_light):
@@ -648,8 +649,6 @@ func _set_distress_growth_suppressed(suppressed: bool) -> void:
 	var distress: Node2D = _ensure_distress_light()
 	if distress != null and distress.has_method("set_growth_suppressed"):
 		distress.call("set_growth_suppressed", suppressed)
-	if not suppressed:
-		_refresh_distress_presentation()
 
 func set_distress_lifecycle_suspended(suspended: bool) -> void:
 	var distress: Node2D = _ensure_distress_light()
@@ -661,6 +660,38 @@ func get_distress_debug_snapshot() -> Dictionary:
 	if distress != null and distress.has_method("get_debug_snapshot"):
 		return distress.call("get_debug_snapshot") as Dictionary
 	return {"state": "normal", "missing": true}
+
+func _ensure_interaction_light() -> Node2D:
+	if is_instance_valid(_interaction_light):
+		return _interaction_light
+	var layer := get_node_or_null("Visual/FxLayer")
+	if layer == null:
+		return null
+	_interaction_light = HiveInteractionLightScript.new()
+	_interaction_light.name = "HiveInteractionLight"
+	layer.add_child(_interaction_light)
+	return _interaction_light
+
+func apply_interaction_presentation(color: Color, mode: String, context: Dictionary) -> void:
+	var light := _ensure_interaction_light()
+	if light == null or visual == null:
+		return
+	var geometry: Dictionary = visual.call("get_interaction_light_geometry")
+	light.call("configure", geometry.center, geometry.size, color, mode, geometry.opacity)
+	if bool(context.get("reset", false)):
+		light.call("cancel_transients")
+	if _growth_transition_active():
+		light.call("cancel_capture")
+	elif bool(context.get("play", false)):
+		light.call("play_capture")
+	light.call("set_selected", _selected or _activated)
+
+func cancel_interaction_presentation() -> void:
+	if is_instance_valid(_interaction_light):
+		_interaction_light.call("cancel_transients")
+
+func get_interaction_debug_snapshot() -> Dictionary:
+	return _interaction_light.call("get_debug_snapshot") if is_instance_valid(_interaction_light) else {}
 
 func set_capture_flag_marker(visible: bool, flag_owner_id: int = 0, hidden: bool = false) -> void:
 	var flag_sprite: Sprite2D = _ensure_capture_flag_sprite()
@@ -679,6 +710,8 @@ func set_capture_flag_marker(visible: bool, flag_owner_id: int = 0, hidden: bool
 	_update_capture_flag_layout()
 
 func set_selected(on: bool, color: Color) -> void:
+	if _selected == on and _selected_color == color:
+		return
 	_selected = on
 	_selected_color = color
 	if not _selected:
@@ -1044,6 +1077,8 @@ func _apply_visual_highlight() -> void:
 	if visual == null or not visual.has_method("set_selected_visual"):
 		return
 	visual.call("set_selected_visual", _selected or _activated, _selected_color)
+	if is_instance_valid(_interaction_light):
+		_interaction_light.call("set_selected", _selected or _activated)
 
 func _swarm_cooldown_remaining_ms() -> int:
 	if _swarm_cooldown_until_msec <= 0:

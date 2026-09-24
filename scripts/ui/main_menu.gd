@@ -427,6 +427,8 @@ var _pending_friend_invite: Dictionary = {}
 var _dash_active_tab: String = DASH_HERO_TAB_GARAGE
 var _honey_widget: Control = null
 var _tier_widget: Control = null
+var _home_menu: Control = null
+var _vs_mode_select: Control = null
 var _game_hub_live_refresh_pending: bool = false
 var _free_roll_press_block_until_msec: int = 0
 var _latest_replay_data: Dictionary = {}
@@ -1407,6 +1409,21 @@ func _ready() -> void:
 	call_deferred("_layout_payout_proof_button")
 	call_deferred("_apply_ops_config_menu_gates")
 	call_deferred("_release_main_menu_loading_cover")
+	_ensure_home_menu()
+	_sync_main_art_shroud()
+
+func _ensure_home_menu() -> void:
+	_home_menu = preload("res://scripts/ui/main_menu_home.gd").new()
+	add_child(_home_menu)
+	move_child(_home_menu, top_bar.get_index())
+	_home_menu.call("configure", self)
+	_refresh_home_replay_hint()
+	hero_panel.hide()
+	bottom_bar.hide()
+
+func _open_home_replay() -> void:
+	_open_match_replay(0)
+	_replay_direct_mode = true
 
 func _release_main_menu_loading_cover() -> void:
 	var loading_coordinator: Variant = get_node_or_null("/root/MainMenuLoadingCoordinator")
@@ -1687,9 +1704,18 @@ func _process(_delta: float) -> void:
 	_sync_main_art_shroud()
 	_refresh_open_free_roll_game_hub_if_stale()
 	_refresh_profile_handle_labels()
+	if is_instance_valid(_entry_route_modal):
+		var readable_hub := _entry_route_modal.get_node_or_null("ReadableHub")
+		if readable_hub != null:
+			readable_hub.call("sync_status", status_label.text)
 
 func _sync_main_art_shroud() -> void:
 	var should_shroud: bool = _has_open_main_menu_surface()
+	if _home_menu != null:
+		_home_menu.visible = not should_shroud
+		top_bar.visible = should_shroud
+		if not should_shroud:
+			dash_tab.hide()
 	if should_shroud == _main_art_shroud_active:
 		return
 	_main_art_shroud_active = should_shroud
@@ -1699,7 +1725,11 @@ func _sync_main_art_shroud() -> void:
 		platform_dimmer.visible = should_shroud
 
 func _has_open_main_menu_surface() -> bool:
+	if is_instance_valid(_vs_mode_select) and _vs_mode_select.visible:
+		return true
 	if is_instance_valid(_challenge_hub) and _challenge_hub.visible:
+		return true
+	if is_instance_valid(_public_contest_dash) and _public_contest_dash.visible:
 		return true
 	if onboarding_overlay != null and onboarding_overlay.visible:
 		return true
@@ -2311,7 +2341,6 @@ func _bind_onboarding_gate() -> void:
 				onboarding_panel.onboarding_guide_prompt_requested.connect(_on_onboarding_guide_prompt_requested)
 	else:
 		onboarding_overlay.visible = false
-		_ensure_profile_registered_for_rank()
 
 func _apply_performance_pref_from_profile() -> void:
 	if not ProfileManager.has_method("get_content_scale_factor"):
@@ -2322,7 +2351,6 @@ func _apply_performance_pref_from_profile() -> void:
 		window_ref.content_scale_factor = clampf(scale_factor, 0.7, 1.1)
 
 func _on_onboarding_done() -> void:
-	_ensure_profile_registered_for_rank()
 	onboarding_overlay.visible = false
 	_refresh_scholastic_dash_visibility()
 	_maybe_show_sfa_join_cta(true)
@@ -2440,31 +2468,6 @@ func _on_onboarding_guide_prompt_confirmed() -> void:
 
 func _on_onboarding_guide_prompt_canceled() -> void:
 	status_label.text = "Quick Start guide skipped."
-
-func _ensure_profile_registered_for_rank() -> void:
-	if ProfileManager == null or not ProfileManager.has_method("get_user_id") or not ProfileManager.has_method("get_display_name"):
-		return
-	var existing_player_id: String = str(ProfileManager.call("get_user_id")).strip_edges()
-	var existing_entap_id: String = str(ProfileManager.call("get_entap_id")).strip_edges() if ProfileManager.has_method("get_entap_id") else ""
-	if not existing_player_id.is_empty() and not existing_entap_id.is_empty():
-		return
-	var call_sign: String = str(ProfileManager.call("get_display_name")).strip_edges()
-	if call_sign.is_empty():
-		return
-	var rank_state: Node = get_node_or_null("/root/RankState")
-	if rank_state == null or not rank_state.has_method("intent_register_player"):
-		return
-	var install_metadata: Dictionary = {
-		"client": "swarmfront",
-		"platform": OS.get_name(),
-		"source": "main_menu"
-	}
-	var result: Dictionary = rank_state.call("intent_register_player", "", call_sign, "NA", [], install_metadata, false) as Dictionary
-	if not bool(result.get("ok", false)):
-		SFLog.warn("PROFILE_RANK_REGISTRATION_FAILED", {
-			"reason": str(result.get("reason", result.get("err", "unknown"))),
-			"call_sign": call_sign
-		}, "", 3000)
 
 func _load_fonts() -> void:
 	_font_regular = UITypography.regular_font()
@@ -7175,6 +7178,8 @@ func _current_profile_handle() -> String:
 	return "Player"
 
 func _refresh_profile_handle_labels() -> void:
+	if _home_menu != null:
+		_home_menu.call("refresh_identity")
 	var handle: String = _current_profile_handle()
 	if welcome_handle_label != null:
 		var welcome_text: String = "Welcome %s" % handle
@@ -8627,6 +8632,8 @@ func _bottom_nav_scaled_button_size(row_button_count: int) -> Vector2:
 	return Vector2(max_width, floor(target_size.y * fit_scale))
 
 func _apply_bottom_nav_layout() -> void:
+	if _home_menu != null:
+		return
 	if menu_buttons_row == null:
 		return
 	var utility_row: HBoxContainer = _ensure_bottom_nav_two_row_layout()
@@ -10866,6 +10873,8 @@ func _ensure_dash_replay_map_view() -> void:
 		note.text = "Saved visual replay frames from the most recent match."
 
 func _auto_start_home_replay() -> void:
+	if _home_menu != null:
+		return
 	if not is_inside_tree():
 		return
 	if onboarding_overlay != null and onboarding_overlay.visible:
@@ -10897,6 +10906,9 @@ func _open_latest_match_replay(auto_play: bool = false) -> void:
 func _refresh_home_replay_hint() -> void:
 	if _latest_replay_data.is_empty():
 		_refresh_latest_match_replay_cache()
+	if _home_menu != null:
+		var replay_summary: String = "%s · %s · %s" % [str(_latest_replay_data.get("result", "")), str(_latest_replay_data.get("map", "")), str(_latest_replay_data.get("duration", ""))]
+		_home_menu.call("set_replay", replay_summary, not _latest_replay_data.is_empty())
 	if hero_title_label != null:
 		hero_title_label.text = "Last Match Replay"
 	if hero_sub_label == null:
@@ -12381,6 +12393,45 @@ func _open_insufficient_balance_modal(subtitle: String = "Would you like to:") -
 	_apply_free_roll_atlas_font(free_roll, 13)
 	_style_game_hub_cancel_button(cancel)
 	_entry_route_modal = panel
+	var journey = preload("res://scripts/ui/menu_journey_frame.gd").new()
+	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	panel.add_child(journey)
+	var heading: Label = body.get_node("EntryTitle")
+	var explanation: Label = body.get_node("EntrySubtitle")
+	cancel.text = "BACK TO MAIN MENU"
+	journey.configure(heading, cancel, free_roll)
+	# Preserve the existing overlay artwork behind the new layout.
+	journey.add_theme_stylebox_override("panel", journey.Style.surface(Color.TRANSPARENT, Color.TRANSPARENT, 0))
+	var info := PanelContainer.new()
+	info.add_theme_stylebox_override("panel", journey.Style.surface(Color(0.055, 0.065, 0.08, 0.96), Color("424957")))
+	journey.body.add_child(info)
+	var info_copy := VBoxContainer.new()
+	info_copy.add_theme_constant_override("separation", 24)
+	info.add_child(info_copy)
+	journey.adopt(explanation, info_copy)
+	journey.label(explanation, 44)
+	var availability := Label.new()
+	availability.text = "Adding funds and cards is not available in this build. You can play a Free Roll or return to the main menu."
+	journey.label(availability)
+	info_copy.add_child(availability)
+	for button in [add_funds, add_card]:
+		journey.adopt(button, journey.body)
+		journey.action(button)
+		button.disabled = true
+		button.text += " · UNAVAILABLE"
+	# Keep the existing CANCEL artwork and scale it with its touch target.
+	cancel.text = ""
+	cancel.tooltip_text = "Cancel and return to the main menu"
+	if cancel.icon != null:
+		var cancel_art := AtlasTexture.new()
+		cancel_art.atlas = cancel.icon
+		var art_size := cancel.icon.get_size()
+		# The source includes broad empty margins above and below its button band.
+		cancel_art.region = Rect2(0, art_size.y * 0.20, art_size.x, art_size.y * 0.50)
+		cancel.icon = cancel_art
+	cancel.add_theme_constant_override("icon_max_width", 600)
+	cancel.custom_minimum_size.y = 164
+	panel.get_node("EntryScroll").hide()
 
 func _open_crucible_confirmation() -> void:
 	if not _public_rollout_allows_mode("CRUCIBLE"):
@@ -12575,6 +12626,7 @@ func _format_crucible_wax_millis(millis: int) -> String:
 
 func _open_game_hub(paid: bool, denomination: int) -> void:
 	_close_top_level_windows(UI_SURFACE_ENTRY)
+	status_label.text = ""
 	var selected_denom: int = denomination
 	if paid and selected_denom <= 0:
 		selected_denom = _default_money_denomination()
@@ -12678,6 +12730,7 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 		_enable_touch_drag_scroll(panel.get_node_or_null("EntryScroll") as ScrollContainer)
 		_entry_route_modal = panel
 		_refresh_money_games_paid_route_buttons()
+		_install_readable_game_hub(panel, true)
 		return
 	if not paid:
 		_add_game_hub_spacer(match_type_block, GAME_HUB_FREE_SECTION_SPACER_PX)
@@ -12764,6 +12817,13 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	_configure_game_hub_option_button(cancel, broadcast_free_roll)
 	_enable_touch_drag_scroll(panel.get_node_or_null("EntryScroll") as ScrollContainer)
 	_entry_route_modal = panel
+	if paid:
+		_refresh_money_games_paid_route_buttons()
+
+func _install_readable_game_hub(panel: Panel, paid: bool) -> void:
+	var presentation := preload("res://scripts/ui/game_hub_readability.gd").new()
+	panel.add_child(presentation)
+	presentation.configure(self, panel, paid)
 	if paid:
 		_refresh_money_games_paid_route_buttons()
 
@@ -12916,6 +12976,7 @@ func _open_free_roll_game_hub(selected_denom: int = 0) -> void:
 	_configure_free_roll_game_hub_scene(panel, selected_denom)
 	_enable_touch_drag_scroll(panel.get_node_or_null("EntryScroll") as ScrollContainer)
 	_entry_route_modal = panel
+	_install_readable_game_hub(panel, false)
 
 func _shift_free_roll_overlay_down(panel: Panel) -> void:
 	if panel == null:
@@ -13590,6 +13651,7 @@ func _build_money_games_division_layer(body: VBoxContainer, panel: Panel, broadc
 	if body == null:
 		return
 	var tabs_row := HBoxContainer.new()
+	tabs_row.name = "MoneyDivisions"
 	tabs_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tabs_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	tabs_row.add_theme_constant_override("separation", 12)
@@ -13601,6 +13663,7 @@ func _build_money_games_division_layer(body: VBoxContainer, panel: Panel, broadc
 	body.add_child(entry_label)
 	_apply_font(entry_label, _font_semibold, MONEY_ENTRY_LABEL_SIZE)
 	var tier_row := HBoxContainer.new()
+	tier_row.name = "MoneyEntryTiers"
 	tier_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tier_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	tier_row.add_theme_constant_override("separation", 14)
@@ -13612,6 +13675,7 @@ func _build_money_games_division_layer(body: VBoxContainer, panel: Panel, broadc
 	body.add_child(division_arena_label)
 	_apply_font(division_arena_label, _font_semibold, MONEY_ARENA_LABEL_SIZE)
 	var entry_fee_label := Label.new()
+	entry_fee_label.name = "MoneyEntryFee"
 	entry_fee_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	entry_fee_label.add_theme_color_override("font_color", MONEY_ENTRY_LABEL_COLOR)
 	body.add_child(entry_fee_label)
@@ -13621,6 +13685,7 @@ func _build_money_games_division_layer(body: VBoxContainer, panel: Panel, broadc
 	for division_id in MONEY_DIVISION_TAB_IDS:
 		var bound_division_id: String = division_id
 		var tab_button := Button.new()
+		tab_button.set_meta("sf_money_division_id", bound_division_id)
 		tab_button.custom_minimum_size = MONEY_DIVISION_TAB_SIZE
 		var label_text: String = str(MONEY_DIVISION_LABELS.get(bound_division_id, "DIVISION"))
 		if bound_division_id == MONEY_DIVISION_CLASSIFIED:
@@ -13861,6 +13926,9 @@ func _refresh_money_games_paid_route_buttons() -> void:
 	for button in buttons:
 		_refresh_money_game_paid_route_button(button)
 	_refresh_money_games_paid_contest_buttons(_entry_route_modal)
+	var readable_hub: Node = _entry_route_modal.get_node_or_null("ReadableHub")
+	if readable_hub != null:
+		readable_hub.call("refresh_money")
 
 func _refresh_money_games_paid_contest_buttons(root_node: Node) -> void:
 	if root_node == null:
@@ -14263,6 +14331,8 @@ func _set_game_hub_option_hover_state(
 		return
 	if not is_instance_valid(button) or not is_instance_valid(edge) or not is_instance_valid(shell_tone) or not is_instance_valid(inner_glow):
 		return
+	if button.has_meta("sf_readable_menu"):
+		return
 	if button.disabled:
 		return
 	button.set_meta("sf_game_hub_hovered", hovered)
@@ -14316,6 +14386,8 @@ func _set_game_hub_option_pressed_state(
 	if button == null:
 		return
 	if not is_instance_valid(button):
+		return
+	if button.has_meta("sf_readable_menu"):
 		return
 	if button.disabled:
 		return
@@ -15117,12 +15189,14 @@ func _open_async_entry_selector(free_roll: bool) -> void:
 
 func _open_vs_mode_select_panel(free_roll: bool, preset_mode: String = "", denomination: int = 0) -> void:
 	_close_top_level_windows(UI_SURFACE_PLAY_MODE)
+	_close_play_mode_select()
 	var panel := preload("res://scenes/ui/VsModeSelect.tscn").instantiate()
 	if panel.has_method("configure_entry"):
 		panel.call("configure_entry", free_roll, denomination)
 	if not preset_mode.is_empty() and panel.has_method("configure_preset_mode"):
 		panel.call("configure_preset_mode", preset_mode)
-	panel.closed.connect(func(): panel.queue_free())
+	_vs_mode_select = panel
+	panel.closed.connect(_close_play_mode_select)
 	add_child(panel)
 
 func _paid_entries_enabled() -> bool:
@@ -16076,6 +16150,8 @@ func _format_async_stage_total_time_ms(value_ms: int) -> String:
 	return "%02d:%02d.%03d" % [minutes, seconds, millis]
 
 func _close_entry_route_modal() -> void:
+	# A dismissed selector must not suppress a fresh tap on the returning screen.
+	_free_roll_press_block_until_msec = 0
 	if _entry_route_modal != null and is_instance_valid(_entry_route_modal):
 		_entry_route_modal.queue_free()
 	else:
@@ -16085,6 +16161,9 @@ func _close_entry_route_modal() -> void:
 	_entry_route_modal = null
 
 func _close_play_mode_select() -> void:
+	if is_instance_valid(_vs_mode_select):
+		_vs_mode_select.queue_free()
+	_vs_mode_select = null
 	if _play_mode_select == null:
 		return
 	if is_instance_valid(_play_mode_select):
@@ -16336,6 +16415,7 @@ func _on_dash_settings_close_pressed() -> void:
 	_close_dash_panel(dash_settings_panel)
 
 func _toggle_dash() -> void:
+	dash_tab.show()
 	_play_mm_base_drop_sfx()
 	if _hive_dropdown_open:
 		_hide_hive_dropdown_immediate()

@@ -7,7 +7,7 @@ const Typography := preload("res://scripts/ui/ui_typography.gd")
 const BackendPolicy := preload("res://scripts/state/test_backend_policy.gd")
 const CredentialFactory := preload("res://scripts/platform/secure_credential_store_factory.gd")
 const LOCAL_FILES: Array[String] = [
-	"profile.cfg", "player_identity_bootstrap.json", "rank_state.json", "battle_pass_state.json",
+	"profile.cfg", "player_identity_bootstrap.json", "player_identity_bootstrap.json.tmp", "rank_state.json", "battle_pass_state.json",
 	"swarm_pass_state.json", "swarm_pass_telemetry.json", "honey_progression_state.json",
 	"economy_buff_state.json", "crucible_state.json", "hive_clan_state.json", "scholastic_state.json",
 	"moderation_state.json", "contest_entries.json", "contest_leaderboards_v1.json",

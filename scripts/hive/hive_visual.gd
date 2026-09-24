@@ -194,6 +194,7 @@ var _floor_reactor_spill: Polygon2D = null
 var _owner_accent_ring: Line2D = null
 var _selected_highlight_ring: Line2D = null
 var _lane_port_nodes: Array[Dictionary] = []
+var _lane_port_pool: Array[Dictionary] = []
 var _lane_occluder: Polygon2D = null
 var _shader_mat: ShaderMaterial = null
 var _npc_shader_mat: ShaderMaterial = null
@@ -220,9 +221,9 @@ var _light_projection_large_texture: Texture2D = null
 var _light_projection_medium_texture: Texture2D = null
 var _hive_id_label: Label = null
 var _lane_budget_pips: Array[Dictionary] = []
+var _lane_budget_pip_pool: Array[Dictionary] = []
 var _lane_budget_used: int = 0
 var _lane_budget_max: int = LANE_BUDGET_DEFAULT_SLOTS
-var _pending_growth_lane_budget: Dictionary = {}
 var _activity_state: String = "idle"
 var _current_size: Vector2 = Vector2.ZERO
 var _base_scale: Vector2 = Vector2.ONE
@@ -289,7 +290,7 @@ func configure(
 		and transition_mode != "none"
 		and _has_configured
 		and previous_tier > 0
-		and desired_tier > previous_tier
+		and desired_tier != previous_tier
 	)
 	_ensure_growth_transition()
 	if transition_requested and _growth_transition != null and _growth_transition.has_method("capture_old_sprite"):
@@ -368,15 +369,8 @@ func configure(
 	_update_power_label(owner_id, power, should_respond)
 	if should_respond:
 		_trigger_core_power_response(power - previous_power)
-	if transition_requested:
-		_pending_growth_lane_budget = {
-			"used": lane_budget_used,
-			"max": lane_budget_max,
-			"unlocked_slot_index": int(growth_transition.get("unlocked_slot_index", -1))
-		}
-	else:
-		_pending_growth_lane_budget.clear()
-		set_lane_budget(lane_budget_used, lane_budget_max)
+	# Indicators are canonical projections, never delayed by a cosmetic animation.
+	set_lane_budget(lane_budget_used, lane_budget_max)
 	set_activity_state(_activity_state)
 	_has_configured = true
 	if transition_requested and _growth_transition != null and _growth_transition.has_method("play"):
@@ -387,11 +381,11 @@ func configure(
 			_owner_accent_color(),
 			previous_tier,
 			desired_tier,
-			{},
+			_growth_port_entry(int(growth_transition.get("unlocked_slot_index", -1))),
 			transition_mode
 		)
-	elif tier_changed:
-		cancel_growth_transition("tier_downgrade" if desired_tier < previous_tier else "tier_change_without_effect")
+	elif needs_sprite_refresh:
+		cancel_growth_transition("sprite_change_without_effect")
 	queue_redraw()
 
 func set_power(value: int) -> void:
@@ -447,6 +441,11 @@ func set_connection_opacity(alpha: float) -> void:
 		_shader_mat.set_shader_parameter("global_alpha", _connection_opacity)
 	if _npc_shader_mat != null:
 		_npc_shader_mat.set_shader_parameter("global_alpha", _connection_opacity)
+	var interaction := get_node_or_null("FxLayer/HiveInteractionLight") as CanvasItem
+	if interaction != null:
+		interaction.modulate.a = _connection_opacity
+
+	_sync_transition_style()
 
 func preview_state_idle() -> void:
 	if not _preview_helpers_allowed():
@@ -1049,20 +1048,6 @@ func _growth_port_entry(index: int) -> Dictionary:
 		return {}
 	return (_lane_budget_pips[index] as Dictionary).duplicate()
 
-func commit_growth_presentation() -> void:
-	if _pending_growth_lane_budget.is_empty():
-		return
-	var pending: Dictionary = _pending_growth_lane_budget
-	_pending_growth_lane_budget = {}
-	set_lane_budget(int(pending.get("used", _lane_budget_used)), int(pending.get("max", _lane_budget_max)))
-	var unlocked_index: int = int(pending.get("unlocked_slot_index", -1))
-	if (
-		unlocked_index >= 0
-		and _growth_transition != null
-		and _growth_transition.has_method("confirm_port_entry")
-	):
-		_growth_transition.call("confirm_port_entry", _growth_port_entry(unlocked_index))
-
 func cancel_growth_transition(reason: String = "cancelled") -> void:
 	_ensure_growth_transition()
 	if _growth_transition != null and _growth_transition.has_method("cancel_and_reveal_final"):
@@ -1123,19 +1108,22 @@ func _ensure_lane_ports() -> void:
 	if _lane_port_layer == null or not is_instance_valid(_lane_port_layer):
 		return
 	var port_count: int = _lane_budget_display_slot_count()
+	if _lane_port_pool.is_empty():
+		for i in range(LANE_BUDGET_DEFAULT_SLOTS):
+			var outline: Line2D = _create_ring_line("LanePortOutline_%d" % i, 0, 1.2, _lane_port_layer)
+			outline.points = _hex_points(LANE_PORT_RADIUS + 1.6)
+			var fill := Polygon2D.new()
+			fill.name = "LanePortFill_%d" % i
+			fill.z_index = 1
+			fill.polygon = _hex_points(LANE_PORT_RADIUS)
+			_lane_port_layer.add_child(fill)
+			_lane_port_pool.append({"outline": outline, "fill": fill})
 	if _lane_port_nodes.size() == port_count:
 		return
-	for child in _lane_port_layer.get_children():
-		child.queue_free()
-	_lane_port_nodes.clear()
-	for i in range(port_count):
-		var outline: Line2D = _create_ring_line("LanePortOutline_%d" % i, 0, 1.2, _lane_port_layer)
-		var fill: Polygon2D = Polygon2D.new()
-		fill.name = "LanePortFill_%d" % i
-		fill.z_index = 1
-		fill.polygon = _hex_points(LANE_PORT_RADIUS)
-		_lane_port_layer.add_child(fill)
-		_lane_port_nodes.append({"outline": outline, "fill": fill})
+	_lane_port_nodes.assign(_lane_port_pool.slice(0, port_count))
+	for i in range(_lane_port_pool.size()):
+		_lane_port_pool[i].outline.visible = i < port_count
+		_lane_port_pool[i].fill.visible = i < port_count
 
 func _update_phase3_layout() -> void:
 	if _current_size == Vector2.ZERO:
@@ -1174,10 +1162,8 @@ func _update_phase3_layout() -> void:
 		var fill: Polygon2D = entry.get("fill", null) as Polygon2D
 		if outline != null and is_instance_valid(outline):
 			outline.position = port_pos
-			outline.points = _hex_points(LANE_PORT_RADIUS + 1.6)
 		if fill != null and is_instance_valid(fill):
 			fill.position = port_pos
-			fill.polygon = _hex_points(LANE_PORT_RADIUS)
 
 func _update_phase3_motion() -> void:
 	if _current_size == Vector2.ZERO:
@@ -1459,19 +1445,22 @@ func _update_lane_budget_indicators() -> void:
 	if _lane_budget_layer == null or not is_instance_valid(_lane_budget_layer):
 		return
 	var slot_count: int = _lane_budget_display_slot_count()
-	if slot_count != _lane_budget_pips.size():
-		for child in _lane_budget_layer.get_children():
-			_lane_budget_layer.remove_child(child)
-			child.queue_free()
-		_lane_budget_pips.clear()
-		for i in range(slot_count):
+	# Reuse the fixed three-slot presentation through rapid tier reversals.
+	if _lane_budget_pip_pool.is_empty():
+		for i in range(LANE_BUDGET_DEFAULT_SLOTS):
 			var outline: Line2D = _create_ring_line("BudgetPipOutline_%d" % i, 1, 1.8, _lane_budget_layer)
-			var fill: Polygon2D = Polygon2D.new()
+			outline.points = _hex_points(LANE_BUDGET_PIP_RADIUS)
+			var fill := Polygon2D.new()
 			fill.name = "BudgetPipFill_%d" % i
 			fill.z_index = 0
 			fill.polygon = _hex_points(LANE_BUDGET_PIP_INNER_RADIUS)
 			_lane_budget_layer.add_child(fill)
-			_lane_budget_pips.append({"outline": outline, "fill": fill})
+			_lane_budget_pip_pool.append({"outline": outline, "fill": fill})
+	if slot_count != _lane_budget_pips.size():
+		_lane_budget_pips.assign(_lane_budget_pip_pool.slice(0, slot_count))
+	for i in range(slot_count, _lane_budget_pip_pool.size()):
+		_lane_budget_pip_pool[i].outline.visible = false
+		_lane_budget_pip_pool[i].fill.visible = false
 	var label_size: Vector2 = _lane_budget_reference_label_size()
 	_lane_budget_layer.position = _power_label_offset() + Vector2(0.0, LANE_BUDGET_VERTICAL_NUDGE_PX)
 	_update_power_projection_layout()
@@ -1484,10 +1473,8 @@ func _update_lane_budget_indicators() -> void:
 		var pip_pos: Vector2 = _lane_budget_pip_position(slot_count, i, label_size)
 		if outline_line != null and is_instance_valid(outline_line):
 			outline_line.position = pip_pos
-			outline_line.points = _hex_points(LANE_BUDGET_PIP_RADIUS)
 		if fill_poly != null and is_instance_valid(fill_poly):
 			fill_poly.position = pip_pos
-			fill_poly.polygon = _hex_points(LANE_BUDGET_PIP_INNER_RADIUS)
 		var is_used: bool = i < _lane_budget_used
 		var is_available: bool = i < _lane_budget_max
 		var outline_color: Color = indicator_outline_color
@@ -1883,8 +1870,14 @@ func _update_selected_hot_shader() -> void:
 			continue
 		mat.set_shader_parameter("selected_hot", hot_strength)
 		mat.set_shader_parameter("selected_hot_color", selected_color)
-		mat.set_shader_parameter("selected_metal_lift", 0.88 if _selected_visual else 0.0)
-		mat.set_shader_parameter("selected_hot_edge", 0.22 if _selected_visual else 0.0)
+		mat.set_shader_parameter("selected_metal_lift", 0.46 if _selected_visual else 0.0)
+		mat.set_shader_parameter("selected_hot_edge", 0.30 if _selected_visual else 0.0)
+
+	_sync_transition_style()
+
+func _sync_transition_style() -> void:
+	if _growth_transition != null and _growth_transition.has_method("sync_source_style"):
+		_growth_transition.call("sync_source_style", owner_id, power, _selected_visual, _selected_visual_color, _connection_opacity)
 
 func _hive_sprite_pulse_phase() -> float:
 	var hive_id_value: int = 0
@@ -1968,6 +1961,9 @@ func get_rendered_footprint_local() -> Vector2:
 		return Vector2(absf(_current_size.x), absf(_current_size.y))
 	var fallback_diameter: float = maxf(20.0, radius_px * 2.0)
 	return Vector2(fallback_diameter, fallback_diameter)
+
+func get_interaction_light_geometry() -> Dictionary:
+	return {"center": _sprite_offset, "size": get_rendered_footprint_local(), "opacity": _connection_opacity}
 
 func get_distress_outlet_anchor_local(tier: int = -1) -> Vector2:
 	if _current_size == Vector2.ZERO:

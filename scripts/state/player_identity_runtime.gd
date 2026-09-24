@@ -18,6 +18,8 @@ var _session = PlayerSessionStateScript.new()
 var _transport = RankTransportHttpScript.new()
 var _device_id: String = ""
 var _registration_request_id: String = ""
+var _registration_call_sign: String = ""
+var _authenticated_player: Dictionary = {}
 var _last_error: String = ""
 var _auth_in_progress: bool = false
 
@@ -71,30 +73,61 @@ func refresh_platform_snapshot() -> Dictionary:
 		rank_state.call("apply_platform_wax_projection", player_id, int(result.get("wax_millis", 0)))
 	return result
 
-func _authenticate() -> void:
+func intent_register_player(call_sign: String) -> Dictionary:
+	if call_sign.strip_edges().is_empty():
+		return {"ok": false, "err": "missing_call_sign"}
+	var previous_call_sign: String = _registration_call_sign
+	var result: Dictionary = _authenticate(call_sign.strip_edges())
+	if str(result.get("err", "")) in ["call_sign_not_unique", "invalid_call_sign"] \
+		and not previous_call_sign.is_empty() and previous_call_sign != call_sign.strip_edges() \
+		and _device_id.is_empty() and _registration_call_sign.is_empty():
+		# A legacy startup request may have used a rejected default name. Once
+		# that request is definitively rejected, submit the player's actual choice.
+		result = _authenticate(call_sign.strip_edges())
+	if not bool(result.get("ok", false)):
+		return result
+	var player: Dictionary = result.get("player", {}) as Dictionary
+	if str(player.get("call_sign", "")) != call_sign.strip_edges():
+		# An earlier build or an interrupted request may already own this device.
+		# Let the player confirm that identity instead of silently changing accounts.
+		return {"ok": false, "err": "existing_device_call_sign", "player": player}
+	return result
+
+func onboarding_call_sign() -> String:
+	if not _authenticated_player.is_empty():
+		return str(_authenticated_player.get("call_sign", ""))
+	return _registration_call_sign
+
+func _authenticate(registration_call_sign: String = "") -> Dictionary:
 	var deletion := get_node_or_null("/root/AccountDeletionRuntime")
 	if FileAccess.file_exists("user://account_deletion_receipt.json") \
 		or (deletion != null and bool(deletion.call("blocks_account_use"))):
-		return
+		return {"ok": false, "err": "account_deletion_pending"}
 	if _auth_in_progress:
-		return
+		return {"ok": false, "err": "authentication_in_progress"}
 	if is_authenticated():
 		var status_result: Dictionary = _transport.call_action("identity/session/status", {})
 		if str(status_result.get("err", "")) == "account_deletion_pending":
 			get_node("/root/AccountDeletionRuntime").call("account_deleted_on_another_device")
-		return
+		if not bool(status_result.get("ok", false)):
+			return status_result
+		return {"ok": true, "player": _authenticated_player.duplicate(true)}
+	# Startup and the refresh timer may resume a device, but may never choose a
+	# new player's call sign or create an account before onboarding is submitted.
+	if _device_id.is_empty() and registration_call_sign.is_empty():
+		return {"ok": false, "err": "onboarding_required"}
 	_auth_in_progress = true
 	_last_error = ""
-	var result: Dictionary = _authenticate_once()
+	var result: Dictionary = _authenticate_once(registration_call_sign)
 	_auth_in_progress = false
 	if not bool(result.get("ok", false)):
 		_last_error = str(result.get("err", "player_authentication_failed"))
 		if _last_error == "account_deletion_pending":
 			get_node("/root/AccountDeletionRuntime").call("account_deleted_on_another_device")
-			return
+			return result
 		SFLog.warn("PLAYER_IDENTITY", {"status": "unavailable", "err": _last_error}, "", 30000)
 		authentication_changed.emit(debug_snapshot())
-		return
+		return result
 	var handshake: Node = get_node_or_null("/root/VsHandshake")
 	if handshake != null and handshake.has_method("set_player_access_token"):
 		handshake.call("set_player_access_token", _session.access_token())
@@ -102,8 +135,9 @@ func _authenticate() -> void:
 	refresh_platform_snapshot()
 	SFLog.info("PLAYER_IDENTITY", {"status": "authenticated", "player_id": _session.player_id()})
 	authentication_changed.emit(debug_snapshot())
+	return result
 
-func _authenticate_once() -> Dictionary:
+func _authenticate_once(registration_call_sign: String = "") -> Dictionary:
 	if _credential_store == null or not _credential_store.has_method("is_available") \
 			or not bool(_credential_store.call("is_available")):
 		return {"ok": false, "err": "secure_credential_store_unavailable"}
@@ -117,28 +151,40 @@ func _authenticate_once() -> Dictionary:
 			return {"ok": false, "err": "device_public_key_unavailable"}
 		if _registration_request_id.is_empty():
 			_registration_request_id = _new_request_id("register")
-			_save_bootstrap_state()
-		var profile: Node = get_node_or_null("/root/ProfileManager")
-		var call_sign: String = "Player"
-		if profile != null and profile.has_method("get_call_sign"):
-			call_sign = str(profile.call("get_call_sign")).strip_edges()
+		if _registration_call_sign.is_empty():
+			_registration_call_sign = registration_call_sign
+		if _registration_call_sign.is_empty():
+			return {"ok": false, "err": "missing_call_sign"}
+		# Persist the exact request before sending it. A lost response or relaunch
+		# must retry the same key, request ID and call sign, even if the form changed.
+		if not _save_bootstrap_state():
+			return {"ok": false, "err": "identity_state_save_failed"}
 		var registered: Dictionary = _transport.call_action("identity/register", {
 			"request_id": _registration_request_id,
-			"call_sign": call_sign,
+			"call_sign": _registration_call_sign,
 			"region": "GLOBAL",
 			"device": {"public_key_jwk": public_key.get("jwk", {}), "platform": OS.get_name(), "label": "primary"},
 			"install_metadata": {"client_build": str(ProjectSettings.get_setting("application/config/version", "dev"))}
 		})
 		if not bool(registered.get("ok", false)):
+			if str(registered.get("err", "")) in ["call_sign_not_unique", "invalid_call_sign"]:
+				# These definitive rejections create no account; allow a new choice.
+				_registration_call_sign = ""
+				_registration_request_id = ""
+				if not _save_bootstrap_state():
+					return {"ok": false, "err": "identity_state_save_failed"}
 			return registered
 		var device: Dictionary = registered.get("device", {}) as Dictionary
 		_device_id = str(device.get("id", "")).strip_edges()
 		if _device_id.is_empty():
 			return {"ok": false, "err": "registered_device_missing"}
-		_save_bootstrap_state()
+		if not _save_bootstrap_state():
+			return {"ok": false, "err": "identity_state_save_failed"}
 		challenge = registered.get("challenge", {}) as Dictionary
 		_apply_backend_identity(registered.get("player", {}) as Dictionary)
 	else:
+		if not _save_bootstrap_state():
+			return {"ok": false, "err": "identity_state_save_failed"}
 		var challenge_result: Dictionary = _transport.call_action("identity/challenge", {
 			"device_id": _device_id, "request_id": _new_request_id("session")
 		})
@@ -157,11 +203,20 @@ func _authenticate_once() -> Dictionary:
 	})
 	if not bool(session_response.get("ok", false)):
 		return session_response
+	var player: Dictionary = session_response.get("player", {}) as Dictionary
+	var session: Dictionary = session_response.get("session", {}) as Dictionary
+	if str(player.get("id", "")).is_empty() \
+		or str(player.get("id", "")) != str(session.get("player_id", "")) \
+		or str(session.get("device_id", "")) != _device_id \
+		or str(player.get("entap_id", "")).is_empty() \
+		or str(player.get("call_sign", "")).is_empty():
+		return {"ok": false, "err": "invalid_session_response"}
 	var accepted: Dictionary = _session.accept_session_response(session_response)
 	if not bool(accepted.get("ok", false)):
 		return accepted
-	_apply_backend_identity(session_response.get("player", {}) as Dictionary)
-	return {"ok": true, "player_id": _session.player_id()}
+	_authenticated_player = player.duplicate(true)
+	_apply_backend_identity(_authenticated_player)
+	return {"ok": true, "player_id": _session.player_id(), "player": _authenticated_player.duplicate(true)}
 
 func _apply_backend_identity(identity: Dictionary) -> void:
 	var profile: Node = get_node_or_null("/root/ProfileManager")
@@ -176,6 +231,7 @@ func sign_account_deletion_challenge(challenge: String) -> Dictionary:
 
 func sign_out_for_account_deletion() -> void:
 	_session.revoke_local()
+	_authenticated_player.clear()
 	_transport.configure(str(ProjectSettings.get_setting(SETTINGS_IDENTITY_URL, DEFAULT_IDENTITY_URL)), 6.0)
 	var handshake := get_node_or_null("/root/VsHandshake")
 	if handshake != null and handshake.has_method("set_player_access_token"):
@@ -197,12 +253,26 @@ func _load_bootstrap_state() -> void:
 		return
 	_device_id = str((decoded as Dictionary).get("device_id", "")).strip_edges()
 	_registration_request_id = str((decoded as Dictionary).get("registration_request_id", "")).strip_edges()
+	_registration_call_sign = str((decoded as Dictionary).get("registration_call_sign", "")).strip_edges()
+	if not _registration_request_id.is_empty() and _registration_call_sign.is_empty():
+		# Older builds sent the profile's default call sign during startup.
+		var profile := get_node_or_null("/root/ProfileManager")
+		if profile != null:
+			_registration_call_sign = str(profile.call("get_call_sign")).strip_edges()
 
-func _save_bootstrap_state() -> void:
-	var file := FileAccess.open(STATE_PATH, FileAccess.WRITE)
+func _save_bootstrap_state() -> bool:
+	var temporary_path: String = STATE_PATH + ".tmp"
+	var file := FileAccess.open(temporary_path, FileAccess.WRITE)
 	if file == null:
-		return
+		return false
 	file.store_string(JSON.stringify({
-		"schema_version": 1, "device_id": _device_id,
-		"registration_request_id": _registration_request_id, "key_alias": KEY_ALIAS
+		"schema_version": 2, "device_id": _device_id,
+		"registration_request_id": _registration_request_id,
+		"registration_call_sign": _registration_call_sign, "key_alias": KEY_ALIAS
 	}))
+	file.flush()
+	var write_error: int = file.get_error()
+	file.close()
+	if write_error != OK:
+		return false
+	return DirAccess.rename_absolute(temporary_path, STATE_PATH) == OK

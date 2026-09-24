@@ -3,11 +3,26 @@
 Status: Campaign/Jukebox split approved; 25-level pilot implemented on `codex/single-player-campaign`; physical-phone validation pending.
 Progression policy: a completed attempt, win or loss, unlocks the next level in both entry routes.
 
-Current pass: arena menu/header/footer proportions implemented for review, with
-quit confirmation and ad links saved until results. See the
-[match layout implementation and validation](match_chrome_2026-09-21.md).
-Review proportions and phone safe areas before the floor-art pass; paid exit
-settlement still requires integration validation against the authoritative service.
+Current pass (September 24): approved growth/shrink transitions and pressure v2,
+plus the selection/capture finish, are integrated into the working mobile source.
+See the [selection/capture integration and live-match review](hive_selection_capture_2026-09-24.md).
+Owner direction: batch physical-device checks across the completed work. Menu
+polish is now in progress: larger home entries and readable Free Roll/Money Games
+choices, including the owner's staggered hex-cluster direction. See the
+[menu readability pass](menu_readability_2026-09-24.md). The plain panels are accepted
+for layout review only: restore and enlarge the existing button artwork before
+finalizing the menus, retaining readable labels and generous touch targets.
+The [setup/lobby readability pass](lobby_readability_2026-09-24.md) extends the layout
+through free/paid setup, lobbies, contest entry/details and insufficient balance;
+results/retry are next. Artwork finalization and the combined device pass remain open.
+Owner density refinement: buttons should largely fill the usable screen, with
+tight, consistent gaps. Home choices, mode clusters and setup now use spare height
+for larger targets; the final artwork must scale into those targets.
+The owner accepts the revised size and spacing as a provisional layout baseline;
+final acceptance remains pending the combined physical-device pass.
+The earlier
+[match layout implementation](match_chrome_2026-09-21.md) still needs phone safe-area
+validation; paid exit settlement needs authoritative-service integration validation.
 
 ## Current priority: floor, then hive art and in-game VFX/UX
 
@@ -28,6 +43,13 @@ power number and lane sockets without a backing card, revised after owner feedba
 Hive silhouette direction and the proposed layout
 remain under review; production hive visuals have not changed in this study.
 
+September 24: growth/shrink transformations approved and integrated. Pressure v2
+is now integrated, exercised in a running Campaign match, and approved by the
+owner. Selection and capture are also integrated with native tier/motion fixtures
+and a combined live-match review. The indicator study remains separate; its
+proposed layout has not been silently adopted. Physical-phone performance and
+crowded-match validation remain open.
+
 Recommended review order (hive/effect direction remains proposed):
 
 1. Compare the current floor with a restrained graphite/metal treatment using
@@ -47,7 +69,8 @@ Recommended review order (hive/effect direction remains proposed):
    retain current trigger rules. Avoid opaque plumes, persistent flashing, or
    effects that hide units and neighboring hives.
 5. Review overlapping effects in a dense match on both phone platforms, including
-   reduced motion and performance, before broad menu migration.
+   reduced motion and performance, in the combined device-validation pass with menus
+   (owner sequencing update, September 24).
 
 First deliverable: floor comparison in context. Then use one complete hive with
 all its states as the reference for wider art/effects work. This avoids polishing

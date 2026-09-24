@@ -22,7 +22,7 @@ func _run() -> void:
 	if not renderer_source.contains("_apply_selection(_current_selected_hive_id(arena_api))"):
 		_fail("renderer setup should not blindly apply stale ArenaAPI selection")
 		return
-	if not renderer_source.contains("func _current_selected_hive_id(arena_api: ArenaAPI) -> int:"):
+	if not renderer_source.contains("func _current_selected_hive_id(arena_api: Object) -> int:"):
 		_fail("renderer should expose selected id reconciliation helper")
 		return
 	if not renderer_source.contains("sel.get(\"selected_hive_id\")"):

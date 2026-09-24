@@ -7,6 +7,9 @@ const MatchSetupRandomizer := preload("res://scripts/state/match_setup_randomize
 const CrucibleRulesetPolicy := preload("res://scripts/state/crucible_ruleset_policy.gd")
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
 
+const Journey = preload("res://scripts/ui/menu_journey_frame.gd")
+var _journey: PanelContainer
+
 signal closed
 
 const BASE_MIN_PLAYERS := 5
@@ -30,8 +33,6 @@ const DEV_FILL_BOT_NAME := "Turtle Bot"
 const DEV_FILL_BOT_STYLE := "turtle"
 const DEV_FILL_BOT_TIER := "medium"
 const SLOT_FILL_NAMES := ["Atlas", "Nova", "Rook", "Kite", "Echo", "Vex", "Mako", "Drift", "Pax"]
-const POPUP_BASE_SIZE: Vector2 = Vector2(980.0, 760.0)
-const POPUP_MARGIN: float = 32.0
 const READABLE_FONT_SCALE: int = 3
 const BOT_FILL_DIALOG_SIZE: Vector2i = Vector2i(720, 420)
 const DEFAULT_STAGE_MAP_IDS: Array[String] = []
@@ -197,6 +198,7 @@ func _ready() -> void:
 	_sync_quick_button_text()
 	_sync_join_row_visibility()
 	quick_button.disabled = false
+	_build_readable_lobby()
 	_refresh_summary()
 	_status("Lobby idle")
 	if _auto_start_quick_search:
@@ -272,7 +274,8 @@ func accept_friend_invite(invite: Dictionary) -> void:
 
 func _refresh_summary() -> void:
 	var price_text := "Free Roll" if _free_roll else "%s Entry" % _format_money_cents(_wager_cents)
-	var summary_text: String = "%s | %d Maps | %s" % [_mode_label(_mode), _map_count, price_text]
+	var player_text: String = "%d–%d players" % [_min_players(), _max_players()] if _uses_async_window() else "%d players" % _required_human_players_for_mode()
+	var summary_text: String = "%s\n%d %s · %s\n%s" % [_mode_label(_mode), _map_count, "map" if _map_count == 1 else "maps", price_text, player_text]
 	if _context_is_crucible():
 		summary_text += " | Wax %s" % _format_crucible_wax_millis(_crucible_balance_millis(_local_uid))
 	summary_label.text = summary_text
@@ -2460,38 +2463,30 @@ func _apply_static_fonts() -> void:
 	_enable_large_text_wrapping()
 
 func _apply_quick_button_font() -> void:
-	if not _apply_free_roll_atlas_font(quick_button, _readable_size(15)):
-		_apply_font(quick_button, _font_semibold, _readable_size(15))
+	_apply_font(quick_button, _font_semibold, 44)
+
+func _build_readable_lobby() -> void:
+	_journey = Journey.new()
+	popup_panel.add_child(_journey)
+	title_label.text = "MATCH LOBBY"
+	back_button.text = "BACK"
+	_journey.configure(title_label, back_button, quick_button)
+	quick_button.custom_minimum_size.y = 240
+	for control in [summary_label, status_label, slots_label, countdown_label, invite_label, join_row, sms_button, dev_min_override_button, dev_bot_row]:
+		Journey.adopt(control, _journey.body)
+	for label_control in [summary_label, status_label, slots_label, countdown_label, invite_label, dev_bot_label]:
+		Journey.label(label_control)
+	Journey.label(summary_label, 44)
+	for button in [sms_button, dev_min_override_button, dev_bot_style_option, dev_bot_tier_option, join_button]:
+		Journey.action(button)
+	join_code.custom_minimum_size.y = 168
+	join_code.add_theme_font_size_override("font_size", 40)
+	popup_vbox.hide()
 
 func _layout_popup_panel() -> void:
-	if popup_panel == null:
-		return
-	var viewport_size: Vector2 = get_viewport_rect().size
-	var target_size := Vector2(
-		minf(POPUP_BASE_SIZE.x, maxf(320.0, viewport_size.x - POPUP_MARGIN * 2.0)),
-		minf(POPUP_BASE_SIZE.y, maxf(280.0, viewport_size.y - POPUP_MARGIN * 2.0))
-	)
-	popup_panel.anchor_left = 0.5
-	popup_panel.anchor_top = 0.5
-	popup_panel.anchor_right = 0.5
-	popup_panel.anchor_bottom = 0.5
-	popup_panel.offset_left = -target_size.x * 0.5
-	popup_panel.offset_top = -target_size.y * 0.5
-	popup_panel.offset_right = target_size.x * 0.5
-	popup_panel.offset_bottom = target_size.y * 0.5
-	popup_panel.custom_minimum_size = target_size
-	if popup_vbox != null:
-		popup_vbox.offset_left = 28.0
-		popup_vbox.offset_top = 28.0
-		popup_vbox.offset_right = -28.0
-		popup_vbox.offset_bottom = -28.0
-		popup_vbox.add_theme_constant_override("separation", 20)
-	if quick_button != null:
-		quick_button.custom_minimum_size = Vector2(280.0, 92.0)
-	if back_button != null:
-		back_button.custom_minimum_size = Vector2(180.0, 78.0)
-	if dev_min_override_button != null:
-		dev_min_override_button.custom_minimum_size = Vector2(260.0, 78.0)
+	if popup_panel != null:
+		popup_panel.custom_minimum_size = Vector2.ZERO
+		popup_panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 func _enable_large_text_wrapping() -> void:
 	for label_any in [summary_label, status_label, slots_label, invite_label, countdown_label]:

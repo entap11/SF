@@ -3,23 +3,16 @@ extends SceneTree
 const DEBUG_PROFILE_ID := "018f2b2c-1234-7abc-8def-123456789abc"
 const DEBUG_ENTAP_ID := "SFP 501"
 
-class FakeUnavailableRankState:
+class FakeUnavailableIdentity:
 	extends Node
 	var calls: int = 0
 
-	func intent_register_player(
-			player_id: String,
-			call_sign: String,
-			region: String = "",
-			friends: Array = [],
-			install_metadata: Dictionary = {},
-			authoritative_required: bool = false
-		) -> Dictionary:
+	func intent_register_player(_call_sign: String) -> Dictionary:
 		calls += 1
 		return {"ok": false, "reason": "rank_backend_unavailable"}
 
-var _original_rank_state: Node = null
-var _fake_rank_state: FakeUnavailableRankState = null
+var _original_identity: Node = null
+var _fake_identity: FakeUnavailableIdentity = null
 var _guide_prompt_requested: bool = false
 
 func _init() -> void:
@@ -40,12 +33,12 @@ func _run() -> void:
 	profile_manager.set("_handle_chosen", false)
 	profile_manager.set("_onboarding_complete", false)
 
-	_original_rank_state = root.get_node_or_null("RankState")
-	if _original_rank_state != null:
-		_original_rank_state.name = "RankStateOriginal"
-	_fake_rank_state = FakeUnavailableRankState.new()
-	_fake_rank_state.name = "RankState"
-	root.add_child(_fake_rank_state)
+	_original_identity = root.get_node_or_null("PlayerIdentityRuntime")
+	if _original_identity != null:
+		_original_identity.name = "PlayerIdentityRuntimeOriginal"
+	_fake_identity = FakeUnavailableIdentity.new()
+	_fake_identity.name = "PlayerIdentityRuntime"
+	root.add_child(_fake_identity)
 	await process_frame
 
 	var scene: PackedScene = load("res://scenes/ui/onboarding/onboarding_panel.tscn") as PackedScene
@@ -73,7 +66,7 @@ func _run() -> void:
 	panel.call("_on_continue_pressed")
 	await process_frame
 
-	if _fake_rank_state.calls != 1:
+	if _fake_identity.calls != 1:
 		_fail("backend registration should be attempted once before debug fallback")
 		return
 	if str(profile_manager.call("get_user_id")) != DEBUG_PROFILE_ID:
@@ -101,7 +94,7 @@ func _fail(message: String) -> void:
 	quit(1)
 
 func _cleanup() -> void:
-	if _fake_rank_state != null and is_instance_valid(_fake_rank_state):
-		_fake_rank_state.queue_free()
-	if _original_rank_state != null and is_instance_valid(_original_rank_state):
-		_original_rank_state.name = "RankState"
+	if _fake_identity != null and is_instance_valid(_fake_identity):
+		_fake_identity.queue_free()
+	if _original_identity != null and is_instance_valid(_original_identity):
+		_original_identity.name = "PlayerIdentityRuntime"

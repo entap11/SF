@@ -17,8 +17,18 @@ func _init(plugin_override: Object = null) -> void:
 
 func is_available() -> bool:
 	return _plugin != null \
-		and _plugin.has_method("is_available") \
+		and _plugin_has_method("is_available") \
 		and bool(_plugin.call("is_available"))
+
+func _plugin_has_method(method_name: String) -> bool:
+	if _plugin == null:
+		return false
+	if _plugin.has_method(method_name):
+		return true
+	# Godot's Android JNISingleton keeps @UsedByGodot methods in a separate
+	# registry. Object.has_method() sees only its ordinary Object bindings.
+	return _plugin.has_method("has_java_method") \
+		and bool(_plugin.call("has_java_method", method_name))
 
 func create_device_key(key_alias: String) -> Dictionary:
 	return _call_result("create_device_key", [key_alias])
@@ -35,7 +45,7 @@ func delete_device_key(key_alias: String) -> Dictionary:
 func _call_result(method_name: String, arguments: Array) -> Dictionary:
 	if not is_available():
 		return {"ok": false, "err": "secure_credential_store_unavailable"}
-	if not _plugin.has_method(method_name):
+	if not _plugin_has_method(method_name):
 		return {"ok": false, "err": "secure_credential_method_unavailable"}
 	var raw: Variant = _plugin.callv(method_name, arguments)
 	if typeof(raw) == TYPE_DICTIONARY:

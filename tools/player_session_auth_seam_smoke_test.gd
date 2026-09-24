@@ -8,6 +8,10 @@ const VsHandshakeTransportHttpScript := preload("res://scripts/state/vs_handshak
 
 var _failed: bool = false
 
+class FakeJavaMethodRegistry extends RefCounted:
+	func has_java_method(method_name: String) -> bool:
+		return method_name in ["is_available", "create_device_key", "public_key_jwk", "sign_challenge", "delete_device_key"]
+
 class FakeNativeCredentialPlugin extends RefCounted:
 	func is_available() -> bool:
 		return true
@@ -39,6 +43,12 @@ func _initialize() -> void:
 	_expect(str(native_store.sign_challenge("player", "challenge").get("signature", "")) == "der-signature",
 		"native signature response was not decoded")
 	_expect(bool(native_store.delete_device_key("player").get("ok", false)), "native key deletion response was rejected")
+	var java_registry := FakeJavaMethodRegistry.new()
+	_expect(not java_registry.has_method("is_available"), "Java registry fixture must not expose an Object binding")
+	var android_store = NativeSecureCredentialStoreScript.new(java_registry)
+	_expect(android_store.call("_plugin_has_method", "is_available"), "Android registered availability method was not discovered")
+	_expect(android_store.call("_plugin_has_method", "sign_challenge"), "Android registered signing method was not discovered")
+	_expect(not android_store.call("_plugin_has_method", "unregistered_method"), "Android adapter accepted an unregistered method")
 
 	var session = PlayerSessionStateScript.new()
 	var accepted: Dictionary = session.accept_session_response({

@@ -164,7 +164,7 @@ func _startup_hitch_mark_once(marker_name: String, detail: Dictionary = {}) -> b
 	return StartupHitchDiagnosticScript.mark_tree_event_once(_startup_hitch_tree(), marker_name, detail)
 
 func _startup_hitch_tree() -> SceneTree:
-	var tree: SceneTree = get_tree()
+	var tree: SceneTree = get_tree() if is_inside_tree() else null
 	if tree != null:
 		return tree
 	var main_loop: MainLoop = Engine.get_main_loop()

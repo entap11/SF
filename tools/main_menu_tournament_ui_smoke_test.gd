@@ -11,31 +11,14 @@ func _init() -> void:
 	get_root().add_child(menu)
 	await process_frame
 
-	var tournaments_button: Button = menu.get_node_or_null("BottomBar/MenuButtons/SettingsButton") as Button
+	var tournaments_button: Button = menu.get("menu_unused_button") as Button
 	if tournaments_button == null or not tournaments_button.visible or tournaments_button.text != "TOURNAMENTS":
 		push_error("MAIN_MENU_TOURNAMENT_UI_SMOKE: tournament nav button missing")
 		quit(1)
 		return
 	var tournaments_skin: TextureRect = tournaments_button.get_node_or_null("SkinTex") as TextureRect
-	var registry := SpriteRegistry.get_instance()
-	var expected_skin_path := "res://assets/sprites/sf_skin_v1/tournaments.png"
-	if (
-		tournaments_skin == null
-		or not tournaments_skin.visible
-		or tournaments_skin.texture == null
-		or registry == null
-		or registry.get_tex_path("ui.mm.tournaments.normal") != expected_skin_path
-	):
-		push_error("MAIN_MENU_TOURNAMENT_UI_SMOKE: tournament nav sprite missing")
-		quit(1)
-		return
-	var raw_tournament_skin: Texture2D = registry.get_tex("ui.mm.tournaments.normal")
-	if raw_tournament_skin == null:
-		push_error("MAIN_MENU_TOURNAMENT_UI_SMOKE: raw tournament nav sprite missing")
-		quit(1)
-		return
-	if tournaments_skin.texture.get_size().x >= raw_tournament_skin.get_size().x:
-		push_error("MAIN_MENU_TOURNAMENT_UI_SMOKE: tournament nav sprite should be cropped for readability")
+	if tournaments_skin == null or tournaments_skin.visible or tournaments_button.custom_minimum_size.y < 132:
+		push_error("MAIN_MENU_TOURNAMENT_UI_SMOKE: tournament entry should use the larger live-text presentation")
 		quit(1)
 		return
 	tournaments_button.pressed.emit()

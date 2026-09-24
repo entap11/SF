@@ -29,30 +29,39 @@ func _run() -> void:
 		_set_status("READY — 1 small→medium, 2 medium→large, 3 bright-field review, Esc exit")
 		return
 
-	_set_status("P1 SMALL → MEDIUM — first ring spawn")
+	_set_status("P1 SMALL → MEDIUM — core charge")
 	await _begin_growth(1, 9, 10)
-	_set_ring_phase(0, 0.08)
+	_set_elapsed(0.09)
 	await _capture("01_p1_small_medium_spawn")
-	_set_status("P1 SMALL → MEDIUM — first ring peak")
-	_set_ring_phase(0, 0.38)
+	_set_status("P1 SMALL → MEDIUM — fitted sweep")
+	_set_elapsed(0.29)
 	await _capture("02_p1_small_medium_peak")
-	_set_status("P1 SMALL → MEDIUM — final reveal ring")
-	_set_ring_phase(1, 0.46)
+	_set_status("P1 SMALL → MEDIUM — seating")
+	_set_elapsed(0.53)
 	await _capture("03_p1_small_medium_final")
 
-	_set_status("P2 MEDIUM → LARGE — three-ring final peak")
+	_set_status("P2 MEDIUM → LARGE — fitted sweep")
 	await _begin_growth(2, 24, 25)
-	_set_ring_phase(2, 0.46)
+	_set_elapsed(0.30)
 	await _capture("04_p2_medium_large_final")
 
 	_background.color = Color(0.46, 0.50, 0.54, 1.0)
 	_set_status("BRIGHT BATTLEFIELD — emissive bands remain distinct")
 	await _begin_growth(1, 24, 25)
-	_set_ring_phase(2, 0.46)
+	_set_elapsed(0.30)
 	await _capture("05_bright_battlefield_final")
 
 	_background.color = Color(0.018, 0.026, 0.045, 1.0)
-	_set_status("LOWER-COST PATH — one fixed reduced ring")
+	_set_status("CONTRACTION — LARGE → MEDIUM")
+	await _begin_growth(1, 25, 24)
+	_set_elapsed(0.22)
+	await _capture("07_large_medium_contraction")
+	_set_status("CONTRACTION — MEDIUM → SMALL")
+	await _begin_growth(1, 10, 9)
+	_set_elapsed(0.17)
+	await _capture("08_medium_small_contraction")
+
+	_set_status("LOWER-COST PATH — short dissolve")
 	await _begin_growth(1, 9, 10)
 	var transition: Node = _transition()
 	if transition != null:
@@ -67,14 +76,14 @@ func _run() -> void:
 			{},
 			"reduced"
 		)
-		transition.call("set_debug_ring_phase", 0, 0.46)
-	await _capture("06_reduced_motion_ring")
+		transition.call("set_debug_elapsed", 0.065)
+	await _capture("06_reduced_motion_dissolve")
 
 	print("HIVE_GROWTH_TRANSITION_VISUAL_HARNESS: CAPTURED")
 	quit(0)
 
 func _on_window_input(event: InputEvent) -> void:
-	if not (event is InputEventKey):
+	if _capture_once or not (event is InputEventKey):
 		return
 	var key := event as InputEventKey
 	if not key.pressed or key.echo:
@@ -131,10 +140,10 @@ func _transition() -> Node:
 		return null
 	return hive.get_node_or_null("Visual/FxLayer/HiveGrowthTransition")
 
-func _set_ring_phase(index: int, progress: float) -> void:
+func _set_elapsed(seconds: float) -> void:
 	var transition: Node = _transition()
-	if transition != null and transition.has_method("set_debug_ring_phase"):
-		transition.call("set_debug_ring_phase", index, progress)
+	if transition != null and transition.has_method("set_debug_elapsed"):
+		transition.call("set_debug_elapsed", seconds)
 
 func _build_stage() -> void:
 	_background = ColorRect.new()
@@ -160,7 +169,7 @@ func _build_stage() -> void:
 		get_root().add_child(horizontal)
 	var title := Label.new()
 	title.position = Vector2(42.0, 34.0)
-	title.text = "HIVE GROWTH-RING FIXED-PHASE HARNESS"
+	title.text = "HIVE TRANSFORMATION — NATIVE SCENE"
 	title.add_theme_font_size_override("font_size", 32)
 	title.add_theme_color_override("font_color", Color(0.90, 0.95, 1.0, 1.0))
 	get_root().add_child(title)
@@ -178,6 +187,7 @@ func _set_status(text: String) -> void:
 
 func _capture(filename: String) -> void:
 	await process_frame
+	RenderingServer.force_draw(false)
 	var absolute_dir: String = ProjectSettings.globalize_path(ARTIFACT_DIR)
 	DirAccess.make_dir_recursive_absolute(absolute_dir)
 	var viewport_texture: ViewportTexture = get_root().get_texture()

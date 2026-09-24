@@ -36,20 +36,33 @@ func _run() -> void:
 	if panel == null:
 		menu.queue_free()
 		return
-	var button: Button = panel.get_node_or_null("EntryScroll/EntryBody/EntryCanvas/ProgressiveButton") as Button
+	var button: Button = panel.find_child("ProgressiveButton", true, false) as Button
 	if button == null:
 		_fail("missing Gauntlet button")
 		return
 	if button.tooltip_text != "GAUNTLET":
 		_fail("Progressive button should be presented as Gauntlet")
 		return
-	if button.icon == null:
-		_fail("Gauntlet button should use gauntlet art")
+	var readable_title: Label = button.get_node_or_null("ReadableCopy/Copy/Title") as Label
+	if readable_title == null or readable_title.text != "GAUNTLET":
+		_fail("Gauntlet button should show a readable live title")
 		return
 	menu.set("_free_roll_press_block_until_msec", 0)
 	menu.call("_on_free_roll_button_down", button)
 	button.pressed.emit()
 	await process_frame
+	await process_frame
+	var dash: Control = menu.get("_public_contest_dash") as Control
+	if dash == null or not dash.visible or str(dash.get("_family")) != "GAUNTLET" \
+			or str(dash.get("_scope")) != "WEEKLY":
+		_fail("Gauntlet should open its weekly public contest before entry")
+		return
+	if bool(get_meta("start_game", false)) or not store.load_current_run().is_empty():
+		_fail("Gauntlet menu must not bypass public contest entry")
+		return
+	# Exercise the existing local launch seam separately from the menu route.
+	menu.call("_close_public_contest_dash")
+	menu.call("_on_progressive_selected")
 	await process_frame
 	if not _assert_progressive_launch():
 		return

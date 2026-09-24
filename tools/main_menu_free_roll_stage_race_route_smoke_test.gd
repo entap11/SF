@@ -33,7 +33,7 @@ func _run() -> void:
 			menu.queue_free()
 			return
 		var button_path: String = str(route.get("path", ""))
-		var button: Button = panel.get_node_or_null(button_path) as Button
+		var button: Button = panel.find_child(button_path.get_file(), true, false) as Button
 		if button == null:
 			push_error("MAIN_MENU_FREE_ROLL_STAGE_RACE_ROUTE_SMOKE: missing %s" % button_path)
 			menu.queue_free()
