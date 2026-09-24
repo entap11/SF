@@ -1,5 +1,5 @@
 """Build the offline current/refined pressure comparison; no game autoloads."""
-import argparse, os, shutil, subprocess
+import argparse, os, shutil, subprocess, tempfile
 from pathlib import Path
 ROOT=Path(__file__).resolve().parents[1]
 p=argparse.ArgumentParser(description=__doc__)
@@ -34,11 +34,20 @@ window/vsync/vsync_mode=0
 [rendering]
 renderer/rendering_method="gl_compatibility"
 ''')
-env=os.environ.copy(); env['SF_PRESSURE_OUTPUT']=str(out); env['SF_PRESSURE_MOTION']=a.motion
-cmd=[a.godot,'--path',str(runtime),'--script','res://tools/hive_pressure_study/study.gd']
-if a.capture or a.stills: cmd+=['--','--capture' if a.capture else '--stills']
-with (out/'capture.log').open('w') as log:
- r=subprocess.run(cmd,env=env,stdout=log,stderr=subprocess.STDOUT,timeout=300 if a.capture or a.stills else None)
-text=(out/'capture.log').read_text()
-if r.returncode or 'ERROR' in text: raise SystemExit(text)
-print(text)
+automated=a.capture or a.stills
+with tempfile.TemporaryDirectory(prefix='.pressure-capture-',dir=out) as staging:
+ env=os.environ.copy(); env['SF_PRESSURE_OUTPUT']=staging if automated else str(out); env['SF_PRESSURE_MOTION']=a.motion
+ cmd=[a.godot,'--path',str(runtime),'--script','res://tools/hive_pressure_study/study.gd']
+ if automated: cmd+=['--minimized','--','--capture' if a.capture else '--stills']
+ with (out/'capture.log').open('w') as log:
+  r=subprocess.run(cmd,env=env,stdout=log,stderr=subprocess.STDOUT,timeout=300 if automated else None)
+ text=(out/'capture.log').read_text()
+ if r.returncode or 'ERROR' in text: raise SystemExit(text)
+ if automated:
+  if 'HIVE_PRESSURE_REVIEW: PASS' not in text: raise SystemExit('Capture ended before validation completed.\n'+text)
+  expected=range(576) if a.capture else [15,38,85,153,173,300,325,475,500]
+  frames=Path(staging)/'frames'
+  if not all((frames/f'{i:04d}.png').is_file() for i in expected): raise SystemExit('Incomplete capture')
+  if (out/'frames').exists(): shutil.rmtree(out/'frames')
+  shutil.move(str(frames),str(out/'frames'))
+ print(text)
