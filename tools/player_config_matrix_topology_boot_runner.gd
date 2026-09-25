@@ -349,7 +349,9 @@ func _wait_for_node(path: NodePath, timeout_ms: int) -> Node:
 		if node != null:
 			return node
 		await process_frame
-	return null
+	# Synchronous scene loading can cross the deadline in the frame we awaited.
+	# Observe that frame's result before declaring the node missing.
+	return root.get_node_or_null(path)
 
 func _wait_for_match_running(ops_state: Node, timeout_ms: int) -> bool:
 	if ops_state == null:
@@ -359,7 +361,7 @@ func _wait_for_match_running(ops_state: Node, timeout_ms: int) -> bool:
 		if int(ops_state.get("match_phase")) == int(ops_state.MatchPhase.RUNNING):
 			return true
 		await process_frame
-	return false
+	return int(ops_state.get("match_phase")) == int(ops_state.MatchPhase.RUNNING)
 
 func _visible_label_text(parent: Node, path: String) -> String:
 	var label: Label = parent.get_node_or_null(path) as Label
