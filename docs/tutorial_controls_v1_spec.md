@@ -40,10 +40,10 @@ Each step owns a narrow contract: instruction copy, named source/target anchors,
 | `take_neutral_hive` | Ask the player to take the gray NPC hive from the original hive. | tap, drag |
 | `attack_enemy_from_neutral` | Pause after gray capture, then ask the player to make an attack lane from gray to red. | tap, drag |
 | `swarm_intro` | Pause and introduce repeating source-to-destination over an active lane. | tap_anywhere |
-| `swarm_by_overlap` | Teach swarming over an active lane. All three player-owned hives are valid sources; both tap/tap and drag to the red hive are accepted. | tap, drag |
-| `wait_overlap_swarm_hit` | Let the first swarm hit before continuing. | wait |
+| `swarm_by_overlap` | Teach swarming over an active lane, then highlight another ready hive for each successive swarm until red is captured. The first swarm accepts any player hive; subsequent swarms follow the highlighted source. Tap/tap and drag are accepted throughout. | tap, drag |
+| `wait_overlap_swarm_hit` | Let each swarm resolve, then immediately prompt the next hive if red is still hostile. | wait |
 | `swarm_double_tap` | Mothballed and unreachable: retained for possible future gesture experiments, but lane overlap makes intent ambiguous. | lane_double_tap |
-| `finish_fight` | Finish the fight without prompts blocking play. | free_play |
+| `finish_fight` | Legacy free-play step, no longer reached by the active tutorial; the guided swarm sequence continues until capture. | none |
 | `complete` | Mark the tutorial complete. | none |
 
 ## Chunk Plan
@@ -67,3 +67,29 @@ Each step owns a narrow contract: instruction copy, named source/target anchors,
 - Chunk 17: direct lane-throw action gate. The cancel lesson no longer uses a dismiss-on-input readout or the double-tap shortcut. An animated hand and elastic lane shadow demonstrate the sideways pull, and the first valid press is constrained to the lane-grab input path so an overlapping hive hit cannot steal the gesture. The sim stays paused only until that valid press, then resumes for the pull/release and any retry; the constrained gesture ignores incidental structure overlap and uses a forgiving throw threshold.
 - Chunk 18: completion and gesture reliability. The former red-half double-tap targeting remains in dormant code but is unreachable because overlapping lanes make source intent ambiguous. Friendly-lane remake explicitly guides and accepts tap/tap as well as drag. Tutorial completion is latched through match end so the dedicated congratulations screen appears, then automatically launches the existing easy-turtle 1v1 follow-up after a short countdown.
 - Chunk 19: first-match onboarding reward. The first easy-turtle match after the controls tutorial ends on a one-time Welcome Pack screen. Opening it atomically grants two of every selectable Classic buff type, persists the claim, and returns to the main menu.
+
+## First match: Simple Syrup
+
+Completing Controls v1 automatically launches `res://maps/tutorial/MAP_simple_syrup__1p.json` against the existing easy Training Turtle bot. It remains a free, unranked practice 1v1 with the existing completion rewards.
+
+The 18×28 board has seven hives: P1 at `(8.5, 24)`, P2 at `(8.5, 3)`, four neutral side hives at `(4, 18)`, `(13, 18)`, `(4, 9)`, and `(13, 9)`, and a shared neutral at `(8.5, 13.5)`. Both players start at 10 power; side neutrals start at 5 and the center starts at 10. No lanes start active and there are no walls.
+
+The first match contains only ordinary hives: no towers, barracks, or structure slots.
+
+The separate `res://maps/simple_syrup/MAP_simple_syrup__TB__1p.json` variant, **Simple Syrup (Structures)**, preserves this layout for regular 1v1 and async play. A tower at `(5, 13)` occupies the left center triangle, controlled by the two left-side hives and the center. A barracks at `(12, 14)` occupies the right center triangle, controlled by the two right-side hives and the center. Both positions are also authored as legal structure slots. This variant uses the ordinary structure-control rules, including neutral control while all three assigned hives remain neutral. Capturing the center alone does not grant either structure.
+
+The follow-up launch clears previous match-randomizer metadata so starting seats and hive powers remain as authored. The tutorial handoff smoke check waits for Simple Syrup to load with seven hives, no structures, and no structure slots, beyond checking the bot-launch metadata.
+
+## Pointer reliability — September 24, 2026
+
+- Project tutorial highlights from the battlefield SubViewport into the HUD coordinate space. Lane-gesture constraints use the same projected space.
+- Place prompts around the currently requested hive. Destination prompts use a compact layout so neither endpoint is covered by the panel or its Skip button; the swarm prompt leaves all three sources available.
+- Keep source taps idempotent and prioritize the prompted hive over overlapping lanes. Reconcile the prompt with InputSystem's selection after release, including an abandoned drag; do not depend on a later frame copying selection into the simulation snapshot.
+- Consume repeat presses and their releases while watching arrivals, contests, captures, swarms, and the existing post-action dwell. Show a short confirmation during these waits. Existing simulation rules and dwell durations are unchanged.
+- Keep one pointer gesture active at a time, and release a tutorial-owned pause when the controller is hidden, including before the lane-throw lesson's first press.
+
+`tools/tutorial_controls_input_regression_test.gd` exercises the controller with the real InputSystem and OpsState for mouse and touch retries, interrupted drags, duplicate commands, second-finger interference, and pause cleanup. `tools/tutorial_controls_pointer_smoke_test.gd` walks through the real shell and viewport input path through the final capture, without injecting lanes, arrivals, powers, ownership, or tutorial deadlines. It supports `--touch`, `--drag`, `--repeat-inputs`, and `--capture-dir=...`.
+
+Run the full walkthrough in an isolated project/user directory with `application/config/use_custom_user_dir=true`; starting the tutorial updates profile progress. The existing `scripts/dev/run_tutorial_controls_smoke.sh` also checks completion and the follow-up match handoff.
+
+The ending remains guided through repeated swarms: after each swarm resolves, rotate to another ready hive (gray → top-left → bottom-left, starting after whichever source the player used). Follow-up prompts keep simulation running so power and cooldowns recover. There is no extra 4.5-second dwell after a swarm and no free-play handoff before capture. If other hives are recharging, retain a live recharge prompt; count only accepted swarm requests, not failed taps.
