@@ -7,6 +7,7 @@ const MAP_APPLIER := preload("res://scripts/maps/map_applier.gd")
 const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
 const MAP_SCHEMA := preload("res://scripts/maps/map_schema.gd")
 const MapModeRules := preload("res://scripts/maps/map_mode_rules.gd")
+const MatchSetupRandomizer := preload("res://scripts/state/match_setup_randomizer.gd")
 const TeamVisuals := preload("res://scripts/renderers/team_visuals.gd")
 const ArenaPrematchTeamUiFormatter := preload("res://scripts/arena_helpers/prematch_team_ui_formatter.gd")
 const ShellStartupLaunchRequestResolver := preload("res://scripts/shell_helpers/startup_launch_request_resolver.gd")
@@ -54,7 +55,7 @@ const ARENA_STARTUP_READINESS_TIMEOUT_MS: int = 8000
 const CTF_BOT_STAGE_MAP_PATH: String = "res://maps/_future/nomansland/MAP_nomansland__545__v01_top2_sides__1p.json"
 const TUTORIAL_CONTROLS_ID: String = "controls_v1"
 const TUTORIAL_CONTROLS_MAP_PATH: String = "res://maps/tutorial/MAP_tutorial_controls_v1__1p.json"
-const TUTORIAL_CONTROLS_FOLLOWUP_MAP_PATH: String = "res://maps/_future/nomansland/MAP_nomansland__444__v01_pinched_spine__1p.json"
+const TUTORIAL_CONTROLS_FOLLOWUP_MAP_PATH: String = "res://maps/tutorial/MAP_simple_syrup__1p.json"
 const TUTORIAL_SANDBOX_MAP_PATH: String = "res://maps/json/MAP_SKETCH_LR_8x12_v1xy_BARRACKS_1.json"
 const TUTORIAL_SANDBOX_FALLBACK_MAP_PATH: String = "res://maps/json/MAP_TEST_8x12.json"
 const TUTORIAL_SECTION1_ID: String = "section1"
@@ -1885,6 +1886,11 @@ func _prepare_tutorial_controls_followup_tree_meta(map_path: String) -> void:
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return
+	# Use the authored first-match setup, even when replaying the tutorial
+	# after a match that randomized starting seats, power or structures.
+	for key in [MatchSetupRandomizer.TREE_META_KEY, MatchSetupRandomizer.CONTEXT_KEY]:
+		if tree.has_meta(key):
+			tree.remove_meta(key)
 	var local_uid: String = ProfileManager.get_user_id() if ProfileManager != null else "local"
 	var local_name: String = ProfileManager.get_display_name() if ProfileManager != null else "You"
 	if local_name.strip_edges().is_empty():
@@ -4839,10 +4845,12 @@ func _run_tutorial_controls_smoke(config: Dictionary) -> void:
 		return
 
 	_tutorial_button.emit_signal("pressed")
-	await get_tree().process_frame
-	await get_tree().process_frame
-
 	var tree: SceneTree = get_tree()
+	var launch_deadline_ms: int = Time.get_ticks_msec() + boot_timeout_ms
+	while tree != null and Time.get_ticks_msec() < launch_deadline_ms:
+		if bool(tree.get_meta(TREE_META_TUTORIAL_ACTIVE, false)) and str(tree.get_meta(TREE_META_TUTORIAL_SECTION, "")) == TUTORIAL_CONTROLS_ID:
+			break
+		await tree.process_frame
 	var meta_ok: bool = tree != null \
 		and bool(tree.get_meta(TREE_META_TUTORIAL_ACTIVE, false)) \
 		and str(tree.get_meta(TREE_META_TUTORIAL_SECTION, "")) == TUTORIAL_CONTROLS_ID
@@ -5036,10 +5044,25 @@ func _run_tutorial_controls_smoke(config: Dictionary) -> void:
 	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "wait_overlap_swarm_hit", run_timeout_ms, "tutorial_controls_advances_after_overlap_swarm", {"src": friend_id, "dst": enemy_id})
 	passes += int(check_result.get("passes", 0))
 	fails += int(check_result.get("fails", 0))
-	_tutorial_controls_smoke_clear_swarms()
-	check_result = await _tutorial_controls_smoke_expect_step(arena_node, "finish_fight", run_timeout_ms, "tutorial_controls_skips_mothballed_double_tap", {"src": friend_id, "dst": enemy_id})
-	passes += int(check_result.get("passes", 0))
-	fails += int(check_result.get("fails", 0))
+	var previous_swarm_source_id: int = friend_id
+	for swarm_number in range(2, 4):
+		_tutorial_controls_smoke_clear_swarms()
+		check_result = await _tutorial_controls_smoke_expect_step(arena_node, "swarm_by_overlap", run_timeout_ms, "tutorial_controls_guides_next_swarm_%d" % swarm_number, {})
+		passes += int(check_result.get("passes", 0))
+		fails += int(check_result.get("fails", 0))
+		var next_swarm_snapshot: Dictionary = _tutorial_controls_smoke_snapshot(arena_node)
+		var next_source_anchor: String = str(next_swarm_snapshot.get("swarm_prompt_source_anchor", ""))
+		var next_source_id: int = int(anchors.get(next_source_anchor, -1))
+		var next_swarm_ok: bool = next_source_id > 0 and next_source_id != previous_swarm_source_id \
+			and bool(arena_node.call("tutorial_controls_smoke_perform_swarm_tap_pair", next_source_id, enemy_id))
+		if next_swarm_ok:
+			passes += _mvp_smoke_pass("tutorial_controls_successive_swarm_%d" % swarm_number, {"src": next_source_id, "dst": enemy_id})
+		else:
+			fails += _mvp_smoke_fail("tutorial_controls_successive_swarm_%d" % swarm_number, _tutorial_controls_smoke_snapshot(arena_node))
+		check_result = await _tutorial_controls_smoke_expect_step(arena_node, "wait_overlap_swarm_hit", run_timeout_ms, "tutorial_controls_watches_swarm_%d" % swarm_number, {})
+		passes += int(check_result.get("passes", 0))
+		fails += int(check_result.get("fails", 0))
+		previous_swarm_source_id = next_source_id
 
 	if _tutorial_controls_smoke_set_hive_owner(enemy_id, 1, 6):
 		passes += _mvp_smoke_pass("tutorial_controls_capture_enemy_mutation", {"hive_id": enemy_id})
@@ -5275,7 +5298,15 @@ func _tutorial_controls_smoke_wait_followup_auto_launch(timeout_ms: int) -> bool
 			and str(tree.get_meta("vs_mode", "")).to_upper() == "1V1" \
 			and str(tree.get_meta("vs_cpu_style", "")).to_lower() == "turtle" \
 			and str(tree.get_meta("vs_cpu_tier", "")).to_lower() == "easy":
-			return true
+			var followup_arena: Node = _resolve_runtime_arena_node()
+			var state: GameState = OpsState.get_state()
+			var followup_map: Dictionary = followup_arena.get("current_map_data") if followup_arena != null else {}
+			if followup_arena != null \
+				and str(followup_map.get("id", "")) == MAP_REGISTRY.map_id_from_path(TUTORIAL_CONTROLS_FOLLOWUP_MAP_PATH) \
+				and state != null and state.hives.size() == 7 \
+				and state.towers.is_empty() and state.barracks.is_empty() \
+				and (followup_map.get("structure_slots", []) as Array).is_empty():
+				return true
 		await get_tree().process_frame
 	return false
 

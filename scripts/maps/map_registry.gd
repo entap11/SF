@@ -23,6 +23,24 @@ const PUBLIC_NOMANSLAND_SEQUENCE_IDS: Array[String] = [
 ]
 const ALLOWED_MODES: Array[String] = ["1p", "2p", "3p", "4p"]
 const PUBLIC_MAP_ALIASES: Dictionary = {
+	"MAP_roundabout__SBASE__3p": {
+		"public_name": "Roundabout",
+		"family": "roundabout",
+		"sequence": 1,
+		"status": "candidate"
+	},
+	"MAP_simple_syrup__1p": {
+		"public_name": "Simple Syrup",
+		"family": "tutorial",
+		"sequence": 1,
+		"status": "tutorial"
+	},
+	"MAP_simple_syrup__TB__1p": {
+		"public_name": "Simple Syrup (Structures)",
+		"family": "simple_syrup",
+		"sequence": 1,
+		"status": "active"
+	},
 	"MAP_nomansland__SBASE__1p": {
 		"public_name": "nomansland",
 		"family": "nomansland",

@@ -1,0 +1,31 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "id": "MAP_simple_syrup__1p",
+  "name": "Simple Syrup",
+  "family": "tutorial",
+  "display_family": "Simple Syrup",
+  "mode": "1p",
+  "player_buckets": ["1P"],
+  "strict_player_buckets": true,
+  "playstyle_tags": ["TUTORIAL", "STRATEGY"],
+  "season_tags": ["tutorial"],
+  "rotation": { "status": "tutorial", "weight": 0 },
+  "async_bot_count": 1,
+  "width": 18,
+  "height": 28,
+  "symmetry": "none",
+  "defaults": { "player_start_power": 10, "npc_start_power": 5 },
+  "start_slots": [1, 7],
+  "entities": [
+    { "type": "player_hive", "id": 1, "owner": "P1", "x": 8.5, "y": 24, "power": 10 },
+    { "type": "npc_hive", "id": 2, "owner": "NEUTRAL", "x": 4, "y": 18, "power": 5 },
+    { "type": "npc_hive", "id": 3, "owner": "NEUTRAL", "x": 13, "y": 18, "power": 5 },
+    { "type": "npc_hive", "id": 4, "owner": "NEUTRAL", "x": 8.5, "y": 13.5, "power": 10 },
+    { "type": "npc_hive", "id": 5, "owner": "NEUTRAL", "x": 4, "y": 9, "power": 5 },
+    { "type": "npc_hive", "id": 6, "owner": "NEUTRAL", "x": 13, "y": 9, "power": 5 },
+    { "type": "player_hive", "id": 7, "owner": "P2", "x": 8.5, "y": 3, "power": 10 }
+  ],
+  "structure_slots": [],
+  "walls": [],
+  "occluders": { "walls": [], "blocks_los": [] }
+}

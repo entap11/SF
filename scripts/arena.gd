@@ -866,7 +866,7 @@ func _start_match_flow() -> void:
 			Callable(self, "_force_fullscreen_anchors"),
 			_resolve_local_owner_id(),
 			state,
-			Callable(self, "_tutorial_hive_screen_pos"),
+			Callable(self, "_tutorial_hive_overlay_pos"),
 			Callable(self, "_pause_tutorial_message_sim"),
 			Callable(self, "_resume_tutorial_message_sim"),
 			Callable(self, "_tutorial_arrival_count")
@@ -4709,6 +4709,19 @@ func _tutorial_hive_screen_pos(hive_id: int) -> Vector2:
 	if vp == null:
 		return world_pos
 	return vp.get_canvas_transform() * world_pos
+
+func _tutorial_overlay_pos(local_pos: Vector2) -> Vector2:
+	var projection: Dictionary = buff_arena_local_to_root_screen(local_pos)
+	var hud_root: Control = _resolve_hud_root()
+	if bool(projection.get("ok", false)) and hud_root != null:
+		return hud_root.get_global_transform_with_canvas().affine_inverse() * (projection["root_screen_pos"] as Vector2)
+	return get_viewport().get_canvas_transform() * map_root.to_global(local_pos)
+
+func _tutorial_hive_overlay_pos(hive_id: int) -> Vector2:
+	var hive: HiveData = state.find_hive_by_id(hive_id) if state != null else null
+	if hive == null:
+		return Vector2(-9999.0, -9999.0)
+	return _tutorial_overlay_pos(_cell_center(hive.grid_pos))
 
 func _tutorial_buff_screen_pos() -> Vector2:
 	var buff_strip: Control = get_node_or_null(SHELL_PLAYER_BUFF_STRIP_PATH) as Control
@@ -12440,11 +12453,14 @@ func _send_pointer_event(pressed: bool, button_index: int, local_pos: Vector2, i
 		"lane_id": lane_id
 	}
 	if _tutorial_launch_section() == TUTORIAL_CONTROLS_ID and _tutorial_controls_controller != null:
+		ev["tutorial_screen_pos"] = _tutorial_overlay_pos(local_pos)
 		if not _tutorial_controls_controller.should_allow_pointer_event(ev, state):
 			if get_viewport() != null:
 				get_viewport().set_input_as_handled()
 			return
 	input_system.handle_pointer_event(ev, api)
+	if _tutorial_launch_section() == TUTORIAL_CONTROLS_ID and _tutorial_controls_controller != null:
+		_tutorial_controls_controller.on_pointer_event_handled(ev, state, input_system.selected_src_id)
 
 func _on_map_left_click(lp: Vector2, event: InputEventMouseButton) -> void:
 	if has_method("_handle_left_click_local"):
