@@ -3,11 +3,16 @@ extends SceneTree
 const BuffSystem := preload("res://scripts/sim/authoritative_buff_system.gd")
 
 var _failed: bool = false
+var _fixture_systems: Array[RefCounted] = []
 
 func _init() -> void:
 	_test_swarm_damage()
 	_test_hive_impact_cohorts()
 	_test_speed_stamp()
+	for system: RefCounted in _fixture_systems:
+		# Break fixture GameState <-> UnitSystem reference cycles.
+		system.set("state", null)
+	_fixture_systems.clear()
 	if _failed:
 		quit(1)
 		return
@@ -17,8 +22,10 @@ func _init() -> void:
 func _test_swarm_damage() -> void:
 	var state := _state()
 	var unit_system := UnitSystem.new()
+	_fixture_systems.append(unit_system)
 	unit_system.bind_state(state)
 	var swarm_system := SwarmSystem.new()
+	_fixture_systems.append(swarm_system)
 	swarm_system.bind_state(state)
 	var activated: Dictionary = BuffSystem.activate(state, _command("swarm", "buff_swarm_damage_classic", "global", "global"))
 	_expect(bool(activated.get("ok", false)), "Swarm Damage activates")
@@ -45,6 +52,7 @@ func _test_hive_impact_cohorts() -> void:
 	var stamped: Dictionary = BuffSystem.stamp_ordinary_unit(state, {"owner_id": 1, "from_id": 1, "amount": 1})
 	_expect(int(stamped.get("enhanced_full_count", 0)) == 1, "new ordinary unit is stamped as an untouched enhanced cohort")
 	var unit_system := UnitSystem.new()
+	_fixture_systems.append(unit_system)
 	unit_system.bind_state(state)
 	var untouched: Dictionary = unit_system._apply_cohort_damage(stamped.duplicate(true), 0)
 	var after_one: Dictionary = unit_system._apply_cohort_damage(stamped.duplicate(true), 1)

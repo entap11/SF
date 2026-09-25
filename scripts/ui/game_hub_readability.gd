@@ -5,6 +5,7 @@ const Style = preload("res://scripts/ui/menu_surface_style.gd")
 const Typography = preload("res://scripts/ui/ui_typography.gd")
 const Cluster = preload("res://scripts/ui/menu_option_cluster.gd")
 const HexSurface = preload("res://scripts/ui/menu_hex_surface.gd")
+const Artwork = preload("res://scripts/ui/menu_button_artwork.gd")
 const FREE_GROUPS := [
 	[
 		["Human1v1Button", "1V1", "Head-to-head match"],
@@ -47,6 +48,7 @@ var _routes: Array[Button] = []
 var _back: Button
 var _status: Label
 var _clusters: Array[Container] = []
+var _artwork := Artwork.new()
 
 func configure(menu: Control, panel: Panel, paid: bool) -> void:
 	_menu = menu
@@ -168,6 +170,14 @@ func _adopt_route(parent: Container, button: Button, title: String, detail: Stri
 	button.show()
 
 func _style_route(button: Button, detail: String) -> void:
+	# Preserve the route's own artwork before removing the legacy icon layout.
+	if button.icon == null and not button.has_meta("sf_menu_art_texture"):
+		if button.name == "CaptureFlagButton":
+			button.icon = _menu.call("_async_mode_skin_for_label", "CAPTURE FLAG")
+		elif button.name == "HiddenFlagButton":
+			button.icon = _menu.call("_async_mode_skin_for_label", "HIDDEN FLAG")
+	if button.icon != null and not button.has_meta("sf_menu_art_texture"):
+		button.set_meta("sf_menu_art_texture", button.icon)
 	_clear_art(button)
 	Style.action(button)
 	button.text = str(button.get_meta("sf_readable_title")) + "\n" + detail
@@ -177,7 +187,7 @@ func _style_route(button: Button, detail: String) -> void:
 		button.add_theme_stylebox_override(state, StyleBoxEmpty.new())
 	for state in ["font_color", "font_hover_color", "font_pressed_color", "font_disabled_color", "font_focus_color"]:
 		button.add_theme_color_override(state, Color.TRANSPARENT)
-	button.custom_minimum_size = Vector2(0, 188)
+	button.custom_minimum_size = Vector2(0, 312)
 	button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	if not button.has_node("HexSurface"):
 		var hex := HexSurface.new()
@@ -188,7 +198,7 @@ func _style_route(button: Button, detail: String) -> void:
 		margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 		margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 		for side in ["left", "right"]:
-			margin.add_theme_constant_override("margin_" + side, 38)
+			margin.add_theme_constant_override("margin_" + side, 12)
 		for side in ["top", "bottom"]:
 			margin.add_theme_constant_override("margin_" + side, 12)
 		button.add_child(margin)
@@ -198,6 +208,11 @@ func _style_route(button: Button, detail: String) -> void:
 		copy.alignment = BoxContainer.ALIGNMENT_CENTER
 		copy.add_theme_constant_override("separation", 8)
 		margin.add_child(copy)
+		var texture: Texture2D = button.get_meta("sf_menu_art_texture") if button.has_meta("sf_menu_art_texture") else null
+		if texture != null:
+			var art := _artwork.view(texture)
+			copy.add_child(art)
+			button.get_node("HexSurface").set("has_artwork", true)
 		for entry in [["Title", 44], ["Detail", 32]]:
 			var label := _label(copy, "", entry[1], Style.TEXT if entry[0] == "Title" else Style.MUTED)
 			label.name = entry[0]

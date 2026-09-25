@@ -4,10 +4,15 @@ const BuffSystem := preload("res://scripts/sim/authoritative_buff_system.gd")
 const SimTuningRef := preload("res://scripts/sim/sim_tuning.gd")
 
 var _failed: bool = false
+var _fixture_systems: Array[RefCounted] = []
 
 func _init() -> void:
 	_test_freeze_movement_combat_and_swarm_exclusion()
 	_test_treacherous_existing_and_new_units()
+	for system: RefCounted in _fixture_systems:
+		# Break fixture GameState <-> UnitSystem reference cycles.
+		system.set("state", null)
+	_fixture_systems.clear()
 	if _failed:
 		quit(1)
 		return
@@ -17,6 +22,7 @@ func _init() -> void:
 func _test_freeze_movement_combat_and_swarm_exclusion() -> void:
 	var state := _state()
 	var units := UnitSystem.new()
+	_fixture_systems.append(units)
 	units.bind_state(state)
 	units.spawn_unit(_unit(state, 1, 1, 2, 1, 0.2))
 	units.spawn_unit(_unit(state, 1, 2, 1, 2, 0.8))
@@ -42,6 +48,7 @@ func _test_freeze_movement_combat_and_swarm_exclusion() -> void:
 
 	var combat_state := _state()
 	var combat_units := UnitSystem.new()
+	_fixture_systems.append(combat_units)
 	combat_units.bind_state(combat_state)
 	combat_units.spawn_unit(_unit(combat_state, 1, 1, 2, 1, 0.5))
 	combat_units.spawn_unit(_unit(combat_state, 1, 2, 1, 2, 0.5))
@@ -51,8 +58,10 @@ func _test_freeze_movement_combat_and_swarm_exclusion() -> void:
 
 	var swarm_state := _state()
 	var swarm_units := UnitSystem.new()
+	_fixture_systems.append(swarm_units)
 	swarm_units.bind_state(swarm_state)
 	var swarm := SwarmSystem.new()
+	_fixture_systems.append(swarm)
 	swarm.bind_state(swarm_state)
 	BuffSystem.activate(swarm_state, _command("freeze-swarm", "buff_freeze_lane_classic", 1))
 	swarm._spawn_swarm(1, 2)
@@ -64,6 +73,7 @@ func _test_treacherous_existing_and_new_units() -> void:
 	var state := _state()
 	(state.find_hive_by_id(2) as HiveData).owner_id = 2
 	var units := UnitSystem.new()
+	_fixture_systems.append(units)
 	units.bind_state(state)
 	units.spawn_unit(_unit(state, 1, 2, 1, 2, 0.8))
 	units.spawn_unit(_unit(state, 1, 1, 2, 1, 0.2))

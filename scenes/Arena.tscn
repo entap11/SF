@@ -1,4 +1,4 @@
-[gd_scene load_steps=20 format=3 uid="uid://bi1epiw4to48u"]
+[gd_scene load_steps=21 format=3 uid="uid://bi1epiw4to48u"]
 
 [ext_resource type="Script" path="res://scripts/arena.gd" id="1"]
 [ext_resource type="Script" path="res://scripts/renderers/lane_renderer.gd" id="2"]
@@ -19,6 +19,7 @@
 [ext_resource type="Script" path="res://scripts/renderers/buff_hive_targeting_controller.gd" id="18"]
 [ext_resource type="Script" path="res://scripts/renderers/buff_lane_global_targeting_controller.gd" id="19"]
 [ext_resource type="Script" path="res://scripts/renderers/buff_canonical_feedback_controller.gd" id="20"]
+[ext_resource type="Script" path="res://scripts/renderers/buff_freeze_lane_presentation.gd" id="21"]
 
 [sub_resource type="CanvasItemMaterial" id="CanvasItemMaterial_1"]
 blend_mode = 1
@@ -79,6 +80,10 @@ script = ExtResource("3")
 [node name="BuffHiveTargetPresentation" type="Node2D" parent="MapRoot"]
 z_index = 30
 script = ExtResource("18")
+
+[node name="BuffFreezeLanePresentation" type="Node2D" parent="MapRoot"]
+z_index = -2
+script = ExtResource("21")
 
 [node name="BuffLaneGlobalTargetPresentation" type="Node2D" parent="MapRoot"]
 z_index = 24

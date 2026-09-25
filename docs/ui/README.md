@@ -2,6 +2,7 @@
 
 Start here:
 
+- [Next sprint: buffs — UI, VFX, catalog art, testing and tuning](../buff_ui_vfx_art_sprint_2026-09-25.md) — missing-icon audit and concept decisions before rendering.
 - [Mobile beta UX sprint — September 21, 2026](../mobile_beta_ux_sprint_2026-09-21.md) — current planning sequence for readability, arena polish, menus, Jukebox, records, and mode decisions.
 - [Printable combined PDF](UX_MENU_VISUALS_BIBLE.pdf) — reader-friendly volume containing the standard and companion documents.
 - [UX & Menu Visuals Bible](UX_MENU_VISUALS_BIBLE.md) — normative interaction, layout, accessibility, architecture, and release standard.

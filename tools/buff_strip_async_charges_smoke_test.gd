@@ -66,6 +66,25 @@ func _run() -> void:
 	_assert_true(state_label != null and state_label.text == "EMPTY", "exhausted Async slot reads EMPTY")
 	_assert_true(meta_label != null and meta_label.text == "0/2", "exhausted Async slot reads 0/2")
 
+	# Duration belongs to the effect, not a generic tier. These three Classic
+	# buffs use different duration profiles; all must start with a full bar.
+	var slot_panel: Panel = strip.get_node("Center/SlotsRow/BuffSlot1") as Panel
+	for entry: Dictionary in [{"id": "buff_freeze_lane_classic", "duration": 5000},
+		{"id": "buff_global_production_boost_classic", "duration": 3000},
+		{"id": "buff_supercharge_queue_elite", "duration": 9000}]:
+		var duration: int = entry["duration"]
+		var timed: Dictionary = {"id": entry["id"], "active": true, "locked": false, "consumed": false,
+			"duration_ms": duration, "remaining_ms": duration, "uses_remaining": 1, "uses_total": 2}
+		var before: String = JSON.stringify(timed)
+		strip.call("apply_snapshot", {"pid": 1, "slots_active": 2, "slots": [timed]})
+		var fills: Array = strip.get("_fill_overlays") as Array
+		var fill: Panel = fills[0] as Panel
+		_assert_true(is_zero_approx(fill.offset_top), "actual buff duration starts with full countdown fill")
+		_assert_true(JSON.stringify(timed) == before, "strip must not mutate source snapshots")
+		timed["remaining_ms"] = duration / 2
+		strip.call("apply_snapshot", {"pid": 1, "slots_active": 2, "slots": [timed]})
+		_assert_true(is_equal_approx(fill.offset_top, maxf(1.0, slot_panel.size.y) * 0.5), "half duration renders half countdown fill")
+
 	if _failed:
 		quit(1)
 		return

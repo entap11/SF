@@ -4,6 +4,8 @@ extends PanelContainer
 const Typography = preload("res://scripts/ui/ui_typography.gd")
 const Style = preload("res://scripts/ui/menu_surface_style.gd")
 const Catalog = preload("res://scripts/state/campaign_catalog.gd")
+const Artwork = preload("res://scripts/ui/menu_button_artwork.gd")
+const SpriteRegistry = preload("res://scripts/renderers/sprite_registry.gd")
 
 var _menu: Control
 var _margin: MarginContainer
@@ -17,6 +19,7 @@ var _replay: Button
 var _status: Label
 var _scroll: ScrollContainer
 var _last_focus: Button
+var _artwork := Artwork.new()
 
 func configure(menu: Control) -> void:
 	_menu = menu
@@ -88,6 +91,7 @@ func configure(menu: Control) -> void:
 	for entry in [["menu_store_button", "STORE"], ["menu_buffs_button", "BUFFS"], ["menu_battle_pass_button", "BATTLE PASS"]]:
 		var button: Button = _menu.get(entry[0])
 		_adopt_button(utilities, button, entry[1])
+		_restore_utility_art(button, entry[1])
 	_status = _menu.get("status_label")
 	_status.reparent(frame)
 	_status.set_anchors_and_offsets_preset(Control.PRESET_TOP_LEFT)
@@ -151,14 +155,50 @@ func _adopt_action(parent: Container, button: Button, title: String, detail: Str
 	margin.add_theme_constant_override("margin_right", 32)
 	margin.mouse_filter = Control.MOUSE_FILTER_IGNORE
 	button.add_child(margin)
+	var row := HBoxContainer.new()
+	row.add_theme_constant_override("separation", 24)
+	row.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	margin.add_child(row)
+	var skin := button.get_node_or_null("SkinTex") as TextureRect
+	# Campaign has no dedicated sprite. Its former Jukebox artwork names a
+	# different destination, so the approved live Campaign heading stays intact.
+	if not primary and skin != null and skin.texture != null:
+		Artwork.quiet_surface(button)
+		var art := _artwork.view(_home_art_texture(button))
+		art.size_flags_horizontal = Control.SIZE_FILL
+		art.custom_minimum_size.x = 300
+		row.add_child(art)
 	var copy := VBoxContainer.new()
+	copy.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	copy.alignment = BoxContainer.ALIGNMENT_CENTER
 	copy.add_theme_constant_override("separation", 8)
 	copy.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	margin.add_child(copy)
+	row.add_child(copy)
 	var heading := _label(copy, title, 64 if primary else 56, Color("fff0b8") if primary else Style.TEXT)
 	var subtitle := _label(copy, detail, 38 if primary else 36, Style.TEXT if primary else Style.MUTED)
 	return [heading, subtitle]
+
+func _restore_utility_art(button: Button, title: String) -> void:
+	var skin := button.get_node_or_null("SkinTex") as TextureRect
+	if skin == null or skin.texture == null:
+		return
+	Artwork.quiet_surface(button)
+	for key in ["font_color", "font_hover_color", "font_pressed_color", "font_disabled_color", "font_focus_color"]:
+		button.add_theme_color_override(key, Color.TRANSPARENT)
+	var copy := VBoxContainer.new()
+	copy.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	copy.add_theme_constant_override("separation", 4)
+	copy.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	button.add_child(copy)
+	copy.add_child(_artwork.view(_home_art_texture(button)))
+	var label := _label(copy, title, 40, Style.TEXT)
+	label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+
+func _home_art_texture(button: Button) -> Texture2D:
+	# The former bottom-nav neutral key also removed silver from the frames.
+	# Use its original registry sprite with the existing black-only treatment.
+	var original := SpriteRegistry.get_instance().get_tex(str(button.get("bg_key_normal")))
+	return _menu.call("_key_black_to_alpha_texture", original, 1024, 512)
 
 func _route_button(parent: Container, title: String, method: String, guard_scroll: bool = false) -> Button:
 	var button := Button.new()

@@ -300,6 +300,7 @@ var _last_render_hives_version: int = -1
 @onready var buff_hive_targeting_controller: Node2D = $MapRoot/BuffHiveTargetPresentation
 @onready var buff_lane_global_targeting_controller: Node2D = $MapRoot/BuffLaneGlobalTargetPresentation
 @onready var buff_canonical_feedback_controller: Node2D = $MapRoot/BuffCanonicalFeedbackPresentation
+@onready var buff_freeze_lane_presentation: Node2D = $MapRoot/BuffFreezeLanePresentation
 @onready var unit_renderer: Node2D = _resolve_unit_renderer()
 @onready var control_bar: ControlBar = get_node_or_null("../UI/ControlBar") as ControlBar
 @onready var timer_label: Label = get_node_or_null("../UI/TimerLabel") as Label
@@ -646,6 +647,8 @@ func _ready() -> void:
 	_setup_buff_hive_targeting_presentation()
 	_setup_buff_lane_global_targeting_presentation()
 	_setup_buff_canonical_feedback_presentation()
+	if buff_freeze_lane_presentation != null:
+		buff_freeze_lane_presentation.call("setup", self, lane_renderer)
 	_ensure_arena_polish_layer()
 	_apply_arena_polish_runtime_settings()
 	$MapRoot/HiveRenderer.visible = true
@@ -5794,6 +5797,8 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 		shell.call("cancel_buff_pointer_session", "match_ended:%s" % reason)
 	if buff_canonical_feedback_controller != null:
 		buff_canonical_feedback_controller.call("clear_presentation")
+	if buff_freeze_lane_presentation != null:
+		buff_freeze_lane_presentation.call("clear_presentation")
 	_buff_activation_transactions.terminate_match(_buff_match_id(), "match_ended:%s" % reason)
 	_persist_buff_activation_runtime_state()
 	if floor_influence_system != null:
@@ -7853,6 +7858,8 @@ func _exit_tree() -> void:
 	clear_buff_lane_global_targeting(-1, "arena_scene_exit")
 	if buff_canonical_feedback_controller != null:
 		buff_canonical_feedback_controller.call("clear_presentation")
+	if buff_freeze_lane_presentation != null:
+		buff_freeze_lane_presentation.call("clear_presentation")
 
 
 func _notification(what: int) -> void:
@@ -11862,6 +11869,8 @@ func _reset_match_stats() -> void:
 	error_count = 0
 
 func _reset_buff_runtime() -> void:
+	if buff_freeze_lane_presentation != null:
+		buff_freeze_lane_presentation.call("clear_presentation")
 	buff_active_slots.clear()
 	buff_instances.clear()
 	buff_mods.clear()
@@ -11885,6 +11894,12 @@ func _sync_buff_effects(now_ms: int) -> void:
 	if OpsState == null or not OpsState.has_method("get_authoritative_buff_snapshot"):
 		return
 	var authoritative: Dictionary = OpsState.get_authoritative_buff_snapshot()
+	if buff_freeze_lane_presentation != null:
+		if not are_match_buffs_allowed() or _match_end_handled:
+			buff_freeze_lane_presentation.call("clear_presentation")
+		else:
+			var motion_mode: String = "full" if ProfileManager.is_gpu_vfx_enabled() else "reduced"
+			buff_freeze_lane_presentation.call("apply_authoritative_snapshot", authoritative, motion_mode)
 	for pid_v in buff_states.keys():
 		var pid: int = int(pid_v)
 		var buff_state: BuffState = buff_states[pid]
@@ -12015,6 +12030,10 @@ func _buff_ui_player_snapshot(pid: int, buff_state: BuffState, now_ms: int) -> D
 		var consumed: bool = bool(slot.get("consumed", false))
 		var uses_remaining: int = maxi(0, int(slot.get("uses_remaining", 0)))
 		var uses_total: int = maxi(1, int(slot.get("uses_total", 1)))
+		var active_effect: Dictionary = buff_state.get_active_for_category(str(buff_def.get("category", "")))
+		var duration_ms: int = int(round(float(buff_def.get("duration_sec", 0.0)) * 1000.0))
+		if active and int(active_effect.get("source_slot_index", -1)) == i:
+			duration_ms = int(active_effect.get("duration_ticks", duration_ms / 100)) * 100
 		var remaining_ms: int = 0
 		if active:
 			remaining_ms = max(0, ends_ms - now_ms)
@@ -12033,7 +12052,8 @@ func _buff_ui_player_snapshot(pid: int, buff_state: BuffState, now_ms: int) -> D
 			"uses_total": uses_total,
 			"one_use_spent": uses_total == 2 and uses_remaining == 1,
 			"ends_ms": ends_ms,
-			"remaining_ms": remaining_ms
+			"remaining_ms": remaining_ms,
+			"duration_ms": duration_ms
 		})
 	return {
 		"pid": pid,

@@ -1,5 +1,9 @@
 # Home and mode-selector readability — September 24, 2026
 
+September 25 update: the owner prioritized restoring the existing button artwork
+to review its fit before further menu polish. The [artwork fit pass](menu_artwork_fit_2026-09-25.md)
+supersedes the placeholder-art implementation below; visual acceptance remains open.
+
 The owner requested larger, more readable buttons on home and especially inside
 Free Roll and Money Games, with freedom to change the layout. The owner then
 proposed clusters of roughly five large hex-shaped options to reduce scrolling.

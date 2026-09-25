@@ -3,6 +3,16 @@
 Status: Campaign/Jukebox split approved; 25-level pilot implemented on `codex/single-player-campaign`; physical-phone validation pending.
 Progression policy: a completed attempt, win or loss, unlocks the next level in both entry routes.
 
+Next sprint (owner direction, September 25): [buff UI/VFX, catalog art, testing
+and tuning](buff_ui_vfx_art_sprint_2026-09-25.md). Begin with missing icons across
+Classic, Premium and Elite; agree on concepts before rendering.
+
+Current priority (September 25): owner moved button-art restoration ahead of
+results/retry and further menu polish to review layout and fit first. Existing
+home and mode sprites are restored in the working source, with live copy and
+aspect-preserving sizing. See the [artwork fit review](menu_artwork_fit_2026-09-25.md).
+Visual acceptance and the combined phone pass remain open.
+
 Current pass (September 24): approved growth/shrink transitions and pressure v2,
 plus the selection/capture finish, are integrated into the working mobile source.
 See the [selection/capture integration and live-match review](hive_selection_capture_2026-09-24.md).

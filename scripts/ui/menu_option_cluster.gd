@@ -36,7 +36,10 @@ func _get_minimum_size() -> Vector2:
 	return Vector2(0, rows * _row_height() + maxi(0, rows - 1) * GAP)
 
 func _row_height() -> float:
-	return 232.0 if arrangement == "3-2" else ROW_HEIGHT
+	var height := 232.0 if arrangement == "3-2" else ROW_HEIGHT
+	for button in _buttons():
+		height = maxf(height, button.get_combined_minimum_size().y)
+	return height
 
 func _notification(what: int) -> void:
 	if what != NOTIFICATION_SORT_CHILDREN:
