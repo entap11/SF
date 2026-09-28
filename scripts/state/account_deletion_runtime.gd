@@ -16,6 +16,8 @@ const LOCAL_FILES: Array[String] = [
 	"player_telemetry_profiles_v1.json", "analytics_queue_v1.jsonl",
 	"analytics_state_v1.json", "bot_intent_telemetry_v1.jsonl", "bot_intent_summary_v1.json",
 	"beta_capture_sharing.json", "beta_capture_sharing.json.tmp",
+	"beta_feedback_prompt.json", "beta_feedback_prompt.json.tmp",
+	"beta_feedback_experience.json", "beta_feedback_experience.json.tmp",
 	"vs_handshake_diagnostics.jsonl", "vs_contract_violations.jsonl"
 ]
 const LOCAL_DIRS: Array[String] = ["matches", "exports", "pvp_runtime", "logs", "beta_captures", "bot_evaluation"]

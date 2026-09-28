@@ -158,3 +158,9 @@ release gate or a store release candidate. Dedicated capture tests pass. The fir
 phone game uploads subsequently passed archive/export verification; this is a
 field pilot of that path, not a pass of the broader release gate or every
 offline/interruption scenario.
+
+## Feedback and automatic review
+
+Optional per-game feedback and report generation are documented in
+[beta feedback](beta_feedback.md). Archive pulls now generate `report.md` and
+`report.json`; feedback has a separate receipt and never rewrites game payloads.

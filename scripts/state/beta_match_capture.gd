@@ -2,6 +2,8 @@ extends Node
 
 const Record := preload("res://scripts/state/beta_capture_record.gd")
 const BackendPolicy := preload("res://scripts/state/test_backend_policy.gd")
+const Feedback := preload("res://scripts/state/beta_feedback_record.gd")
+const FeedbackPanel := preload("res://scripts/ui/beta_feedback_panel.gd")
 const ROOT := "user://beta_captures"
 const PREFS := "user://beta_capture_sharing.json"
 const MAX_QUEUE_BYTES := 256 * 1024 * 1024
@@ -17,6 +19,8 @@ var _next_upload_ms := 0
 var _retry_ms := 5000
 var _last_attempt_path := ""
 var last_error := ""
+var _feedback_panel: Variant = null
+var _feedback_ready_ms := 0
 
 func _ready() -> void:
 	if not enabled():
@@ -30,6 +34,11 @@ func _ready() -> void:
 	timer.timeout.connect(_tick)
 	add_child(timer)
 	timer.start()
+	var feedback_timer := Timer.new()
+	feedback_timer.wait_time = 2.0
+	feedback_timer.timeout.connect(_check_feedback_prompt)
+	add_child(feedback_timer)
+	feedback_timer.start()
 
 func enabled() -> bool:
 	return not _stopped and not FileAccess.file_exists("user://account_deletion_receipt.json") and (OS.has_feature("beta_capture") or (OS.is_debug_build() and OS.get_cmdline_user_args().has("--beta-capture"))) and not BackendPolicy.performance_harness_active()
@@ -37,6 +46,7 @@ func enabled() -> bool:
 func begin(collector: RefCounted, metadata: Dictionary) -> void:
 	if not enabled():
 		return
+	skip_feedback()
 	finish("abandoned")
 	if _http != null:
 		_http.cancel_request()
@@ -51,6 +61,13 @@ func begin(collector: RefCounted, metadata: Dictionary) -> void:
 	var manifest: Variant = JSON.parse_string(FileAccess.get_file_as_string("res://data/beta_capture_build.json"))
 	var build: Dictionary = manifest if manifest is Dictionary else {}
 	var owner := str(ProfileManager.get_user_id())
+	metadata = metadata.duplicate(true)
+	if BotEvaluationSession.is_active() and str(metadata.get("map_path", "")).is_empty():
+		var map_path := str(BotEvaluationSession.descriptor().get("map_path", ""))
+		metadata["map_path"] = map_path
+		metadata["map_sha256"] = FileAccess.get_sha256(map_path) if FileAccess.file_exists(map_path) else ""
+	if metadata.get("shared_match_key", "") == "".sha256_text():
+		metadata["shared_match_key"] = ""
 	_context = {
 		"capture_id": Crypto.new().generate_random_bytes(16).hex_encode(),
 		"owner_key": owner.sha256_text(), "build": str(build.get("build", "development")),
@@ -88,6 +105,8 @@ func _save(status: String, winner: int, wait_previous: bool) -> void:
 	if _writer.start(Record.write_atomic.bind(snapshot, path)) != OK:
 		_writer = null
 		last_error = "Beta recording could not be saved."
+	elif status == "completed" and int(_context.metadata.get("local_seat", 0)) > 0:
+		offer_feedback(_context)
 
 func _flush_writer() -> void:
 	if _writer == null:
@@ -129,13 +148,13 @@ func pending_paths() -> Array[String]:
 		return paths
 	for owner in DirAccess.get_directories_at(ROOT):
 		for name in DirAccess.get_files_at(ROOT.path_join(owner)):
-			if name.ends_with(".json.gz"):
+			if name.ends_with(".json.gz") or name.ends_with(".feedback.json"):
 				paths.append(ROOT.path_join(owner).path_join(name))
 	paths.sort()
 	return paths
 
 func _upload_next() -> void:
-	if _http != null or _collector != null or OpsState.is_match_running():
+	if not enabled() or _sharing != "allowed" or _http != null or _collector != null or OpsState.is_match_running():
 		return
 	var identity := get_node_or_null("/root/PlayerIdentityRuntime")
 	if identity == null or not bool(identity.call("is_authenticated")):
@@ -145,6 +164,9 @@ func _upload_next() -> void:
 	var eligible: Array[String] = []
 	for candidate in pending_paths():
 		if candidate.get_base_dir().get_file() == owner_key:
+			# A feedback receipt must never replace the immutable game receipt.
+			if candidate.ends_with(".feedback.json") and FileAccess.file_exists(candidate.trim_suffix(".feedback.json") + ".json.gz"):
+				continue
 			eligible.append(candidate)
 	for candidate in eligible:
 		if candidate > _last_attempt_path:
@@ -155,6 +177,9 @@ func _upload_next() -> void:
 	if path.is_empty():
 		return
 	var endpoint := str(ProjectSettings.get_setting("swarmfront/identity/backend_url", "")).trim_suffix("/") + "/beta-captures"
+	var is_feedback := path.ends_with(".feedback.json")
+	if is_feedback:
+		endpoint += "/" + path.get_file().trim_suffix(".feedback.json") + "/feedback"
 	if not endpoint.begins_with("https://") and not (OS.is_debug_build() and BackendPolicy.is_loopback_url(endpoint)):
 		return
 	if not BackendPolicy.request_allowed(endpoint):
@@ -171,7 +196,8 @@ func _upload_next() -> void:
 	_http.body_size_limit = 16384
 	add_child(_http)
 	_http.request_completed.connect(_uploaded.bind(path, digest), CONNECT_ONE_SHOT)
-	var headers := PackedStringArray(["Content-Type: application/gzip", "X-Capture-SHA256: " + digest, "Authorization: Bearer " + str(identity.call("access_token"))])
+	var content_type := "application/json" if is_feedback else "application/gzip"
+	var headers := PackedStringArray(["Content-Type: " + content_type, "X-Capture-SHA256: " + digest, "Authorization: Bearer " + str(identity.call("access_token"))])
 	if _http.request_raw(endpoint, headers, HTTPClient.METHOD_POST, body) != OK:
 		_uploaded(-1, 0, PackedStringArray(), PackedByteArray(), path, digest)
 
@@ -180,7 +206,10 @@ func _uploaded(result: int, code: int, _headers: PackedStringArray, body: Packed
 		_http.queue_free()
 		_http = null
 	var response: Variant = JSON.parse_string(body.get_string_from_utf8()) if not body.is_empty() else {}
-	if result == HTTPRequest.RESULT_SUCCESS and code == 200 and response is Dictionary and Record.acknowledge(path, response, digest):
+	var accepted := false
+	if result == HTTPRequest.RESULT_SUCCESS and code == 200 and response is Dictionary:
+		accepted = Feedback.acknowledge(path, response, digest) if path.ends_with(".feedback.json") else Record.acknowledge(path, response, digest)
+	if accepted:
 		_retry_ms = 5000
 		last_error = ""
 	else:
@@ -205,7 +234,7 @@ func set_sharing(allowed: bool) -> void:
 		_http = null
 
 func show_sharing_choice() -> void:
-	if _dialog != null or not enabled() or OpsState.is_match_running():
+	if _dialog != null or _feedback_panel != null or not enabled() or OpsState.is_match_running():
 		return
 	_dialog = ConfirmationDialog.new()
 	_dialog.title = "Help improve Swarmfront"
@@ -236,6 +265,81 @@ func stop_for_account_deletion() -> void:
 		_http.queue_free()
 		_http = null
 	_close_dialog()
+	_close_feedback_panel()
+
+func offer_feedback(context: Dictionary) -> void:
+	if not enabled():
+		return
+	var prompt := {"capture_id": str(context.capture_id), "owner_key": str(context.owner_key)}
+	if not Feedback.write_json(Feedback.PROMPT_PATH, prompt):
+		last_error = "Feedback prompt could not be saved."
+	_feedback_ready_ms = Time.get_ticks_msec() + 2000
+
+func _check_feedback_prompt() -> void:
+	if not BackendPolicy.automated_test_process() and Time.get_ticks_msec() >= _feedback_ready_ms:
+		show_feedback_prompt()
+
+func show_feedback_prompt() -> void:
+	if not enabled() or _collector != null or OpsState.is_match_running() or _dialog != null or _feedback_panel != null:
+		return
+	var pending := Feedback.read_json(Feedback.PROMPT_PATH)
+	var owner_key := str(ProfileManager.get_user_id()).sha256_text()
+	if pending.is_empty() or pending.get("owner_key") != owner_key:
+		return
+	var preferences := Feedback.read_json(Feedback.EXPERIENCE_PATH)
+	_feedback_panel = FeedbackPanel.new()
+	_feedback_panel.configure(str(preferences.get(owner_key, "unknown")), pending.get("draft", {}))
+	_feedback_panel.submitted.connect(submit_feedback)
+	_feedback_panel.skipped.connect(skip_feedback)
+	_feedback_panel.answers_changed.connect(save_feedback_draft)
+	add_child(_feedback_panel)
+
+func save_feedback_draft(answers: Dictionary) -> void:
+	var prompt := Feedback.read_json(Feedback.PROMPT_PATH)
+	if not enabled() or prompt.is_empty() or prompt.get("owner_key") != str(ProfileManager.get_user_id()).sha256_text():
+		return
+	for key in answers:
+		if not Feedback.VALUES.has(key) or answers[key] not in Feedback.VALUES[key]:
+			return
+	prompt["draft"] = answers.duplicate()
+	if not Feedback.write_json(Feedback.PROMPT_PATH, prompt):
+		last_error = "Feedback draft could not be saved."
+
+func submit_feedback(answers: Dictionary) -> bool:
+	if not enabled() or _collector != null or OpsState.is_match_running() or not Feedback.valid_answers(answers):
+		return false
+	var prompt := Feedback.read_json(Feedback.PROMPT_PATH)
+	var owner_key := str(ProfileManager.get_user_id()).sha256_text()
+	if prompt.is_empty() or prompt.get("owner_key") != owner_key:
+		return false
+	var payload := {"schema_version": 1, "capture_id": str(prompt.capture_id), "owner_key": owner_key, "answers": answers.duplicate()}
+	var path := ROOT.path_join(owner_key).path_join(str(prompt.capture_id) + ".feedback.json")
+	if FileAccess.file_exists(path):
+		if Feedback.read_json(path) == payload:
+			skip_feedback()
+			return true
+		return false
+	var queue := queue_status()
+	if int(queue.files) >= MAX_QUEUE_FILES or int(queue.bytes) >= MAX_QUEUE_BYTES or not Feedback.write_json(path, payload):
+		last_error = "Feedback could not be saved. Try again or skip."
+		if _feedback_panel != null:
+			_feedback_panel.show_error(last_error)
+		return false
+	var preferences := Feedback.read_json(Feedback.EXPERIENCE_PATH)
+	preferences[owner_key] = answers.experience
+	Feedback.write_json(Feedback.EXPERIENCE_PATH, preferences)
+	skip_feedback()
+	return true
+
+func skip_feedback() -> void:
+	if FileAccess.file_exists(Feedback.PROMPT_PATH):
+		DirAccess.remove_absolute(Feedback.PROMPT_PATH)
+	_close_feedback_panel()
+
+func _close_feedback_panel() -> void:
+	if _feedback_panel != null:
+		_feedback_panel.queue_free()
+		_feedback_panel = null
 
 func _notification(what: int) -> void:
 	if what == NOTIFICATION_APPLICATION_PAUSED:

@@ -86,11 +86,29 @@ func run() -> void:
 			capture.call("_flush_writer")
 			var completed_found := false
 			for capture_path in capture.call("pending_paths"):
+				if not str(capture_path).ends_with(".json.gz"):
+					continue
 				var recording: Dictionary = preload("res://scripts/state/beta_capture_record.gd").read_record(capture_path)
 				if recording.get("status") == "completed" and not recording.get("profiles", []).is_empty():
 					if recording.profiles[0].get("style") == ("balancer" if game == 0 else "raider"):
 						completed_found = recording.winner_seat == 2 and not recording.frames.is_empty() and not recording.events.is_empty()
+						check(recording.metadata.map_sha256 == FileAccess.get_sha256("res://maps/tutorial/MAP_simple_syrup__1p.json"), "beta capture map fingerprint")
+						check(recording.metadata.shared_match_key == "", "solo match must not use empty-session hash")
 			check(completed_found, "automatic beta archive records Arena lifecycle")
+			var feedback_record := preload("res://scripts/state/beta_feedback_record.gd")
+			var prompt := feedback_record.read_json(feedback_record.PROMPT_PATH)
+			check(not prompt.is_empty(), "completed Arena game offers feedback")
+			if not prompt.is_empty():
+				var exact_path := "user://beta_captures/" + str(prompt.owner_key) + "/" + str(prompt.capture_id) + ".json.gz"
+				var exact_record := preload("res://scripts/state/beta_capture_record.gd").read_record(exact_path)
+				check(exact_record.get("status") == "completed" and exact_record.get("winner_seat") == 2, "feedback is bound to this completed recording")
+			capture.call("show_feedback_prompt")
+			check(capture.get("_feedback_panel") != null, "postgame prompt is visible")
+			if game == 0:
+				check(capture.call("submit_feedback", {"experience": "intermediate", "challenge": "about_right", "interesting": "yes", "controls": "no"}), "feedback saves after real match flow")
+			else:
+				capture.call("skip_feedback")
+			check(not FileAccess.file_exists(feedback_record.PROMPT_PATH), "save or skip dismisses prompt")
 		var overlay: Node = arena.get("outcome_overlay")
 		check((overlay.get("rematch_button") as Button).text == ("PLAY RAIDER" if game == 0 else "DONE"), "optional next game UI")
 		if DisplayServer.get_name() != "headless":

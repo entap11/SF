@@ -9,6 +9,7 @@ import statistics
 import urllib.request
 from collections import defaultdict
 from pathlib import Path
+from beta_game_report import write_report
 
 
 def main():
@@ -17,6 +18,8 @@ def main():
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--label-participant", help="Participant key from archive index; never a name")
     parser.add_argument("--cohort", choices=("owner", "new", "intermediate", "experienced", "unknown"))
+    parser.add_argument("--annotations", type=Path, help="Private per-recording review annotations; defaults to output/annotations.json")
+    parser.add_argument("--manifest", type=Path, help="Optional exact build manifest for older recordings missing map hashes")
     args = parser.parse_args()
     if not args.url.startswith("https://"):
         parser.error("archive requires HTTPS")
@@ -80,9 +83,13 @@ def main():
         participants.append({"cohort": cohort, "participant_key": key,
             "recordings": len(games), "completed": len(finished),
             "abandoned_or_interrupted": len(games) - len(finished),
-            "median_completed_seconds": statistics.median(float(g["sim_ms"]) / 1000 for g in finished) if finished else None})
+            "raw_median_completed_seconds": statistics.median(float(g["sim_ms"]) / 1000 for g in finished) if finished else None})
     (args.output / "index.json").write_text(json.dumps(rows, indent=2) + "\n")
     (args.output / "participants.json").write_text(json.dumps(participants, indent=2) + "\n")
+    manifest_path = args.manifest or Path(__file__).resolve().parents[1] / "data/beta_capture_build.json"
+    manifest = json.loads(manifest_path.read_text()) if manifest_path.exists() else None
+    annotations = json.loads(args.annotations.read_text()) if args.annotations else None
+    write_report(args.output, annotations=annotations, manifest=manifest)
     print(json.dumps({"recordings": len(rows), "participants": len(participants),
         "cohorts": dict((cohort, sum(p["recordings"] for p in participants if p["cohort"] == cohort))
                         for cohort in sorted({p["cohort"] for p in participants})),

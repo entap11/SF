@@ -11,7 +11,7 @@ config_version=5
 [application]
 
 config/name="Swarmfront"
-config/version.beta_capture="2026092802"
+config/version.beta_capture="2026092803"
 run/main_scene="res://scenes/Shell.tscn"
 run/main_scene.store_release="res://scenes/MainMenu.tscn"
 run/main_scene.bot_evaluation="res://scenes/BotEvaluation.tscn"

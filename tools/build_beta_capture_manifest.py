@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import json
+import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -10,7 +11,7 @@ OUTPUT = ROOT / "data/beta_capture_build.json"
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--build", default="2026092802")
+    parser.add_argument("--build", default=re.search(r'config/version.beta_capture="([^\"]+)"', (ROOT / "project.godot").read_text()).group(1))
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args()
     files = [ROOT / "project.godot", ROOT / "export_presets.cfg"]
