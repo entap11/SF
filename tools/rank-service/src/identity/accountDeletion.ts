@@ -107,6 +107,7 @@ export class AccountDeletionStore {
       revoke_reason = 'swarmfront_account_deletion' WHERE player_id = $1::uuid AND application_id = 'swarmfront'`, [playerId]);
     await client.query(`INSERT INTO entap_account_deletion_tasks (request_id, domain)
       SELECT $1, unnest($2::text[])`, [requestId, [...DELETION_DOMAINS]]);
+    await client.query("DELETE FROM sf_beta_participants WHERE player_id = $1::uuid", [playerId]);
     await client.query("DELETE FROM entap_account_deletion_challenges WHERE player_id = $1::uuid", [playerId]);
     return this.publicReceipt(created.rows[0]);
   }

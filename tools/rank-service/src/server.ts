@@ -1,3 +1,4 @@
+import { installBetaCaptureRoutes } from "./betaCapture.js";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { config } from "./config.js";
 import {
@@ -413,6 +414,7 @@ async function main(): Promise<void> {
   const identityConfigured = playerTokenConfigured(config.identity);
 
   const app = express();
+  installBetaCaptureRoutes(app, pool, config.identity, requireBearerAuth);
   app.use(express.json({ limit: "1mb" }));
   installAccountDeletionRoutes(app, accountDeletion, config.identity);
 
