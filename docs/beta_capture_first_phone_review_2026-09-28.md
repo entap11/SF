@@ -31,6 +31,22 @@ prior phone playtest; the new build added capture, not a strength change.
 | Units produced, human / bot | 602 / 308 | 539 / 211 |
 | Swarms sent, human / bot | 4 / 6 | 2 / 2 |
 
+### Owner clarification: controls affected Balancer
+
+After this review, the owner reported control problems during the Balancer game
+and attributed its additional time to those problems. The owner expects the
+finish would otherwise have been closer to the Raider duration. Mark archive
+record 1 as **control-affected** and exclude its duration from clean comparisons
+of bot difficulty or time to victory. Keep the measured 109.5 seconds unchanged;
+an adjusted duration cannot be recovered from this recording.
+
+Zero rejected recorded intents only describes commands that reached the
+simulation. It does not establish that touch gestures were recognized or that
+all intended commands were emitted. The event sequence remains usable evidence
+of what happened, but human action timing and route changes cannot all be
+attributed to deliberate tactical choices. Controls are being handled by a
+different agent; this review does not change input code or bot strength.
+
 Samples are spaced 500 ms apart. Final samples precede the terminal conquest
 capture by 400 ms and 300 ms respectively; winner/completion comes from the
 terminal record, not inference from the final sampled board. Event totals are
