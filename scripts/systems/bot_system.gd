@@ -111,7 +111,13 @@ func _tick_human(seat: int, runtime: Dictionary, profile: Dictionary, teams: Dic
 		runtime["pending_observation"] = {}
 		var memory: Dictionary = runtime["memory"]
 		var previous_plan := JSON.stringify(memory.get("plan", {}))
+		var evaluation_memory: Dictionary = memory.duplicate(true) if OpsState.bot_evaluation_active() else {}
 		var decision: Dictionary = _human_policy.call("choose", perception["view"], memory, profile, now_ms)
+		if OpsState.bot_evaluation_active():
+			OpsState._record_match_action_event(seat, "bot_evaluation_choice", {
+				"observation": perception["view"].duplicate(true), "memory_before": evaluation_memory,
+				"decision": decision.duplicate(true), "memory_after": memory.duplicate(true), "sim_ms": now_ms
+			})
 		if previous_plan != JSON.stringify(memory.get("plan", {})):
 			_emit_event(seat, "plan", now_ms, {"plan": memory.get("plan", {}).duplicate(true), "reason": memory.get("last_plan_reason", ""), "observed_ms": perception["view"]["observed_ms"]})
 		var index := int(runtime["decision_index"])

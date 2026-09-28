@@ -13,6 +13,7 @@ config_version=5
 config/name="Swarmfront"
 run/main_scene="res://scenes/Shell.tscn"
 run/main_scene.store_release="res://scenes/MainMenu.tscn"
+run/main_scene.bot_evaluation="res://scenes/BotEvaluation.tscn"
 config/features=PackedStringArray("4.7")
 config/icon="res://assets/branding/swarmfront_logo_1024.png"
 
@@ -38,6 +39,7 @@ AnalyticsClient="*res://scripts/state/analytics_client.gd"
 AdManager="*res://scripts/state/ad_manager.gd"
 JukeboxRuntime="*res://scripts/state/jukebox_runtime.gd"
 CampaignRuntime="*res://scripts/state/campaign_runtime.gd"
+BotEvaluationSession="*res://scripts/state/bot_evaluation_session.gd"
 AppLifecycle="*res://scripts/state/app_lifecycle_state.gd"
 VsHandshake="*res://scripts/state/vs_handshake_state.gd"
 PlayerIdentityRuntime="*res://scripts/state/player_identity_runtime.gd"

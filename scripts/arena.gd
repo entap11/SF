@@ -4157,6 +4157,8 @@ func _record_active_seats() -> Array[int]:
 	return seats
 
 func _commit_match_records(winner_slot: int) -> void:
+	if BotEvaluationSession.is_active():
+		return
 	if _match_record_committed:
 		return
 	if winner_slot <= 0:
@@ -4812,6 +4814,8 @@ func _begin_match_telemetry_session(reason: String) -> void:
 	var match_type: int = _resolve_telemetry_match_type()
 	var start_utc_ms: int = _telemetry_utc_ms_now()
 	var metadata_overrides: Dictionary = _resolve_telemetry_metadata_overrides(player_ids, match_type, reason)
+	if BotEvaluationSession.is_active():
+		metadata_overrides["bot_evaluation"] = BotEvaluationSession.descriptor()
 	_match_telemetry_collector.call(
 		"begin_match",
 		match_id,
@@ -4826,6 +4830,8 @@ func _begin_match_telemetry_session(reason: String) -> void:
 	if _match_telemetry_collector.has_method("is_active"):
 		active_any = _match_telemetry_collector.call("is_active")
 	_telemetry_active = bool(active_any)
+	if _telemetry_active and BotEvaluationSession.is_active():
+		BotEvaluationSession.attach_collector(_match_telemetry_collector)
 	if _telemetry_active:
 		_record_match_start_analytics(match_id, season_id, map_id, match_type, start_utc_ms, metadata_overrides)
 	if unit_system != null and unit_system.has_method("set_match_telemetry_collector"):
@@ -5810,6 +5816,8 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 	end_reason = reason
 	_commit_match_records(winner_id_in)
 	_finalize_match_telemetry_session(winner_id_in)
+	if BotEvaluationSession.is_active():
+		BotEvaluationSession.finish_recording(true)
 	_maybe_record_jukebox_result(winner_id_in, reason)
 	if _should_play_post_match_song(winner_id_in):
 		_play_post_match_song(winner_id_in)
@@ -6081,6 +6089,10 @@ func _should_play_post_match_song(_winner_id_in: int) -> bool:
 	return int(tree.get_meta("progressive_stage_index", 0)) <= 0
 
 func _match_end_deferred(winner_id_in: int, reason: String) -> void:
+	if BotEvaluationSession.is_active():
+		_ensure_post_match_ui()
+		outcome_overlay.show_bot_evaluation_outcome(winner_id_in, BotEvaluationSession.descriptor(), BotEvaluationSession.last_save)
+		return
 	if CampaignRuntime.is_active():
 		_ensure_post_match_ui()
 		CampaignRuntime.retry_result_save()
@@ -6317,6 +6329,16 @@ func _resolve_stage_race_contest_map_id(tree: SceneTree) -> String:
 	return MapRegistry.map_id_from_path(map_path)
 
 func _on_post_match_action(action: String) -> void:
+	if BotEvaluationSession.is_active():
+		if _post_match_action_taken:
+			return
+		_post_match_action_taken = true
+		if action == "evaluation_next":
+			var response: Dictionary = BotEvaluationSession.request_launch(1)
+			_post_match_action_taken = bool(response.get("ok", false))
+		else:
+			BotEvaluationSession.request_return()
+		return
 	if CampaignRuntime.is_active():
 		if _post_match_action_taken:
 			return

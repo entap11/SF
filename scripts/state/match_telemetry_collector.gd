@@ -81,6 +81,7 @@ var _save_inflight: bool = false
 var _save_generation: int = 0
 var _async_save_result: Dictionary = {}
 var _async_save_completed: bool = false
+var _evaluation_witness_count: int = 0
 
 func _ensure_model() -> bool:
 	if _model == null:
@@ -88,6 +89,7 @@ func _ensure_model() -> bool:
 	return _model != null
 
 func reset() -> void:
+	_evaluation_witness_count = 0
 	_finish_async_save(false)
 	if _ensure_model():
 		_model.reset()
@@ -334,6 +336,11 @@ func record_action_event(t_ms: int, player_id: int, kind: String, payload: Dicti
 	if player_id <= 0:
 		return
 	var clean_kind: String = kind.strip_edges().to_lower()
+	if clean_kind in ["human_evaluation_intent", "bot_evaluation_choice"]:
+		_evaluation_witness_count += 1
+		if _evaluation_witness_count > 1024:
+			_model.metadata["evaluation_witnesses_dropped"] = _evaluation_witness_count - 1024
+			return
 	if clean_kind == "":
 		return
 	_ensure_player_slot(player_id)
@@ -918,6 +925,14 @@ func _dict_by_player(players: Array[int], source: Dictionary) -> Dictionary:
 
 func attach_analysis_summary(summary: Dictionary) -> void:
 	_model.analysis_summary = summary.duplicate(true)
+
+func evaluation_snapshot(sim_ms: int) -> Dictionary:
+	var payload: Dictionary = _model.to_dict()
+	if not _finalized:
+		payload["replay"] = _build_replay_payload(sim_ms)
+		payload["runtime_perf"] = _build_runtime_perf_payload()
+	payload["metadata"]["recorded_sim_ms"] = sim_ms
+	return payload
 
 func save_to_user(model_override: Variant = null) -> Dictionary:
 	var model: Variant = _model if model_override == null else model_override

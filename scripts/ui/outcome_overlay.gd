@@ -130,6 +130,22 @@ func show_outcome(
 	_log_show_state()
 	call_deferred("_log_layout_after_frame")
 
+func show_bot_evaluation_outcome(winner_id: int, session: Dictionary, saved: Dictionary) -> void:
+	show_outcome(winner_id, "capture_all", 1)
+	_overlay_mode = OVERLAY_MODE_STAGE_ROUND
+	var has_next := int(session.get("game", 0)) == 0
+	_stage_next_action = "evaluation_next" if has_next else "evaluation_done"
+	_stage_next_available = true
+	_stage_status_text = "Recording saved on this phone." if bool(saved.get("ok", false)) else "Recording save failed. Keep the app open."
+	title_label.text = "BOT PLAYTEST"
+	reason_label.text = "Simple Syrup · " + str(session.get("style", "")).capitalize() + " CPU"
+	rematch_button.text = "PLAY RAIDER" if has_next else "DONE"
+	rematch_button.disabled = false
+	exit_button.text = "DONE FOR NOW"
+	countdown_label.text = ""
+	status_label.text = _stage_status_text
+	_apply_readable_layout()
+
 func _reset_campaign_presentation() -> void:
 	_campaign_mode = false
 	if _campaign_retry != null:

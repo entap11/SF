@@ -362,6 +362,8 @@ func get_contract_state_hash() -> String:
 	return _build_contract_state_signature().sha256_text()
 
 func apply_authoritative_buff_command(command: Dictionary) -> Dictionary:
+	if bot_evaluation_active():
+		return {"ok": false, "status": "deterministic_no_op", "reason": "evaluation_fixed_loadout"}
 	if get_tree() != null and get_tree().has_meta("campaign_level_id"):
 		return {"ok": false, "status": "deterministic_no_op", "reason": "campaign_fixed_loadout"}
 	if state == null:
@@ -1890,6 +1892,8 @@ func _merge_bot_profile(seat: int, patch: Dictionary) -> Dictionary:
 		for key_any in patch.keys():
 			merged[key_any] = patch.get(key_any)
 	merged["seat"] = seat
+	if bot_evaluation_active() and seat == 2:
+		merged["human_behavior_enabled"] = str(merged.get("style", "")) == "balancer" and str(merged.get("tier", "")) == "medium"
 	merged["style"] = _normalize_bot_style(str(merged.get("style", merged.get("persona", requested_style))))
 	merged["persona"] = str(merged.get("style", requested_style))
 	merged["tier"] = _normalize_bot_tier(str(merged.get("tier", requested_tier)))
@@ -3581,6 +3585,14 @@ func _ensure_runtime_lane(st: GameState, src_hive_id: int, dst_hive_id: int, int
 	return created_index
 
 func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Dictionary:
+	if bot_evaluation_active() and state != null:
+		var source: HiveData = state.find_hive_by_id(src_hive_id)
+		if source != null and int(source.owner_id) == 1:
+			var observation = preload("res://scripts/bot/bot_observation.gd")
+			_record_match_action_event(1, "human_evaluation_intent", {
+				"src": src_hive_id, "dst": dst_hive_id, "intent": intent,
+				"observation": observation.capture(state, 1, get_team_by_seat_snapshot(), int(state._sim_time_us / 1000))
+			})
 	var intent_total_start_usec := Time.get_ticks_usec()
 	var result := {
 		"ok": false,
@@ -4407,6 +4419,11 @@ func reset_state_from_map(map_dict: Dictionary) -> GameState:
 	var map_id := str(map_dict.get("map_id", map_dict.get("_id", map_dict.get("id", "UNKNOWN"))))
 	current_map_id = map_id
 	_apply_campaign_setup()
+	if bot_evaluation_active():
+		var evaluation: Dictionary = get_tree().get_meta("bot_evaluation_session")
+		bot_match_seed = int(evaluation["seed"])
+		set_team_mode_override("")
+		set_bot_profile(2, {"style": str(evaluation["style"]), "tier": "medium"})
 	_invalidate_intent_telemetry_cache(true)
 	SFLog.info("OPS_STATE_CHANGED", {
 		"iid": int(new_state.get_instance_id()),
@@ -4415,6 +4432,9 @@ func reset_state_from_map(map_dict: Dictionary) -> GameState:
 
 	call_deferred("_emit_state_changed", new_state)
 	return new_state
+
+func bot_evaluation_active() -> bool:
+	return get_tree() != null and get_tree().has_meta("bot_evaluation_session") and current_map_id == "MAP_simple_syrup__1p" and (OS.has_feature("bot_evaluation") or (OS.is_debug_build() and OS.get_cmdline_user_args().has("--bot-evaluation")))
 
 func _apply_campaign_setup() -> void:
 	var tree: SceneTree = get_tree()

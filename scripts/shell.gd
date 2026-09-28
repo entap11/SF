@@ -2105,6 +2105,9 @@ func _prepare_ctf_bot_tree_meta(map_path: String) -> void:
 	tree.set_meta("hidden_ctf_allotment_seed", maxi(1, Time.get_ticks_msec()))
 
 func _open_main_menu() -> void:
+	if BotEvaluationSession.is_active():
+		BotEvaluationSession.request_return()
+		return
 	if _opening_main_menu:
 		return
 	if main_menu_scene_path.is_empty():
@@ -2400,6 +2403,9 @@ func _restart_arena_match_flow_for_shell_tutorial() -> void:
 		arena_node.call("restart_match_flow_for_shell_launch")
 
 func _sync_buff_ui(startup_probe_id: String = "") -> void:
+	if BotEvaluationSession.is_active():
+		_set_buff_strip_visibility(false, false, false, false)
+		return
 	var started_usec: int = Time.get_ticks_usec()
 	var marker_prefix: String = "shell_deferred_%s_buff_ui" % startup_probe_id if not startup_probe_id.is_empty() else ""
 	if not marker_prefix.is_empty():
