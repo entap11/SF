@@ -445,6 +445,8 @@ func get_authority_snapshot() -> Dictionary:
 			"spawns": st.spawns.duplicate(true),
 			"swarm_requests": st.swarm_requests.duplicate(true),
 			"swarm_packets": st.swarm_packets.duplicate(true),
+			"swarm_overflow_batches": st.swarm_overflow_batches.duplicate(true),
+			"swarm_overflow_next_emit_us_by_hive": st.swarm_overflow_next_emit_us_by_hive.duplicate(true),
 			"swarm_cooldown_until_us": st.swarm_cooldown_until_us.duplicate(true),
 			"lane_retract_requests": st.lane_retract_requests.duplicate(true),
 			"towers": st.towers.duplicate(true),
@@ -517,6 +519,17 @@ func restore_authority_snapshot(snapshot: Dictionary) -> bool:
 	st.spawns = (state_snapshot.get("spawns", []) as Array).duplicate(true) if typeof(state_snapshot.get("spawns", [])) == TYPE_ARRAY else []
 	st.swarm_requests = (state_snapshot.get("swarm_requests", []) as Array).duplicate(true) if typeof(state_snapshot.get("swarm_requests", [])) == TYPE_ARRAY else []
 	st.swarm_packets = (state_snapshot.get("swarm_packets", []) as Array).duplicate(true) if typeof(state_snapshot.get("swarm_packets", [])) == TYPE_ARRAY else []
+	st.swarm_overflow_batches.clear()
+	var overflow_batches_any: Variant = state_snapshot.get("swarm_overflow_batches", [])
+	if typeof(overflow_batches_any) == TYPE_ARRAY:
+		for batch_any in overflow_batches_any as Array:
+			if typeof(batch_any) == TYPE_DICTIONARY:
+				st.swarm_overflow_batches.append((batch_any as Dictionary).duplicate(true))
+	st.swarm_overflow_next_emit_us_by_hive.clear()
+	var overflow_timing_any: Variant = state_snapshot.get("swarm_overflow_next_emit_us_by_hive", {})
+	if typeof(overflow_timing_any) == TYPE_DICTIONARY:
+		for hive_id_any in overflow_timing_any:
+			st.swarm_overflow_next_emit_us_by_hive[int(hive_id_any)] = int(overflow_timing_any[hive_id_any])
 	st.swarm_cooldown_until_us = (state_snapshot.get("swarm_cooldown_until_us", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("swarm_cooldown_until_us", {})) == TYPE_DICTIONARY else {}
 	st.lane_retract_requests = (state_snapshot.get("lane_retract_requests", []) as Array).duplicate(true) if typeof(state_snapshot.get("lane_retract_requests", [])) == TYPE_ARRAY else []
 	st.towers = (state_snapshot.get("towers", []) as Array).duplicate(true) if typeof(state_snapshot.get("towers", [])) == TYPE_ARRAY else []
@@ -902,6 +915,14 @@ func _build_contract_state_signature() -> String:
 	for row_any in lane_rows:
 		var row: Array = row_any as Array
 		parts.append(str(row[1]))
+	for batch in st.swarm_overflow_batches:
+		parts.append("so:%d:%d:%d:%d:%d" % [int(batch.get("hive_id", -1)),
+			int(batch.get("owner_id", 0)), int(batch.get("count", 0)),
+			int(batch.get("expires_us", 0)), int(batch.get("swarm_id", -1))])
+	var overflow_hive_ids: Array = st.swarm_overflow_next_emit_us_by_hive.keys()
+	overflow_hive_ids.sort()
+	for hive_id in overflow_hive_ids:
+		parts.append("so_emit:%d:%d" % [int(hive_id), int(st.swarm_overflow_next_emit_us_by_hive[hive_id])])
 	var unit_rows: Array = []
 	var unit_system: Object = st.unit_system
 	var units_any: Variant = unit_system.get("units") if unit_system != null else []

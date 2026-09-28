@@ -497,6 +497,11 @@ func _validate_target(src_id: int, dst_id: int, arena_api: ArenaAPI) -> Dictiona
 			"has_lane": false,
 			"lane_id": -1
 		}
+	var player_id: int = selection.drag_dev_pid
+	if src_owner != player_id:
+		# A drag starting at a foreign hive can only retract our incoming lane.
+		var can_retract: bool = dst_owner == player_id and arena_api.intent_is_on(dst_id, src_id)
+		return {"ok": can_retract, "reason": "" if can_retract else "ownership"}
 	var state: GameState = arena_api.get_state()
 	var st := state
 	SFLog.info("STATE_PTR_CHECK", {
@@ -699,7 +704,9 @@ func _pick_hive_id_with_destination_assist(local_pos: Vector2, base_hive_id: int
 	if selected_id <= 0:
 		return base_hive_id
 	var selected_hive: HiveData = arena_api.find_hive_by_id(selected_id)
-	if selected_hive == null or int(selected_hive.owner_id) != resolved_player_id:
+	if selected_hive == null:
+		return base_hive_id
+	if int(selected_hive.owner_id) != resolved_player_id and selected_override_id <= 0:
 		return base_hive_id
 	var assisted_id := _pick_assisted_destination_hive_id(local_pos, selected_id, arena_api)
 	return assisted_id if assisted_id > 0 else base_hive_id
@@ -1826,9 +1833,11 @@ func _handle_press(local_pos: Vector2, hive_id: int, lane_id: int, dev_pid: int,
 			_handling_click = false
 			return
 		var friendly: bool = hive.owner_id == actor_id
-		selection.drag_active = friendly
+		# Foreign hives are valid gesture origins for destination-to-source
+		# retraction; the action handler still authorizes only our lane.
+		selection.drag_active = true
 		selection.drag_moved = false
-		selection.drag_start_hive_id = hive_id if friendly else -1
+		selection.drag_start_hive_id = hive_id
 		selection.drag_start_owner_id = hive.owner_id
 		selection.drag_start_pos = local_pos
 		selection.drag_current_pos = local_pos
@@ -1966,7 +1975,9 @@ func _handle_drag(local_pos: Vector2, _hive_id: int, _lane_id: int, arena_api: A
 	if not selection.drag_active:
 		return
 	selection.drag_current_pos = local_pos
-	if selection.drag_current_pos.distance_to(selection.drag_start_pos) >= arena_api.get_drag_deadzone_px():
+	# Finger movement within the pressed hive is still a tap. Crossing only
+	# the small drag deadzone used to swallow tap/tap orders on release.
+	if selection.drag_current_pos.distance_to(selection.drag_start_pos) >= arena_api.get_drag_deadzone_px() and _tap_is_outside_hive_core(selection.drag_start_hive_id, local_pos, arena_api):
 		selection.drag_moved = true
 	_queue_lane_preview_redraw(arena_api)
 	arena_api.mark_render_dirty("input_drag")

@@ -62,6 +62,9 @@ var outgoing_by_hive: Dictionary = {}
 var spawns: Array = []
 var swarm_requests: Array = []
 var swarm_packets: Array = []
+# Bees above hive capacity wait through the relay window, then leave as units.
+var swarm_overflow_batches: Array[Dictionary] = []
+var swarm_overflow_next_emit_us_by_hive: Dictionary = {}
 var swarm_cooldown_until_us: Dictionary = {}
 var lane_retract_requests: Array = []
 var units_set_version: int = 0
@@ -259,6 +262,8 @@ func reset_map_only() -> void:
 	spawns = []
 	swarm_requests = []
 	swarm_packets = []
+	swarm_overflow_batches.clear()
+	swarm_overflow_next_emit_us_by_hive.clear()
 	swarm_cooldown_until_us.clear()
 	lane_retract_requests = []
 	lane_sim_by_key.clear()

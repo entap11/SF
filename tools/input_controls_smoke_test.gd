@@ -12,14 +12,17 @@ class FakeArena:
 	func _handle_tap(hive_id: int, _dev_pid: int = -1) -> void:
 		tap_log.append(hive_id)
 
+	func _retract_lane(from_id: int, to_id: int, owner_id: int) -> void:
+		get_tree().root.get_node("OpsState").retract_lane(from_id, to_id, owner_id)
+
 	func mark_render_dirty(reason: String = "") -> void:
 		dirty_reasons.append(reason)
 
 	func _cell_from_point(local_pos: Vector2) -> Vector2i:
-		return Vector2i(roundi(local_pos.x), roundi(local_pos.y))
+		return Vector2i((local_pos / 64.0).round())
 
 	func _cell_center(cell: Vector2i) -> Vector2:
-		return Vector2(float(cell.x), float(cell.y))
+		return Vector2(cell) * 64.0
 
 	func _pick_lane(_local_pos: Vector2) -> Variant:
 		return null
@@ -33,6 +36,8 @@ var _failed: bool = false
 func _initialize() -> void:
 	await process_frame
 	_test_enemy_inspection()
+	_test_destination_to_source_drag()
+	_test_friendly_reverse_with_finger_motion()
 	_test_tap_tap_enemy_lane_creation()
 	_test_tap_tap_friendly_feed_and_reverse()
 	_test_tap_tap_active_lane_reinstances_swarm()
@@ -49,7 +54,7 @@ func _test_tap_tap_enemy_lane_creation() -> void:
 	var state: Variant = harness.get("state")
 	_tap_hive(input, api, 1, Vector2(0, 0))
 	_expect_eq(input.selected_src_id, 1, "first tap should select owned source hive")
-	_tap_hive(input, api, 2, Vector2(4, 0))
+	_tap_hive(input, api, 2, Vector2(256, 0))
 	_expect_true(state.intent_is_on(1, 2), "tap/tap owned source to enemy destination should create attack lane")
 	_expect_true(not state.intent_is_on(2, 1), "tap/tap attack should not create reverse enemy lane")
 
@@ -61,10 +66,10 @@ func _test_tap_tap_friendly_feed_and_reverse() -> void:
 	var api: Variant = harness.get("api")
 	var state: Variant = harness.get("state")
 	_tap_hive(input, api, 1, Vector2(0, 0))
-	_tap_hive(input, api, 2, Vector2(4, 0))
+	_tap_hive(input, api, 2, Vector2(256, 0))
 	_expect_true(state.intent_is_on(1, 2), "tap/tap owned source to friendly destination should create feed lane")
 	_expect_true(not state.intent_is_on(2, 1), "initial friendly feed should be one-way")
-	_tap_hive(input, api, 2, Vector2(4, 0))
+	_tap_hive(input, api, 2, Vector2(256, 0))
 	_tap_hive(input, api, 1, Vector2(0, 0))
 	_expect_true(not state.intent_is_on(1, 2), "tap/tap opposite friendly source should clear previous direction")
 	_expect_true(state.intent_is_on(2, 1), "tap/tap opposite friendly source should reverse feed lane")
@@ -77,10 +82,10 @@ func _test_tap_tap_active_lane_reinstances_swarm() -> void:
 	var api: Variant = harness.get("api")
 	var state: Variant = harness.get("state")
 	_tap_hive(input, api, 1, Vector2(0, 0))
-	_tap_hive(input, api, 2, Vector2(4, 0))
+	_tap_hive(input, api, 2, Vector2(256, 0))
 	_expect_true(state.intent_is_on(1, 2), "lane should be active before reinstance")
 	_tap_hive(input, api, 1, Vector2(0, 0))
-	_tap_hive(input, api, 2, Vector2(4, 0))
+	_tap_hive(input, api, 2, Vector2(256, 0))
 	_expect_eq(state.swarm_requests.size(), 1, "tap/tap same active lane direction should enqueue one swarm")
 	var req: Dictionary = state.swarm_requests[0] as Dictionary
 	_expect_eq(int(req.get("src", -1)), 1, "tap/tap swarm src")
@@ -113,7 +118,7 @@ func _make_harness(dst_owner_id: int) -> Dictionary:
 	_expect_true(input_system_script != null, "InputSystem script should load")
 	if arena_api_script == null or input_system_script == null:
 		return {}
-	var api: Variant = arena_api_script.new(arena)
+	var api: Variant = load("res://tools/fixtures/input_controls_arena_api.gd").new(arena)
 	api.bind_state(state)
 	var input: Variant = input_system_script.new()
 	input.setup(SelectionState.new())
@@ -175,17 +180,63 @@ func _test_enemy_inspection() -> void:
 		var input: Variant = harness.input
 		var api: Variant = harness.api
 		var state: Variant = harness.state
-		_tap_hive(input, api, 2, Vector2(4, 0), touch)
+		_tap_hive(input, api, 2, Vector2(256, 0), touch)
 		_expect_eq(api.selected_hive_id, 2, "enemy should be inspectable by touch and mouse")
 		_expect_eq(input.selection.selected_hive_id, 2, "renderer focus should include enemy")
 		_expect_eq(input.selected_src_id, -1, "enemy inspection must never become command source")
 		_expect_true(not state.intent_is_on(1, 2) and not state.intent_is_on(2, 1), "inspection must emit no lane intent")
-		_expect_true(not input._should_route_hive_click_to_lane(-1, 2, 1, Vector2(4, 0), 1, api), "enemy core should win over overlapping lane")
-		_tap_hive(input, api, 2, Vector2(4, 0), touch)
+		_expect_true(not input._should_route_hive_click_to_lane(-1, 2, 1, Vector2(256, 0), 1, api), "enemy core should win over overlapping lane")
+		_tap_hive(input, api, 2, Vector2(256, 0), touch)
 		_expect_eq(api.selected_hive_id, -1, "second enemy tap should dismiss inspection")
-		_tap_hive(input, api, 2, Vector2(4, 0), touch)
+		_tap_hive(input, api, 2, Vector2(256, 0), touch)
 		_tap_hive(input, api, 1, Vector2(0, 0), touch)
 		_expect_eq(input.selected_src_id, 1, "friendly tap after inspection selects owned command source")
 		_expect_true(not state.intent_is_on(2, 1), "inspection must not authorize enemy orders")
-		_tap_hive(input, api, 2, Vector2(4, 0), touch)
+		_tap_hive(input, api, 2, Vector2(256, 0), touch)
 		_expect_true(state.intent_is_on(1, 2), "friendly-to-enemy attack gesture should remain intact")
+
+func _test_destination_to_source_drag() -> void:
+	for touch in [true, false]:
+		for dst_owner in [0, 2]:
+			var harness := _make_harness(dst_owner)
+			var input: Variant = harness.input
+			var api: Variant = harness.api
+			var state: Variant = harness.state
+			_tap_hive(input, api, 1, Vector2.ZERO, touch)
+			_tap_hive(input, api, 2, Vector2(256, 0), touch)
+			_expect_true(state.intent_is_on(1, 2), "attack must exist before reverse drag")
+			if dst_owner == 2:
+				get_root().get_node("OpsState").apply_lane_intent(2, 1, "attack")
+			_drag_hive(input, api, 2, 1, touch)
+			_expect_true(not state.intent_is_on(1, 2), "destination-to-source drag must remove our attack")
+			_expect_eq(state.swarm_requests.size(), 0, "reverse drag must not swarm")
+			_expect_eq(state.intent_is_on(2, 1), dst_owner == 2, "reverse drag must preserve enemy orders")
+			_drag_hive(input, api, 2, 1, touch)
+			_expect_true(not state.intent_is_on(1, 2), "reverse drag with no own lane must not create one")
+			_expect_eq(state.intent_is_on(2, 1), dst_owner == 2, "invalid drag must not create enemy orders")
+			_expect_eq(input.selected_src_id, -1, "enemy drag must never select enemy as command source")
+
+func _drag_hive(input: Variant, api: Variant, from_id: int, to_id: int, touch: bool) -> void:
+	for kind in ["press", "motion", "release"]:
+		var hive_id: int = from_id if kind == "press" else to_id
+		var pos: Vector2 = api.grid_to_world(api.find_hive_by_id(hive_id).grid_pos)
+		input.handle_pointer_event({"type": kind, "button": MOUSE_BUTTON_LEFT,
+			"local_pos": pos, "world_pos": pos, "screen_pos": pos,
+			"is_touch": touch, "touch_index": 0, "hive_id": hive_id, "lane_id": -1}, api)
+
+func _test_friendly_reverse_with_finger_motion() -> void:
+	for touch in [true, false]:
+		var h := _make_harness(1)
+		_tap_hive(h.input, h.api, 1, Vector2.ZERO, touch)
+		_tap_hive(h.input, h.api, 2, Vector2(256, 0), touch)
+		for hive_id in [2, 1]:
+			var center: Vector2 = h.api.grid_to_world(h.api.find_hive_by_id(hive_id).grid_pos)
+			for kind in ["press", "motion", "release"]:
+				# Finger motion exceeds the 8px deadzone but stays inside the hive.
+				var pos: Vector2 = center if kind == "press" else center + Vector2(10, 0)
+				h.input.handle_pointer_event({"type": kind, "button": MOUSE_BUTTON_LEFT,
+					"local_pos": pos, "world_pos": pos, "screen_pos": pos,
+					"is_touch": touch, "touch_index": 0, "hive_id": hive_id, "lane_id": 1}, h.api)
+		_expect_true(h.state.intent_is_on(2, 1), "small movement inside friendly hives must still reverse the feed")
+		_expect_true(not h.state.intent_is_on(1, 2), "reverse with finger motion clears the old direction")
+		_expect_eq(h.state.swarm_requests.size(), 0, "friendly reverse must not swarm")
