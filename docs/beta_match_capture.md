@@ -122,7 +122,10 @@ listing return 401, and the authenticated private export succeeds (zero records
 at activation). `live-verification.json` records these checks. The signed app
 was installed as an update on Matthew’s iPhone 16 Pro and launched; device app
 inventory confirms build `2026092802`. Existing app data was preserved. The
-one-time sharing choice and first real uploaded game remain the device pilot.
+first two real uploads were verified later the same day; see the
+[first phone review](beta_capture_first_phone_review_2026-09-28.md). Both
+completed recordings are tagged as owner play after matching the participant
+to the earlier phone evidence.
 
 ## Validation evidence and limits
 
@@ -151,5 +154,7 @@ The broader fast release gate did **not** pass: onboarding restart testing hit
 its 90-second subprocess timeout; a focused retry also timed out in an online
 restart phase. Existing headless shader diagnostics appear in these logs, but
 the cause of the timeout has not been established. Do not call this a passing
-release gate or a store release candidate. Dedicated capture tests pass; a real
-phone game/upload after the sharing choice is still needed for field validation.
+release gate or a store release candidate. Dedicated capture tests pass. The first two real
+phone game uploads subsequently passed archive/export verification; this is a
+field pilot of that path, not a pass of the broader release gate or every
+offline/interruption scenario.
