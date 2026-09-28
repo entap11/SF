@@ -58,6 +58,7 @@ export function installBetaCaptureRoutes(app: Express, pool: Pool, tokenConfig: 
       void fn(req, res).catch(error => {
         if (error instanceof IdentitySessionError) res.status(error.status).json({ ok: false, err: error.code });
         else if (error instanceof PlayerTokenError) res.status(401).json({ ok: false, err: error.code });
+        else if (error?.type === "entity.too.large") res.status(413).json({ ok: false, err: "capture_too_large" });
         else res.status(503).json({ ok: false, err: "capture_unavailable" });
       });
     };
@@ -101,11 +102,48 @@ export function installBetaCaptureRoutes(app: Express, pool: Pool, tokenConfig: 
     } catch (error) { await client.query("ROLLBACK"); throw error; }
     finally { client.release(); }
   }));
+  app.post("/v1/beta-captures/:captureId/feedback", route(async (req, res) => {
+    if (!enabled()) fail("capture_disabled", 503);
+    const claims = verifyPlayerAccessToken(bearerTokenFromHeader(req.header("authorization")), tokenConfig);
+    await active.assertActiveSession(claims);
+    await new Promise<void>((resolve, reject) => express.raw({ type: "application/json", limit: "2kb", inflate: false })(req, res, err => err ? reject(err) : resolve()));
+    if (!Buffer.isBuffer(req.body)) fail("feedback_body_required");
+    const digest = hash(req.body);
+    if (req.header("x-capture-sha256") !== digest) fail("feedback_hash_mismatch");
+    let feedback: unknown;
+    try { feedback = JSON.parse(req.body.toString("utf8")); }
+    catch { fail("invalid_feedback_json"); }
+    if (!record(feedback) || !keys(feedback, "schema_version capture_id owner_key answers") || feedback.schema_version !== 1 ||
+        !/^[a-f0-9]{32}$/.test(String(feedback.capture_id)) || feedback.capture_id !== req.params.captureId ||
+        !record(feedback.answers) || Object.keys(feedback.answers).length !== 4 ||
+        !keys(feedback.answers, "experience challenge interesting controls") ||
+        !Object.values(feedback.answers).every(v => typeof v === "string") ||
+        !["unknown", "new", "intermediate", "experienced"].includes(String(feedback.answers.experience)) ||
+        !["too_easy", "about_right", "too_hard"].includes(String(feedback.answers.challenge)) ||
+        !["yes", "partly", "no"].includes(String(feedback.answers.interesting)) ||
+        !["yes", "no", "unsure"].includes(String(feedback.answers.controls))) fail("invalid_feedback");
+    if (feedback.owner_key !== participantKey(claims.sub)) fail("feedback_owner_mismatch", 403);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      await client.query("SELECT pg_advisory_xact_lock($1)", [934_771_112]);
+      await new AccountDeletionStore(client as unknown as Pool).assertActiveSession(claims);
+      const existing = await client.query("SELECT feedback_sha256 FROM sf_beta_captures WHERE player_id=$1 AND capture_id=$2", [claims.sub, feedback.capture_id]);
+      if (!existing.rows.length) fail("capture_not_found", 404);
+      const previous = existing.rows[0].feedback_sha256;
+      if (previous && previous !== digest) fail("feedback_conflict", 409);
+      if (!previous) await client.query(`UPDATE sf_beta_captures SET feedback=$3::jsonb, feedback_sha256=$4, feedback_received_at=now()
+        WHERE player_id=$1 AND capture_id=$2`, [claims.sub, feedback.capture_id, JSON.stringify(feedback.answers), digest]);
+      await client.query("COMMIT");
+      res.json({ ok: true, capture_id: feedback.capture_id, sha256: digest, duplicate: !!previous });
+    } catch (error) { await client.query("ROLLBACK"); throw error; }
+    finally { client.release(); }
+  }));
   app.get("/v1/admin/beta-captures", adminAuth, route(async (req, res) => {
     const after = String(req.query.after || "0");
     if (!/^\d{1,18}$/.test(after)) fail("invalid_cursor");
     const result = await pool.query(`SELECT c.id::text, c.capture_id, p.participant_key, p.cohort, c.received_at,
-      c.build,c.map_id,c.mode,c.status,c.sim_ms,c.winner_seat,c.sha256,c.summary
+      c.build,c.map_id,c.mode,c.status,c.sim_ms,c.winner_seat,c.sha256,c.summary,c.feedback,c.feedback_received_at
       FROM sf_beta_captures c JOIN sf_beta_participants p USING(player_id)
       WHERE c.id > $1::bigint ORDER BY c.id LIMIT 100`, [after]);
     res.json({ ok: true, captures: result.rows, next: result.rows.at(-1)?.id || after });
