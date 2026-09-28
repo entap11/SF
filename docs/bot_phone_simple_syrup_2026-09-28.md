@@ -24,6 +24,12 @@ paired iPhone. A partial recording is labeled incomplete. Game two is optional.
 
 Evidence and the development app are under `SF/artifacts/bot-phone-2026-09-28/`.
 
+Both owner games are now completed and retrieved. See the
+[playtest findings and calibration decision](bot_owner_playtest_2026-09-28.md).
+The owner reported distinct experiences and easy wins, and explicitly directed
+that medium remain aimed at the general audience rather than the owner's skill.
+The retained bot profiles and difficulty are unchanged.
+
 ## Installed checkpoint
 
 Direct installation and foreground launch succeeded on the paired iPhone 16 Pro:
@@ -54,9 +60,11 @@ in `fast-gate.log`, independently of the focused playtest checks. This is not
 an App Store/TestFlight release-readiness claim.
 
 File retrieval from this app's device container was verified before installing.
-Human playtest recordings have not yet been collected at this checkpoint. They
+Both completed human recordings are now retained under `owner-session/` in the
+artifact directory. Their build, map, seed, effective profiles and completion
+were verified; neither reports rejected commands or dropped witnesses. Recordings
 are atomically checkpointed every 15 seconds, saved at match end/return, and
-labeled incomplete if interrupted. Retrieve them with:
+labeled incomplete if interrupted. Retrieve further sessions with:
 
 ```sh
 python3 tools/collect_bot_phone_evaluation.py \

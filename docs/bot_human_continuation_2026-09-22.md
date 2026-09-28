@@ -1,5 +1,12 @@
 # Human-behavior pilot continuation — September 22, 2026
 
+September 28 continuation: the owner's two Simple Syrup phone games are
+[collected and reviewed](bot_owner_playtest_2026-09-28.md). The owner reported
+distinct personalities and easy wins. Preserve medium for the intended general
+audience; do not tune it to the owner's skill. The next difficulty evidence
+should come from newer and intermediate players. The historical checkpoint below
+predates this feedback.
+
 Continues the [September 16 checkpoint](bot_calibration_2026-09-16.md).
 The owner reaffirmed that the goal is more human-like behavior. Match strength is
 a regression measure; it does not establish believable decisions or enjoyable play.

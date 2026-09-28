@@ -1,8 +1,13 @@
 # Phone comparison with the owner — September 23, 2026
 
-Status: proposed session and implementation requirements, not an uploaded or
-installed TestFlight evaluation build. The owner plays through TestFlight and
-will be available tomorrow. No phone playtest or human comparison has occurred.
+September 28 update: an adapted two-game session on Simple Syrup was directly
+installed on iPhone and completed against medium Balancer and Raider. See the
+[implementation](bot_phone_simple_syrup_2026-09-28.md) and
+[findings and calibration direction](bot_owner_playtest_2026-09-28.md).
+The owner found distinct experiences and easy wins; medium must remain aimed at
+the general audience rather than being strengthened to match the owner's skill.
+The original September 23 proposal and preparation requirements follow as
+historical context; the five-opponent blocks below have not been played.
 
 The purpose is to compare a skilled human's choices with the five bot styles:
 what gets expanded, supplied, reinforced, defended or abandoned, and when.
