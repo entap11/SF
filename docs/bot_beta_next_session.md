@@ -46,7 +46,9 @@ neither original checkout is modified by the merge.
 
 ## Owner phone acceptance
 
-After the combined build is installed:
+Build `2026092804` is installed and its version is verified on the iPhone. The
+automatic foreground launch was blocked by the device lock. Unlock the phone
+and open Swarmfront, then:
 
 1. Play either opponent online. Choose **Share beta games** if desired, finish
    the game, answer the postgame questions honestly, and save. Leave the game
