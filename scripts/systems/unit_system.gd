@@ -35,6 +35,8 @@ const UNIT_RADIUS_PX := 24.0
 const EDGE_MIN_DIST_PX := 1.0
 const ARRIVE_EPS_PX := 0.5
 const ARRIVE_EPS_T: float = 0.995
+# Match the established nose-to-stinger train spacing in the simulation.
+const SWARM_OVERFLOW_TRAIN_SPACING_PX: float = 12.0
 const PASS_THROUGH_PIPELINE_MULT: float = 1.50
 const PASS_THROUGH_LOG_INTERVAL_MS: int = 1000
 const CONTESTED_CAPTURE_BLOCK_US: int = 3000000
@@ -217,6 +219,7 @@ func tick(dt: float) -> void:
 	_unit_flow_profile_add_stage("unit_process_arrivals", stage_start_usec)
 	stage_start_usec = Time.get_ticks_usec()
 	_drain_pass_through_queues(dt)
+	_drain_swarm_overflow()
 	_unit_flow_profile_add_stage("unit_drain_pass_through", stage_start_usec)
 	stage_start_usec = Time.get_ticks_usec()
 	_sync_units_to_state()
@@ -1092,7 +1095,11 @@ func _apply_unit_arrival(unit: Dictionary) -> void:
 		if float(hive.shock_ms) <= 0.0:
 			var raw_after: int = before_power_same_owner + amount
 			hive.power = min(SimTuning.MAX_POWER, raw_after)
-			if not ENABLE_PASS_THROUGH_POWER_GATE:
+			if bool(unit.get("reserve_swarm_overflow", false)):
+				# SwarmSystem records the unabsorbed remainder in GameState after
+				# this arrival. It can be relayed or released, never both.
+				pass
+			elif not ENABLE_PASS_THROUGH_POWER_GATE:
 				if arrive_source != "recall":
 					_pass_through_arrival(hive, pass_owner, amount)
 			else:
@@ -1329,6 +1336,38 @@ func _drain_pass_through_queues(dt: float) -> void:
 			_pass_through_queue_by_key.erase(key)
 			_pass_through_emit_accum_ms_by_key.erase(key)
 			_pass_through_last_log_ms_by_key.erase(key)
+
+func _drain_swarm_overflow() -> void:
+	if state == null or state.swarm_overflow_batches.is_empty():
+		return
+	var now_us: int = int(state._sim_time_us)
+	var interval_us: int = maxi(1, int(ceil(SWARM_OVERFLOW_TRAIN_SPACING_PX * 1000000.0 / SimTuning.UNIT_SPEED_PX_PER_SEC)))
+	# Arrival order is stable. A single emission clock per hive prevents two
+	# expired batches from placing bees on top of one another.
+	for batch in state.swarm_overflow_batches:
+		var hive_id: int = int(batch.get("hive_id", -1))
+		var owner_id: int = int(batch.get("owner_id", 0))
+		var hive: HiveData = state.find_hive_by_id(hive_id)
+		if hive == null or int(hive.owner_id) != owner_id:
+			batch["count"] = 0
+			continue
+		if int(batch.get("count", 0)) <= 0 or now_us <= int(batch.get("expires_us", 0)):
+			continue
+		if int(hive.power) < SimTuning.MAX_POWER or float(hive.shock_ms) > 0.0:
+			continue
+		if now_us < int(state.swarm_overflow_next_emit_us_by_hive.get(hive_id, 0)) or not can_accept_unit():
+			continue
+		var targets: Array = _pass_through_targets(hive)
+		if targets.is_empty():
+			continue
+		var target: Dictionary = targets[int(hive.pass_rr_index % targets.size())]
+		if _spawn_pass_through_unit(hive, owner_id, int(target.target_id), int(target.lane_id)):
+			hive.pass_rr_index += 1
+			batch["count"] = int(batch.count) - 1
+			state.swarm_overflow_next_emit_us_by_hive[hive_id] = now_us + interval_us
+	for index in range(state.swarm_overflow_batches.size() - 1, -1, -1):
+		if int(state.swarm_overflow_batches[index].get("count", 0)) <= 0:
+			state.swarm_overflow_batches.remove_at(index)
 
 func _pass_through_key(hive_id: int, owner_id: int) -> int:
 	return int((hive_id << 3) | (owner_id & 0x7))
