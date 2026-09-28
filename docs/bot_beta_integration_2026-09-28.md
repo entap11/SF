@@ -76,18 +76,30 @@ The app was installed as an update on Matthew's iPhone 16 Pro, without uninstall
 or account reset. The device app listing confirms `com.matthew.swarmfront`,
 version `0.1.3`, build `2026092804` (previously `2026092802`). The foreground
 launch request was rejected because the phone was locked
-(`FBSOpenApplicationErrorDomain` code 7). Unlock the phone and open Swarmfront;
-no successful foreground launch is claimed. Device evidence is in
+(`FBSOpenApplicationErrorDomain` code 7). The owner subsequently opened the app
+and completed both evaluation games. The original tool launch result remains
+recorded accurately. Device installation evidence is in
 `phone-install.json`, `phone-launch.json`, `phone-apps-after.json`, and
 `app-verification.json` under the integration artifact directory.
 
-Physical-phone feedback acceptance remains pending the owner's real game and
-answers. Wider difficulty calibration still needs newer/intermediate players.
+Physical-phone capture and feedback acceptance passed: both completed games
+arrived from the exact build/source/map, and the Raider answers reached the
+server independently. Balancer lasted 80.1 seconds and Raider 94.1 seconds;
+both were owner wins. Raider feedback was too easy, interesting, no control
+problems, and experienced. The owner missed the first feedback prompt before
+Raider began and considers the timing acceptable; that response remains
+unanswered, without marking the match as distracted or control-affected.
+
+The private `phone-review/` export includes unchanged original recordings,
+receipt metadata, annotations, the generated report, and a reproducible
+`review.py`/`review.json`. See the [phone acceptance review](bot_beta_phone_acceptance_2026-09-28.md).
+An offline/reconnect exercise on the physical phone is not established by these
+games. Wider difficulty calibration still needs newer/intermediate players.
 
 Source fingerprint:
 `6d8a1190cc0a9cdbe9659c53ebb120dde2265ec2cae00d53a61172516c8eb562`.
 Campaign definitions are unchanged; only their generated comparison fingerprint
 was refreshed to reflect the integrated simulation source.
 
-See [the next-session checklist](bot_beta_next_session.md) for the real iPhone
-feedback check and the newer/intermediate-player sample still needed.
+See [the next-session checklist](bot_beta_next_session.md) for the remaining
+newer/intermediate-player sample and optional physical-phone reconnect check.

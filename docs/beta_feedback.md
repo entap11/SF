@@ -1,7 +1,8 @@
 # Beta feedback and review report
 
 Followup: the controls and feedback are now combined in development build
-`2026092804`, with a passing full fast release gate. See the
+`2026092804`, with a passing full fast release gate and
+[verified iPhone game/feedback uploads](bot_beta_phone_acceptance_2026-09-28.md). See the
 [integration record](bot_beta_integration_2026-09-28.md) and
 [next-session checklist](bot_beta_next_session.md) for current device status and
 the real-player feedback still needed. The build `2026092803` evidence below is

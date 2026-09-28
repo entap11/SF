@@ -22,7 +22,9 @@ changes are ready to combine. The integration checkout is
 Do not substitute its older checkout wholesale for the feedback source: the
 feedback branch also contains later mobile, campaign, and bot work.
 
-Integration and acceptance procedure:
+The integration, automated checks, export, and installation below are complete;
+see the [integration evidence](bot_beta_integration_2026-09-28.md). Retain this
+procedure for the next combined build:
 
 1. Integrate the finished controls change into a separate checkout based on the
    feedback branch. Preserve the original working trees. Include the committed
@@ -46,26 +48,26 @@ neither original checkout is modified by the merge.
 
 ## Owner phone acceptance
 
-Build `2026092804` is installed and its version is verified on the iPhone. The
-automatic foreground launch was blocked by the device lock. Unlock the phone
-and open Swarmfront, then:
+Passed on September 28 with build `2026092804`. The owner opened the installed
+app and played both opponents. The private archive contains Balancer at 80.1
+seconds and Raider at 94.1 seconds, both completed human wins, with matching
+source/map fingerprints and intact recording digests. Raider's independently
+received feedback says too easy, interesting, no control problems, experienced.
+The owner missed the first feedback screen before Raider began and considers
+the timing acceptable. Leave Balancer's answers and control status unknown;
+this clarification does not describe an inattentive match. Full evidence is in
+the [phone acceptance review](bot_beta_phone_acceptance_2026-09-28.md).
 
-1. Play either opponent online. Choose **Share beta games** if desired, finish
-   the game, answer the postgame questions honestly, and save. Leave the game
-   idle at the result screen or hub long enough for the upload timer to run
-   (about 30 seconds with a working connection). Report any clipped or hard-to-
-   tap controls on the feedback screen.
-2. If time permits, play the other opponent offline after the app has loaded.
-   Save the feedback, restore connectivity, and leave the app idle again. This
-   checks the actual phone's delayed upload path. Do not invent ratings to make
-   the test pass. Skipping remains allowed.
+There is no need to repeat the basic owner submission check. If time permits,
+the remaining optional device check is a game played offline after the app has
+loaded: save honest feedback, restore connectivity, and leave the app idle at
+the result screen or hub for about 30 seconds. Then retrieve the archive to
+verify both receipts. These two games do not establish that offline/reconnect
+was exercised on the phone; automated transport retry coverage already passed.
 
-The agent then retrieves the archive and confirms the exact new build/map,
-completed game, independently received answers, immutable recording digest,
-and owner cohort. A saved answer is not considered uploaded until the server
-acknowledges it. Desktop transport/skip tests are useful coverage, but do not
-stand in for a real iPhone submission. Record any failed touch gestures
-explicitly: commands that never reached simulation are absent from telemetry.
+For future testers, record failed touch gestures explicitly: commands that
+never reached simulation are absent from telemetry. Sharing and answers remain
+optional; a missed prompt must not be converted into a rating.
 
 ## Audience sample
 
@@ -86,5 +88,7 @@ games from clean performance comparisons. Preserve original durations. A small
 initial sample can reveal usability and behavior issues, not establish a target
 win rate or population balance. No report flag automatically changes bots.
 
-After the feedback loop is proven, expand to Turtle, Greedy, and Swarm Lord,
-then additional maps. Keep those samples separate from the initial comparison.
+The feedback loop is now proven on the phone. The immediate next evidence is
+the newer/intermediate-player Balancer/Raider sample above. Subsequent bot work
+can expand to Turtle, Greedy, and Swarm Lord, then additional maps. Keep those
+samples separate from the initial comparison.
