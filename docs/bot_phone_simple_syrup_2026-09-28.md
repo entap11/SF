@@ -55,9 +55,10 @@ acceptance evidence. The hub/result captures were inspected separately.
 The campaign catalog's generated rules fingerprint was refreshed because its
 generator hashes simulation source files, including the evaluation hooks. Level
 definitions, unlocks and challenge parameters were not edited. The broader fast
-release gate was started as additional coverage; its live outcome is retained
-in `fast-gate.log`, independently of the focused playtest checks. This is not
-an App Store/TestFlight release-readiness claim.
+release gate subsequently passed, including eight player-configuration boot
+routes and three soak routes. Its output is retained in `fast-gate.log`.
+The gate skipped `perf_soak` and `testflight_preflight`; this is not an
+App Store/TestFlight release-readiness claim.
 
 File retrieval from this app's device container was verified before installing.
 Both completed human recordings are now retained under `owner-session/` in the
