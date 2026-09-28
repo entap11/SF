@@ -926,6 +926,13 @@ func _dict_by_player(players: Array[int], source: Dictionary) -> Dictionary:
 func attach_analysis_summary(summary: Dictionary) -> void:
 	_model.analysis_summary = summary.duplicate(true)
 
+func beta_capture_snapshot(context: Dictionary) -> Dictionary:
+	# Read only the strategic projection; do not duplicate unit/video replay data.
+	return preload("res://scripts/state/beta_capture_record.gd").project({
+		"metadata": _model.metadata, "events": _model.events, "metrics": _model.metrics,
+		"replay": {"frames": _replay_frames}
+	}, context)
+
 func evaluation_snapshot(sim_ms: int) -> Dictionary:
 	var payload: Dictionary = _model.to_dict()
 	if not _finalized:

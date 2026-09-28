@@ -11,6 +11,7 @@ config_version=5
 [application]
 
 config/name="Swarmfront"
+config/version.beta_capture="2026092802"
 run/main_scene="res://scenes/Shell.tscn"
 run/main_scene.store_release="res://scenes/MainMenu.tscn"
 run/main_scene.bot_evaluation="res://scenes/BotEvaluation.tscn"
@@ -40,6 +41,7 @@ AdManager="*res://scripts/state/ad_manager.gd"
 JukeboxRuntime="*res://scripts/state/jukebox_runtime.gd"
 CampaignRuntime="*res://scripts/state/campaign_runtime.gd"
 BotEvaluationSession="*res://scripts/state/bot_evaluation_session.gd"
+BetaMatchCapture="*res://scripts/state/beta_match_capture.gd"
 AppLifecycle="*res://scripts/state/app_lifecycle_state.gd"
 VsHandshake="*res://scripts/state/vs_handshake_state.gd"
 PlayerIdentityRuntime="*res://scripts/state/player_identity_runtime.gd"

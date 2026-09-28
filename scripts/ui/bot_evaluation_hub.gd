@@ -30,7 +30,14 @@ func _ready() -> void:
 	if not BotEvaluationSession.last_save.is_empty():
 		status.text = "Recording saved. Thank you!" if bool(BotEvaluationSession.last_save.get("ok", false)) else "Recording could not be saved. Keep the app open."
 	_label(column, "After playing, tell me one move that felt\nclever, strange, or too easy.", 32)
-	_label(column, "Playtest · September 28 · Build 2026092801", 24, Color("99aabb"))
+	if BetaMatchCapture.enabled():
+		var sharing := Button.new()
+		sharing.text = "BETA GAME SHARING"
+		sharing.custom_minimum_size.y = 90
+		sharing.add_theme_font_size_override("font_size", 32)
+		sharing.pressed.connect(BetaMatchCapture.show_sharing_choice)
+		column.add_child(sharing)
+	_label(column, "Playtest · September 28 · Build " + str(BotEvaluationSession._source_manifest().get("build", "development")), 24, Color("99aabb"))
 
 func _label(parent: Node, value: String, size: int, color := Color.WHITE) -> Label:
 	var label := Label.new()

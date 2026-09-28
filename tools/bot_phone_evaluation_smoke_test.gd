@@ -20,7 +20,7 @@ func wait_running() -> bool:
 	return false
 
 func run() -> void:
-	if not OS.get_user_data_dir().contains("SwarmfrontBotPhoneChecks"):
+	if not (OS.get_user_data_dir().contains("SwarmfrontBotPhoneChecks") or OS.get_user_data_dir().contains("SwarmfrontBetaCaptureChecks")):
 		quit(2)
 		return
 	ops = root.get_node("OpsState")
@@ -81,6 +81,16 @@ func run() -> void:
 		payload = JSON.parse_string(FileAccess.get_file_as_string(str(saved.path)))
 		check(bool(payload.metadata.bot_evaluation.completed), "terminal recording complete")
 		check(int(payload.metadata.winner_player_id) == 2, "actual winner exported")
+		var capture := root.get_node("BetaMatchCapture")
+		if bool(capture.call("enabled")):
+			capture.call("_flush_writer")
+			var completed_found := false
+			for capture_path in capture.call("pending_paths"):
+				var recording: Dictionary = preload("res://scripts/state/beta_capture_record.gd").read_record(capture_path)
+				if recording.get("status") == "completed" and not recording.get("profiles", []).is_empty():
+					if recording.profiles[0].get("style") == ("balancer" if game == 0 else "raider"):
+						completed_found = recording.winner_seat == 2 and not recording.frames.is_empty() and not recording.events.is_empty()
+			check(completed_found, "automatic beta archive records Arena lifecycle")
 		var overlay: Node = arena.get("outcome_overlay")
 		check((overlay.get("rematch_button") as Button).text == ("PLAY RAIDER" if game == 0 else "DONE"), "optional next game UI")
 		if DisplayServer.get_name() != "headless":

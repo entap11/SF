@@ -65,6 +65,7 @@ Crossing one of these boundaries requires an explicit contract and tests. Shared
 | Paid entry/escrow/settlement/refund | Approved production ledger authority identified by the money-game contract; local memory/file ledgers are test adapters only | Authenticated ledger service transaction with idempotency key | Effective after authoritative commit; append-only transaction journal | Client/ops projections; reconcile by operation ID and correct additively |
 | Local player preferences and recoverable non-competitive profile | `ProfileManager` scoped `user://` record, profile/schema version | Profile manager APIs | Effective after atomic local save; not authoritative for server-governed identity/economy | UI reads; migrate/version or explicit reset |
 | Analytics event acceptance | Analytics PostgreSQL event table, event ID | Bounded authenticated/approved ingest route | Effective after committed insert/dedupe | Rollups/dashboard are rebuildable projections; source events are not gameplay authority |
+| Beta game recording acceptance | Rank identity PostgreSQL `sf_beta_captures`, player ID + capture ID + SHA-256 | Authenticated beta upload transaction; operator annotates participant cohort | Exact-payload receipt after commit; original payload immutable; player deletion cascades | Private bot review/export; client evidence is not a verified result or gameplay authority; contract in `docs/beta_match_capture.md` |
 
 Detailed public-mode authorities, protocol versions, and idempotency namespaces remain canonical in `docs/architecture/public_modes/registries-v1.md`. Money-specific invariants remain canonical in `docs/money_game_ledger_contract.md`.
 
@@ -93,6 +94,7 @@ This registry covers mutation families. New consequential/final endpoints or cli
 | Honey/Nectar/Wax spend, reserve, settle, refund | Final Transition | Class 3 | Financial/client-private | Rank/ENTaP or explicitly approved production ledger | Required operation ID; transactional uniqueness; durable outbox/worker reconciliation |
 | Public contest publish/enter/submit/close/ack | Consequential or Final Transition by action | Class 2; Class 3 if rewards attach | Public plus client-private evidence | VS public-contest PostgreSQL | Namespace registry IDs; server time; version/hash concurrency; deterministic close |
 | Analytics event batch | Reversible/Consequential evidence ingestion by event type | Class 1 or 2 | Internal/client-private; no secrets | Analytics PostgreSQL | Stable event ID dedupe; offline queue retained until confirmation |
+| Beta game upload/cohort annotation | Consequential evidence ingestion / reversible annotation | Class 2 | Client-private, pseudonymous gameplay | Rank identity PostgreSQL archive | Player-scoped capture ID and exact hash dedupe; conflicting payload rejected; private operator export; deletion uses existing account transaction |
 | UI filters/expanded panels | Ephemeral UI | Class 0 | Public/internal | Owning UI component | No durability required |
 | Meaningful local form/profile draft | Durable Draft | Class 1 | Client-private | Owning profile/draft store | User-scoped local persistence; visible recovery; explicit discard |
 
@@ -116,6 +118,7 @@ This registry covers mutation families. New consequential/final endpoints or cli
 | Performance reports/baselines | Canonical Godot harness/package scripts and declared fixture inputs | `artifacts/`/`debug_reports/` or approved baseline paths | Runtime reports remain ignored unless an approval workflow explicitly promotes exact evidence |
 | Mobile export products | Pinned Godot 4.7.1 export/templates and rebuilt native secure-credentials plugins | iOS Xcode project/archive and signed Android AAB | Both platforms must use one clean source commit; retain template hashes and signing evidence |
 | App icons | `tools/generate_ios_icons.sh` plus branding source | platform icon assets | Regenerate through the script; inspect before candidate promotion |
+| Beta capture source manifest | `tools/build_beta_capture_manifest.py`, gameplay source + project/export settings | `data/beta_capture_build.json` | Commit with source changes; release gate runs `--check`; include JSON in beta exports |
 
 Duplicate numbered/conflict copies that can affect build or runtime are blockers.
 

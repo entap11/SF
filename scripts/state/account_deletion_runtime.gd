@@ -15,9 +15,10 @@ const LOCAL_FILES: Array[String] = [
 	"jukebox_leaderboard_v1.json", "campaign_progress_v1.json", "campaign_progress_v1.json.tmp",
 	"player_telemetry_profiles_v1.json", "analytics_queue_v1.jsonl",
 	"analytics_state_v1.json", "bot_intent_telemetry_v1.jsonl", "bot_intent_summary_v1.json",
+	"beta_capture_sharing.json", "beta_capture_sharing.json.tmp",
 	"vs_handshake_diagnostics.jsonl", "vs_contract_violations.jsonl"
 ]
-const LOCAL_DIRS: Array[String] = ["matches", "exports", "pvp_runtime", "logs"]
+const LOCAL_DIRS: Array[String] = ["matches", "exports", "pvp_runtime", "logs", "beta_captures", "bot_evaluation"]
 
 var _receipt: Dictionary = {}
 var _layer: CanvasLayer
@@ -204,6 +205,9 @@ func _accept_receipt(response: Dictionary) -> void:
 	var analytics := get_node_or_null("/root/AnalyticsClient")
 	if analytics != null:
 		analytics.call("stop_for_account_deletion")
+	var capture := get_node_or_null("/root/BetaMatchCapture")
+	if capture != null:
+		capture.call("stop_for_account_deletion")
 	# This alias belongs only to the Swarmfront app, never the ENTaP app.
 	var key_removed: bool = _delete_device_key()
 	var failures: Array[String] = _clear_local_files()

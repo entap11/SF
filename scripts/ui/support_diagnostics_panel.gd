@@ -11,6 +11,12 @@ func _ready() -> void:
 		_copy_button.pressed.connect(copy_diagnostics_to_clipboard)
 	if _close_button != null:
 		_close_button.pressed.connect(func(): visible = false)
+	var capture := get_node_or_null("/root/BetaMatchCapture")
+	if capture != null and bool(capture.call("enabled")):
+		var button := Button.new()
+		button.text = "Beta game sharing"
+		button.pressed.connect(func() -> void: capture.call("show_sharing_choice"))
+		$Panel/VBox/Buttons.add_child(button)
 	refresh()
 
 func refresh() -> void:
@@ -82,6 +88,7 @@ func build_diagnostics_payload() -> Dictionary:
 		"ops_config": ops_snapshot,
 		"analytics": analytics_snapshot,
 		"analytics_health": analytics_health,
+		"beta_capture": get_node("/root/BetaMatchCapture").call("queue_status") if get_node_or_null("/root/BetaMatchCapture") != null else {},
 		"vs": handshake_snapshot
 	}
 

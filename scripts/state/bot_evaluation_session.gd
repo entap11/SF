@@ -51,7 +51,7 @@ func request_launch(game: int) -> Dictionary:
 		"human_seat": 1, "cpu_seat": 2, "map_path": MAP_PATH,
 		"map_sha256": FileAccess.get_sha256(MAP_PATH), "buff_loadout": [],
 		"expected_policy": "human_balancer_v3" if game == 0 else "baseline_v3",
-		"build": BUILD, "engine": Engine.get_version_info(),
+		"build": str(_source_manifest().get("build", BUILD)), "engine": Engine.get_version_info(),
 		"source": _source_manifest(), "completed": false
 	}
 	tree.set_meta("bot_evaluation_session", descriptor())
@@ -82,7 +82,7 @@ func request_launch(game: int) -> Dictionary:
 	return {"ok": true}
 
 func _source_manifest() -> Dictionary:
-	var path := "res://data/bot_evaluation_build.json"
+	var path := "res://data/beta_capture_build.json" if OS.has_feature("beta_capture") or OS.get_cmdline_user_args().has("--beta-capture") else "res://data/bot_evaluation_build.json"
 	if not FileAccess.file_exists(path):
 		return {"revision": "development", "build": BUILD}
 	var value: Variant = JSON.parse_string(FileAccess.get_file_as_string(path))

@@ -4785,6 +4785,7 @@ func _begin_match_telemetry_session(reason: String) -> void:
 	if _match_telemetry_collector == null:
 		_match_telemetry_collector = MatchTelemetryCollectorScript.new()
 	if _match_telemetry_collector != null and _match_telemetry_collector.has_method("reset"):
+		BetaMatchCapture.finish("abandoned")
 		_match_telemetry_collector.call("reset")
 	if _match_telemetry_collector == null or not _match_telemetry_collector.has_method("begin_match"):
 		return
@@ -4833,6 +4834,13 @@ func _begin_match_telemetry_session(reason: String) -> void:
 	if _telemetry_active and BotEvaluationSession.is_active():
 		BotEvaluationSession.attach_collector(_match_telemetry_collector)
 	if _telemetry_active:
+		BetaMatchCapture.begin(_match_telemetry_collector, {
+			"map_id": str(OpsState.current_map_id),
+			"map_sha256": FileAccess.get_sha256(str(metadata_overrides.get("map_path", ""))) if FileAccess.file_exists(str(metadata_overrides.get("map_path", ""))) else "",
+			"mode": str(metadata_overrides.get("vs_mode", "")),
+			"local_seat": active_player_id, "bot_seed": OpsState.bot_match_seed,
+			"shared_match_key": str(get_tree().get_meta("vs_handshake_session_id", "")).sha256_text()
+		})
 		_record_match_start_analytics(match_id, season_id, map_id, match_type, start_utc_ms, metadata_overrides)
 	if unit_system != null and unit_system.has_method("set_match_telemetry_collector"):
 		unit_system.call("set_match_telemetry_collector", _match_telemetry_collector)
@@ -4890,6 +4898,7 @@ func _finalize_match_telemetry_session(winner_id_in: int) -> void:
 		profile_result = profile_result_any as Dictionary if typeof(profile_result_any) == TYPE_DICTIONARY else {}
 		if not bool(profile_result.get("ok", false)):
 			SFLog.warn("PLAYER_TELEMETRY_PROFILE_UPDATE_FAILED", profile_result)
+	BetaMatchCapture.finish("completed", winner_id_in)
 	_record_match_end_summary_analytics(telemetry_model, winner_id_in)
 	_telemetry_active = false
 	SFLog.info("TELEMETRY_FINALIZE", {
@@ -7803,6 +7812,7 @@ func _on_ops_state_changed(new_state: GameState) -> void:
 	_post_match_stats_snapshot.clear()
 	_post_match_telemetry_path = ""
 	if _match_telemetry_collector != null and _match_telemetry_collector.has_method("reset"):
+		BetaMatchCapture.finish("abandoned")
 		_match_telemetry_collector.call("reset")
 	if OpsState != null and OpsState.has_method("set_match_telemetry_collector"):
 		OpsState.call("set_match_telemetry_collector", _match_telemetry_collector)
@@ -7873,6 +7883,7 @@ func _create_system(script_path: String, label: String) -> RefCounted:
 	return instance
 
 func _exit_tree() -> void:
+	BetaMatchCapture.finish("abandoned")
 	# OutcomeOverlay moves to the root canvas while visible; retain scene lifetime.
 	if is_instance_valid(outcome_overlay) and not is_ancestor_of(outcome_overlay):
 		outcome_overlay.queue_free()
@@ -12272,6 +12283,7 @@ func _reset_sim_state() -> void:
 	_post_match_stats_snapshot.clear()
 	_post_match_telemetry_path = ""
 	if _match_telemetry_collector != null and _match_telemetry_collector.has_method("reset"):
+		BetaMatchCapture.finish("abandoned")
 		_match_telemetry_collector.call("reset")
 	if _prematch_overlay != null:
 		_prematch_overlay.visible = false
