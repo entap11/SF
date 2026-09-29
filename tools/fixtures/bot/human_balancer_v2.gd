@@ -26,7 +26,9 @@ func choose(observation: Dictionary, memory: Dictionary, profile: Dictionary, no
 			_clear_plan(memory, "target_captured")
 			plan = {}
 		elif str(plan.get("goal", "")) != "defend":
-			_observe_progress(target, plan, profile, now_ms)
+			if int(target["power"]) < int(plan.get("best_power", target["power"])):
+				plan["best_power"] = int(target["power"])
+				plan["progress_ms"] = now_ms
 			var stalled := now_ms - int(plan.get("progress_ms", now_ms)) >= int(profile.get("plan_stall_ms", 8000))
 			var exposed := float(threats.get(str(source["id"]), 0.0)) > 0.0 and not _is_counterpressure(observation, int(source["id"]), int(target["id"]))
 			if (stalled or exposed) and not _is_counterpressure(observation, int(source["id"]), int(target["id"])):
@@ -69,8 +71,7 @@ func choose(observation: Dictionary, memory: Dictionary, profile: Dictionary, no
 			return followup
 		if not _active_route(observation, int(plan["source"]), int(plan["target"])).is_empty():
 			var watching: Array = memory.get("watching", [])
-			var routine_expansion := bool(profile.get("human_review_uncontested_expansion", false)) and _uncontested_expansion(observation, plan, threats)
-			if (now_ms < int(plan.get("review_ms", 0)) and not routine_expansion) or watching.size() >= 2:
+			if now_ms < int(plan.get("review_ms", 0)) or watching.size() >= 2:
 				return _develop_supply(observation, profile, threats, now_ms)
 			# Orders keep running while attention moves. Remember a bounded number
 			# of commitments and inspect only one of them per observation.
@@ -125,21 +126,6 @@ func choose(observation: Dictionary, memory: Dictionary, profile: Dictionary, no
 	_set_plan(memory, str(choice["goal"]), int(choice["src"]), int(choice["dst"]), hives, now_ms)
 	return _advance_attack(observation, memory["plan"], profile, now_ms)
 
-func _uncontested_expansion(obs: Dictionary, plan: Dictionary, threats: Dictionary) -> bool:
-	# Once a safe neutral order is visibly underway, attention can move at the
-	# ordinary decision cadence. Keep contested fronts under the normal review.
-	var target := int(plan.get("target", -1))
-	var hive: Dictionary = obs["hives"].get(str(target), {})
-	if str(plan.get("goal", "")) != "expand" or int(hive.get("owner", -1)) != 0:
-		return false
-	if float(threats.get(str(plan.get("source", -1)), 0.0)) > 0.0:
-		return false
-	for rows in [obs["pressure"], obs["incoming"]]:
-		for row in rows:
-			if int(row["dst"]) == target and not _allied(obs, int(row["owner"])):
-				return false
-	return true
-
 func _target_watched(memory: Dictionary, target: int) -> bool:
 	for plan in memory.get("watching", []):
 		if int(plan.get("target", -1)) == target:
@@ -159,7 +145,9 @@ func _review_watching(obs: Dictionary, memory: Dictionary, profile: Dictionary, 
 	if int(src.get("owner", 0)) != int(obs["seat"]) or dst.is_empty() or _allied(obs, int(dst.get("owner", 0))) or route.is_empty():
 		watching.remove_at(index)
 		return {}
-	_observe_progress(dst, plan, profile, now_ms)
+	if int(dst["power"]) < int(plan.get("best_power", dst["power"])):
+		plan["best_power"] = int(dst["power"])
+		plan["progress_ms"] = now_ms
 	var stalled := now_ms - int(plan.get("progress_ms", now_ms)) >= int(profile.get("plan_stall_ms", 8000))
 	var exposed := float(threats.get(str(plan["source"]), 0.0)) > 0.0 and not _is_counterpressure(obs, int(plan["source"]), int(plan["target"]))
 	if (stalled or exposed) and not _is_counterpressure(obs, int(plan["source"]), int(plan["target"])) and _available(profile, route, "retract", now_ms):
@@ -168,21 +156,6 @@ func _review_watching(obs: Dictionary, memory: Dictionary, profile: Dictionary, 
 		memory["last_plan_reason"] = "watched_stall" if stalled else "watched_source_threatened"
 		return _command(route, "retract", "withdraw", 100.0)
 	return _advance_attack(obs, plan, profile, now_ms)
-
-func _observe_progress(target: Dictionary, plan: Dictionary, profile: Dictionary, now_ms: int) -> void:
-	var power := int(target["power"])
-	var best := int(plan.get("best_power", power))
-	var previous := best
-	if bool(profile.get("human_track_recent_pressure", false)) and int(target["owner"]) > 0:
-		# An enemy can grow before our pressure takes effect. Notice its recent
-		# decline even when it has not fallen below the opening observation.
-		# Merely issuing another order or seeing growth does not buy more time.
-		previous = int(plan.get("last_observed_power", best))
-		plan["last_observed_power"] = power
-	if power < best:
-		plan["best_power"] = power
-	if power < previous:
-		plan["progress_ms"] = now_ms
 
 func _advance_attack(obs: Dictionary, plan: Dictionary, profile: Dictionary, now_ms: int) -> Dictionary:
 	var src: Dictionary = obs["hives"].get(str(plan["source"]), {})
@@ -304,19 +277,15 @@ func _front_distance(obs: Dictionary, hive: Dictionary) -> float:
 	return distance
 
 func _develop_supply(obs: Dictionary, profile: Dictionary, threats: Dictionary, now_ms: int) -> Dictionary:
-	# Develop idle reserves, and use spare routes to support an existing front.
-	# Strictly decreasing distance prevents new supply from circulating backward.
+	# Put unused rear production behind the frontier. Strictly decreasing distance
+	# to the frontier avoids circulating supply between otherwise idle hives.
 	var candidates: Array[Dictionary] = []
 	for route in obs["routes"]:
 		var src: Dictionary = obs["hives"][str(route["src"])]
 		var dst: Dictionary = obs["hives"][str(route["dst"])]
 		if not _allied(obs, int(dst["owner"])) or bool(route["active"]):
 			continue
-		if int(src["open_slots"]) <= 0 or int(src["power"]) < int(profile.get("min_feed_power", 12)):
-			continue
-		# A busy reserve needs a concrete commitment to support; spare capacity
-		# alone is not a reason to add another route to an inactive hive.
-		if int(src.get("outgoing", 0)) > 0 and not _has_active_front(obs, int(dst["id"])):
+		if int(src.get("outgoing", 0)) > 0 or int(src["open_slots"]) <= 0 or int(src["power"]) < int(profile.get("min_feed_power", 12)):
 			continue
 		if int(dst["power"]) >= 40 or float(threats.get(str(src["id"]), 0.0)) > 0.0:
 			continue
@@ -330,14 +299,6 @@ func _develop_supply(obs: Dictionary, profile: Dictionary, threats: Dictionary, 
 		return {}
 	candidates.sort_custom(_better)
 	return candidates[0]
-
-func _has_active_front(obs: Dictionary, source: int) -> bool:
-	for row in obs["pressure"]:
-		if int(row["src"]) == source:
-			var target: Dictionary = obs["hives"].get(str(row["dst"]), {})
-			if not target.is_empty() and not _allied(obs, int(target["owner"])):
-				return true
-	return false
 
 func _friendly_incoming(obs: Dictionary, target: int, owner: int) -> float:
 	if owner <= 0:
@@ -368,7 +329,7 @@ func _active_route(obs: Dictionary, src: int, dst: int) -> Dictionary:
 	return {}
 
 func _command(route: Dictionary, intent: String, goal: String, score: float) -> Dictionary:
-	return {"src": int(route["src"]), "dst": int(route["dst"]), "intent": intent, "goal": goal, "score": score, "policy": "human_balancer_v3"}
+	return {"src": int(route["src"]), "dst": int(route["dst"]), "intent": intent, "goal": goal, "score": score, "policy": "human_balancer_v2"}
 
 func _set_plan(memory: Dictionary, goal: String, source: int, target: int, hives: Dictionary, now_ms: int) -> void:
 	var old: Dictionary = memory.get("plan", {})
