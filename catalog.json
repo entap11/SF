@@ -1,0 +1,361 @@
+{
+  "date": "2026-09-29",
+  "main_commit": "3fed87cc6e2f18bf2ace7d57f680885600c123cc",
+  "decision": "Archive unfinished work; keep tested main. Explicit owner instruction in conversation.",
+  "canonical_checkout": "SF/project",
+  "retained_deployment_branch": "deploy/staging-cert-20260720",
+  "branch_archives": [
+    {
+      "branch": "backup/feat-match-timer-7375826",
+      "head": "73758269a1fac677a759defbb109e45df7595925",
+      "tag": "archive/2026-09-29/branches/backup/feat-match-timer-7375826",
+      "included_in_main": true
+    },
+    {
+      "branch": "backup/mar3-tier-testflight-wip",
+      "head": "e9edbcb285bc0ef9822b222314ae07a12aa1c7b3",
+      "tag": "archive/2026-09-29/branches/backup/mar3-tier-testflight-wip",
+      "included_in_main": false
+    },
+    {
+      "branch": "codex/android-release-candidate",
+      "head": "bac0b06d645de554b8e17afff98792183a91ac8e",
+      "tag": "archive/2026-09-29/branches/codex/android-release-candidate",
+      "included_in_main": false
+    },
+    {
+      "branch": "codex/android-release-candidate-4.7.1",
+      "head": "99702f9287fee54bf2738df8f8e65b245324a1ce",
+      "tag": "archive/2026-09-29/branches/codex/android-release-candidate-4.7.1",
+      "included_in_main": false
+    },
+    {
+      "branch": "codex/beta-match-capture-20260928",
+      "head": "07b096dceedff630b22b371f928167c0d4af0163",
+      "tag": "archive/2026-09-29/branches/codex/beta-match-capture-20260928",
+      "included_in_main": true
+    },
+    {
+      "branch": "codex/bot-beta-integrated-20260928",
+      "head": "2ece4c4202588c535e31534d5aca3c09e15d0192",
+      "tag": "archive/2026-09-29/branches/codex/bot-beta-integrated-20260928",
+      "included_in_main": true
+    },
+    {
+      "branch": "codex/bot-phone-simple-syrup-20260928",
+      "head": "002bace9fb459ea4765f6e7ad8cc4dc415695944",
+      "tag": "archive/2026-09-29/branches/codex/bot-phone-simple-syrup-20260928",
+      "included_in_main": true
+    },
+    {
+      "branch": "codex/economy-live-canary",
+      "head": "5efa2a06d2eb79b0c4af8555d270c35e238925bf",
+      "tag": "archive/2026-09-29/branches/codex/economy-live-canary",
+      "included_in_main": true
+    },
+    {
+      "branch": "codex/godot-4.7.1-migration",
+      "head": "4a2c1389dec9bf8d1c03af422d28742502850594",
+      "tag": "archive/2026-09-29/branches/codex/godot-4.7.1-migration",
+      "included_in_main": false
+    },
+    {
+      "branch": "codex/hive-transition-study-20260924",
+      "head": "a123c265b1671b43c4ed3c3e87690f14fc5cb9b0",
+      "tag": "archive/2026-09-29/branches/codex/hive-transition-study-20260924",
+      "included_in_main": false
+    },
+    {
+      "branch": "codex/honey-minimum-2m",
+      "head": "babd2f6a3dbb8e04e14c8fc92ef2e905c9dd0e14",
+      "tag": "archive/2026-09-29/branches/codex/honey-minimum-2m",
+      "included_in_main": true
+    },
+    {
+      "branch": "codex/iphone-startup-hitch-diagnosis",
+      "head": "31a104dece8d5a8d538be100acd000cff3cedb04",
+      "tag": "archive/2026-09-29/branches/codex/iphone-startup-hitch-diagnosis",
+      "included_in_main": false
+    },
+    {
+      "branch": "codex/main-consolidation-20260928",
+      "head": "95d526bdb6732f5682c594ed797b91123229df88",
+      "tag": "archive/2026-09-29/branches/codex/main-consolidation-20260928",
+      "included_in_main": true
+    },
+    {
+      "branch": "codex/map-authoring-symmetry",
+      "head": "8e1b55b689480f2f0984ed0050311ce17435af07",
+      "tag": "archive/2026-09-29/branches/codex/map-authoring-symmetry",
+      "included_in_main": false
+    },
+    {
+      "branch": "codex/perf-harness-v1-completion",
+      "head": "3af736b8acd4cae07d0cdde38d8fbe0b12bf3b62",
+      "tag": "archive/2026-09-29/branches/codex/perf-harness-v1-completion",
+      "included_in_main": true
+    },
+    {
+      "branch": "codex/sf-skin-v1-upload-20260928",
+      "head": "26dfcc687ed0ee62444aaec0f7e93243cec5c4b5",
+      "tag": "archive/2026-09-29/branches/codex/sf-skin-v1-upload-20260928",
+      "included_in_main": true
+    },
+    {
+      "branch": "codex/single-player-campaign",
+      "head": "cc9e7e121fb79fbf236dc88f6d5269c2ea23fdd9",
+      "tag": "archive/2026-09-29/branches/codex/single-player-campaign",
+      "included_in_main": true
+    },
+    {
+      "branch": "codex/tower-voxel-study-20260924",
+      "head": "bc87d9f073d60e686a15d167d49a01594a01b43a",
+      "tag": "archive/2026-09-29/branches/codex/tower-voxel-study-20260924",
+      "included_in_main": true
+    },
+    {
+      "branch": "codex/unified-mobile-release-20260918",
+      "head": "c758b75a4f3e6f0b3ef4cc5e24ec2183da48bfcb",
+      "tag": "archive/2026-09-29/branches/codex/unified-mobile-release-20260918",
+      "included_in_main": true
+    },
+    {
+      "branch": "deploy/beta-capture-20260928",
+      "head": "24e173ba1ff5f6bf9f31a8b39cd628cdd45af3c5",
+      "tag": "archive/2026-09-29/branches/deploy/beta-capture-20260928",
+      "included_in_main": true
+    },
+    {
+      "branch": "deploy/cert-deletion-20260918",
+      "head": "01954d7c65856cc7914fdfc2e715db8f7f815850",
+      "tag": "archive/2026-09-29/branches/deploy/cert-deletion-20260918",
+      "included_in_main": false
+    },
+    {
+      "branch": "deploy/staging-cert-20260720",
+      "head": "60bef51e6a2e10fe60be05017053f8550df143c0",
+      "tag": "archive/2026-09-29/branches/deploy/staging-cert-20260720",
+      "included_in_main": true
+    },
+    {
+      "branch": "deploy/staging-cert-baseline-20260720",
+      "head": "b9c35e5e5b1d238c621fcb0fa39fdbdd72b5ad90",
+      "tag": "archive/2026-09-29/branches/deploy/staging-cert-baseline-20260720",
+      "included_in_main": true
+    },
+    {
+      "branch": "feat/authoritative-buffs",
+      "head": "6b5a597cfe61eaef33140c5aa134e4dd00c3a9fd",
+      "tag": "archive/2026-09-29/branches/feat/authoritative-buffs",
+      "included_in_main": true
+    },
+    {
+      "branch": "feat/buffs-v1",
+      "head": "f5196754eee43cddafb7846eb5aa3c214f9ea8fc",
+      "tag": "archive/2026-09-29/branches/feat/buffs-v1",
+      "included_in_main": true
+    },
+    {
+      "branch": "feat/match-timer",
+      "head": "73758269a1fac677a759defbb109e45df7595925",
+      "tag": "archive/2026-09-29/branches/feat/match-timer",
+      "included_in_main": true
+    },
+    {
+      "branch": "feat/skin-v1-floor",
+      "head": "4719b666a35656fb9e1dd5a67f302f4c42e2f57e",
+      "tag": "archive/2026-09-29/branches/feat/skin-v1-floor",
+      "included_in_main": true
+    },
+    {
+      "branch": "integration/perf-harness-v1-main",
+      "head": "a6e19247a5fa9992e96a8747e140ec9d700a9811",
+      "tag": "archive/2026-09-29/branches/integration/perf-harness-v1-main",
+      "included_in_main": true
+    },
+    {
+      "branch": "night/2026-02-10-safe",
+      "head": "a4653e8bf479c6879a91510d701e530730eedaf7",
+      "tag": "archive/2026-09-29/branches/night/2026-02-10-safe",
+      "included_in_main": false
+    },
+    {
+      "branch": "recover/no-gigantor",
+      "head": "a3d3b8a5cbe6efdbe738e72b6fced9b30cc884cb",
+      "tag": "archive/2026-09-29/branches/recover/no-gigantor",
+      "included_in_main": false
+    },
+    {
+      "branch": "redo/buffs-ui-test",
+      "head": "f5196754eee43cddafb7846eb5aa3c214f9ea8fc",
+      "tag": "archive/2026-09-29/branches/redo/buffs-ui-test",
+      "included_in_main": true
+    },
+    {
+      "branch": "safety/pre-authoritative-buffs-20260715",
+      "head": "4bb7ce21c4ffc72ef3eac955d93167a6ad5bf459",
+      "tag": "archive/2026-09-29/branches/safety/pre-authoritative-buffs-20260715",
+      "included_in_main": true
+    },
+    {
+      "branch": "sf/next",
+      "head": "a6f20820104aaabfcb243ec98952936c7f70a836",
+      "tag": "archive/2026-09-29/branches/sf/next",
+      "included_in_main": true
+    },
+    {
+      "branch": "sprint/perf-harness-recertification",
+      "head": "17f0cb9d03cc06ff636598d78b634beacd206755",
+      "tag": "archive/2026-09-29/branches/sprint/perf-harness-recertification",
+      "included_in_main": true
+    },
+    {
+      "branch": "sprint/public-modes-readiness",
+      "head": "8547fede2c0abc059b1683a9af80dd3c3d7f546e",
+      "tag": "archive/2026-09-29/branches/sprint/public-modes-readiness",
+      "included_in_main": true
+    },
+    {
+      "branch": "sprint/staging-certification",
+      "head": "9fa2bfbf9424399404ef8892f3e77d030551aaf5",
+      "tag": "archive/2026-09-29/branches/sprint/staging-certification",
+      "included_in_main": true
+    },
+    {
+      "branch": "work/mar3-2337",
+      "head": "5c3982449b5bf5e2a1e803c8b1c23a9104aff126",
+      "tag": "archive/2026-09-29/branches/work/mar3-2337",
+      "included_in_main": true
+    }
+  ],
+  "worktree_snapshots": [
+    {
+      "worktree": "project-android-release-candidate",
+      "base": "bac0b06d645de554b8e17afff98792183a91ac8e",
+      "commit": "93e882467f34aca2edf6b50068c32a4668944bab",
+      "tag": "archive/2026-09-29/wip/project-android-release-candidate",
+      "changed_files": 26,
+      "changed_files_archive_sha256": "a5a1c5eee0ef9cd05417c3543930910d81e09b34926ff4fb87476445ebc7590b"
+    },
+    {
+      "worktree": "project-beta-capture-deploy-20260928",
+      "base": "24e173ba1ff5f6bf9f31a8b39cd628cdd45af3c5",
+      "commit": "53e64bff6424ed445e046fb91a1e1aca24251454",
+      "tag": "archive/2026-09-29/wip/project-beta-capture-deploy-20260928",
+      "changed_files": 5,
+      "changed_files_archive_sha256": "26287e4e0f084cacbefe40e024b1bed58c4c64c4ecfbb08f153764cae4a2e3c8"
+    },
+    {
+      "worktree": "project-bot-attention-20260922",
+      "base": "dc19ddaffb91424c9d9cb1db185dc928214c5283",
+      "commit": "4f4e631ac0babce9e518fd0bc3c8c066284776f5",
+      "tag": "archive/2026-09-29/wip/project-bot-attention-20260922",
+      "changed_files": 13,
+      "changed_files_archive_sha256": "a50b2c5080ab7a62b70ad5cdb1b6b2fc737c8c818d75a9940ab03e5aa5ce7d86"
+    },
+    {
+      "worktree": "project-bot-attention-audit-20260922",
+      "base": "dc19ddaffb91424c9d9cb1db185dc928214c5283",
+      "commit": "15f0be06441d6af59df6ee971815f80d1e7fcfcc",
+      "tag": "archive/2026-09-29/wip/project-bot-attention-audit-20260922",
+      "changed_files": 14,
+      "changed_files_archive_sha256": "48648d70b1d81f8508c901bac120b150ae662eb4f2dfe1a8414ec7e41a23e517"
+    },
+    {
+      "worktree": "project-bot-attention-capacity-20260922",
+      "base": "dc19ddaffb91424c9d9cb1db185dc928214c5283",
+      "commit": "857aee6ddb7bebd093c4899aab5b33f74a40bbe1",
+      "tag": "archive/2026-09-29/wip/project-bot-attention-capacity-20260922",
+      "changed_files": 13,
+      "changed_files_archive_sha256": "044264a89b35c7ac45f0c14d566c0449db7108b667011201bb24477539de9947"
+    },
+    {
+      "worktree": "project-bot-balance-20260922",
+      "base": "dc19ddaffb91424c9d9cb1db185dc928214c5283",
+      "commit": "63a269c16dc9330bb11b3bf7c521f42fe3c89add",
+      "tag": "archive/2026-09-29/wip/project-bot-balance-20260922",
+      "changed_files": 8,
+      "changed_files_archive_sha256": "749478076646c2f072f9c6590444adabe438ecb3a3d02f8b77e7c4c870234de1"
+    },
+    {
+      "worktree": "project-bot-concentration-20260922",
+      "base": "dc19ddaffb91424c9d9cb1db185dc928214c5283",
+      "commit": "94d97173fae9483ec9efe4f9ca0ffcc4ab484e5f",
+      "tag": "archive/2026-09-29/wip/project-bot-concentration-20260922",
+      "changed_files": 13,
+      "changed_files_archive_sha256": "86276fbb2315793cba8b26e4f24a4962d4417d4134ace3a7a105f3c2263ca991"
+    },
+    {
+      "worktree": "project-bot-neutral-expansion-20260922",
+      "base": "dc19ddaffb91424c9d9cb1db185dc928214c5283",
+      "commit": "c6f484ada9bed50f8003e9a34e757604a4d39581",
+      "tag": "archive/2026-09-29/wip/project-bot-neutral-expansion-20260922",
+      "changed_files": 13,
+      "changed_files_archive_sha256": "fed7e9090b34cd2e4947ce5b57c4085e31d987baba964f0698f969dc338750d9"
+    },
+    {
+      "worktree": "project-bot-pressure-progress-20260922",
+      "base": "dc19ddaffb91424c9d9cb1db185dc928214c5283",
+      "commit": "3da7c63e050629f84e9086d905cbedf37c91bb0a",
+      "tag": "archive/2026-09-29/wip/project-bot-pressure-progress-20260922",
+      "changed_files": 13,
+      "changed_files_archive_sha256": "7da5448dcfb29c3f2d58279d64a030186e20b763f286d4e7748d141f930f650e"
+    },
+    {
+      "worktree": "project-bot-pressure-support-20260922",
+      "base": "dc19ddaffb91424c9d9cb1db185dc928214c5283",
+      "commit": "79d15d73e77d256a8482e9e47cd190c465a43db2",
+      "tag": "archive/2026-09-29/wip/project-bot-pressure-support-20260922",
+      "changed_files": 13,
+      "changed_files_archive_sha256": "4914d9d5d15c65879731bdc5dcb5c0279f0bc83931f107fb67c9ba8f66b434e6"
+    },
+    {
+      "worktree": "project-bot-supply-choice-20260922",
+      "base": "dc19ddaffb91424c9d9cb1db185dc928214c5283",
+      "commit": "987f34f453a940e5cb13acc864784063c7609e5e",
+      "tag": "archive/2026-09-29/wip/project-bot-supply-choice-20260922",
+      "changed_files": 13,
+      "changed_files_archive_sha256": "5844a2f292f0c24335a72a2c26582c191824709e2f16081fb1f874c123e1321b"
+    },
+    {
+      "worktree": "project-bot-supply-choice-audit-20260922",
+      "base": "dc19ddaffb91424c9d9cb1db185dc928214c5283",
+      "commit": "9810928edab7c8042903dc1a44bd32bde744ea7f",
+      "tag": "archive/2026-09-29/wip/project-bot-supply-choice-audit-20260922",
+      "changed_files": 17,
+      "changed_files_archive_sha256": "19d93542c81a6c3418da210e1c877b6ed664aaa9c9bae1a1d08ba89bcff375ff"
+    },
+    {
+      "worktree": "project-engine-spike-4.7.1",
+      "base": "bac0b06d645de554b8e17afff98792183a91ac8e",
+      "commit": "8ad2f28b352ab58237e0c86d84e83f0e95f6e182",
+      "tag": "archive/2026-09-29/wip/project-engine-spike-4.7.1",
+      "changed_files": 884,
+      "changed_files_archive_sha256": "0b6d8940267b463892e613f23f30528734cff6a507e0e816a90e59f98808a1f9"
+    },
+    {
+      "worktree": "project-sprite-projection-evidence-32c0aaf",
+      "base": "32c0aafb154fd69ecc76db54a88f6381ae58b82b",
+      "commit": "02d750f68456f4741f4a1707709801ead43105d6",
+      "tag": "archive/2026-09-29/wip/project-sprite-projection-evidence-32c0aaf",
+      "changed_files": 5,
+      "changed_files_archive_sha256": "253292df40137fc7ac27ba679342e9e22e3d263896dcfb4227546cffdf9c7f74"
+    },
+    {
+      "worktree": "project-tower-voxel-study-20260924",
+      "base": "bc87d9f073d60e686a15d167d49a01594a01b43a",
+      "commit": "0973ac16b3cf370ff9b2aacb0269b28d8474872e",
+      "tag": "archive/2026-09-29/wip/project-tower-voxel-study-20260924",
+      "changed_files": 11,
+      "changed_files_archive_sha256": "390c975dd3d50e34212f1502f27da427ff05919c3b443faec85aa2103e9da2b4"
+    },
+    {
+      "worktree": "project-unified-mobile-release",
+      "base": "cc9e7e121fb79fbf236dc88f6d5269c2ea23fdd9",
+      "commit": "6748e9e68555a1bcb1c1a9ce645c467e9d12e6ba",
+      "tag": "archive/2026-09-29/wip/project-unified-mobile-release",
+      "changed_files": 25,
+      "changed_files_archive_sha256": "d38f6df486be6dcaf2c542ea5519386518f4496394f438b429a2541710cd41f9"
+    }
+  ]
+}
