@@ -42,7 +42,7 @@ func tick(_dt: float) -> void:
 		if not bool(configured.get("enabled", true)):
 			continue
 		if _human_enabled(configured):
-			configured["policy"] = "human_balancer_v2"
+			configured["policy"] = "human_balancer_v3"
 			configured.merge(configured.get("human_timing", {}), true)
 		if not OpsState.bot_runtime_by_seat.has(seat):
 			OpsState.bot_runtime_by_seat[seat] = {
@@ -76,7 +76,7 @@ func tick(_dt: float) -> void:
 		_execute(seat, decision, runtime, profile, now_ms)
 
 func _human_enabled(profile: Dictionary) -> bool:
-	if str(profile.get("human_policy", "")) != "human_balancer_v2" or OpsState.victory_mode != OpsState.VICTORY_MODE_CONQUEST:
+	if str(profile.get("human_policy", "")) != "human_balancer_v3" or OpsState.victory_mode != OpsState.VICTORY_MODE_CONQUEST:
 		return false
 	if not bool(profile.get("human_behavior_enabled", false)) and not OS.get_cmdline_user_args().has("--human-bot-pilot"):
 		return false
@@ -161,6 +161,11 @@ func _execute(seat: int, decision: Dictionary, runtime: Dictionary, profile: Dic
 			retry = maxi(retry, int(profile.get("no_lane_retry_ms", 2800)))
 		_block_pair(blocked, src, dst, now_ms + retry)
 	var event := decision.duplicate(true)
+	# JSON snapshots restore numbers as floats. Keep canonical millisecond fields
+	# integral so a resumed pending command emits the same trace on Godot 4.7.
+	for field in ["observed_ms", "decided_ms", "execute_ms"]:
+		if event.has(field):
+			event[field] = int(event[field])
 	event.merge(result, true)
 	event["style"] = str(profile.get("style", ""))
 	event["tier"] = str(profile.get("tier", "medium"))
