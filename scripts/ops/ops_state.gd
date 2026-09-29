@@ -1851,6 +1851,8 @@ func _build_bot_profile_for_seat(seat: int, style: String, tier: String) -> Dict
 	for key_any in style_patch.keys():
 		profile[key_any] = style_patch.get(key_any)
 	_apply_bot_tier(profile, normalized_tier)
+	if normalized_tier == BOT_TIER_MEDIUM and normalized_style in [BOT_STYLE_RAIDER, BOT_STYLE_GREEDY]:
+		profile["neutral_uses_base_attack_power"] = true
 	profile["seat"] = seat
 	profile["style"] = normalized_style
 	profile["persona"] = normalized_style
@@ -1859,8 +1861,10 @@ func _build_bot_profile_for_seat(seat: int, style: String, tier: String) -> Dict
 	profile["think_interval_ms"] = int(profile.get("think_interval_ms", 900)) + BOT_REACTION_DELAY_EXTRA_MS
 	if normalized_style == BOT_STYLE_BALANCER and normalized_tier == BOT_TIER_MEDIUM:
 		# First behavior pilot; BotSystem restricts it to two-seat conquest matches.
-		profile["human_policy"] = "human_balancer_v2"
+		profile["human_policy"] = "human_balancer_v3"
 		profile["human_behavior_enabled"] = false
+		profile["human_review_uncontested_expansion"] = true
+		profile["human_watch_limit"] = 3
 		profile["human_timing"] = {"notice_delay_ms": 450,
 			"notice_jitter_ms": 200, "motor_delay_ms": 200, "motor_jitter_ms": 100,
 			"think_interval_ms": 1100, "think_jitter_ms": 350,

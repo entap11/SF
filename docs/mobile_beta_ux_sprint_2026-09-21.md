@@ -22,6 +22,12 @@ The existing work was committed and pushed as `da80c79` before floor changes beg
 The first floor implementation uses 16 edge-biased traces, at most two softly
 glowing at once; ambient lighting is independent of ownership and simulation.
 
+September 22: resumed with an isolated [hive indicator study](hive_indicator_study_2026-09-22.md)
+using current artwork across three tiers. It compares the current display to a
+power number and lane sockets without a backing card, revised after owner feedback.
+Hive silhouette direction and the proposed layout
+remain under review; production hive visuals have not changed in this study.
+
 Recommended review order (hive/effect direction remains proposed):
 
 1. Compare the current floor with a restrained graphite/metal treatment using

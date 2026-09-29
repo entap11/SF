@@ -113,7 +113,8 @@ func choose(observation: Dictionary, memory: Dictionary, profile: Dictionary, no
 		if int(src.get("outgoing", 0)) == 0:
 			score += 10.0
 		if support_count > 0 and int(dst["owner"]) > 0:
-			score += 20.0
+			if support_count != 1 or not bool(profile.get("human_check_reinforcement_need", false)) or _reinforcement_needed(observation, memory, profile, threats, int(dst["id"]), now_ms):
+				score += 20.0
 		if counter:
 			score += 35.0
 		# A limited optimistic error is coherent across this decision's candidates.
@@ -127,6 +128,34 @@ func choose(observation: Dictionary, memory: Dictionary, profile: Dictionary, no
 	var choice: Dictionary = candidates[0]
 	_set_plan(memory, str(choice["goal"]), int(choice["src"]), int(choice["dst"]), hives, now_ms)
 	return _advance_attack(observation, memory["plan"], profile, now_ms)
+
+func _reinforcement_needed(obs: Dictionary, memory: Dictionary, profile: Dictionary, threats: Dictionary, target: int, now_ms: int) -> bool:
+	var hive: Dictionary = obs["hives"][str(target)]
+	# Visible forces already on their way may finish this capture. Keep a small
+	# reserve in the estimate; growth and collisions still make it uncertain.
+	var resistance := float(hive["power"]) + _friendly_incoming(obs, target, int(hive["owner"]))
+	if _friendly_incoming(obs, target, int(obs["seat"])) > resistance + 2.0:
+		return false
+	var plans: Array = memory.get("watching", []).duplicate()
+	plans.append(memory.get("plan", {}))
+	plans.append(memory.get("suspended_plan", {}))
+	for stream in obs["pressure"]:
+		if int(stream["dst"]) != target or not _allied(obs, int(stream["owner"])):
+			continue
+		var source := int(stream["src"])
+		# Use the existing withdrawal criteria, including its counterpressure
+		# exception. Reading another plan does not review it or extend its life.
+		if _is_counterpressure(obs, source, target):
+			continue
+		if float(threats.get(str(source), 0.0)) > 0.0:
+			return false
+		for plan in plans:
+			if int(plan.get("source", -1)) != source or int(plan.get("target", -1)) != target or str(plan.get("goal", "")) == "defend":
+				continue
+			var has_new_progress := int(hive["power"]) < int(plan.get("best_power", hive["power"]))
+			if not has_new_progress and now_ms - int(plan.get("progress_ms", now_ms)) >= int(profile.get("plan_stall_ms", 8000)):
+				return false
+	return true
 
 func _uncontested_expansion(obs: Dictionary, plan: Dictionary, threats: Dictionary) -> bool:
 	# Once a safe neutral order is visibly underway, attention can move at the
