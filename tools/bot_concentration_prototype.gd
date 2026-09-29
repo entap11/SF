@@ -114,6 +114,8 @@ func choose(observation: Dictionary, memory: Dictionary, profile: Dictionary, no
 			score += 10.0
 		if support_count > 0 and int(dst["owner"]) > 0:
 			score += 20.0
+			if bool(profile.get("human_concentrate_pressure", false)) and support_count == 1 and margin >= -8.0 and float(threats.get(str(src["id"]), 0.0)) <= 0.0:
+				score += 20.0
 		if counter:
 			score += 35.0
 		# A limited optimistic error is coherent across this decision's candidates.
