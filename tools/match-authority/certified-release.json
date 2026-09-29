@@ -1,0 +1,21 @@
+{
+  "repository": "https://github.com/entap11/SF.git",
+  "commit": "b409fc9797274c4a8a3cf895de7ba3d2d968197a",
+  "tree": "9e62f3b3f5f37cd926a2c393ade0bd125925bb89",
+  "worker_build_id": "authority-worker-b409fc9",
+  "sim_build_id": "sf-sim-b409fc9",
+  "godot_class_count": 224,
+  "godot": {
+    "version": "4.7.1.stable.official.a13da4feb",
+    "url": "https://github.com/godotengine/godot-builds/releases/download/4.7.1-stable/Godot_v4.7.1-stable_linux.x86_64.zip",
+    "archive_sha256": "c7ff14fd28472c8d4f193043de30278dcf7e5241a1dcf7566b02e27addaa33ba",
+    "binary_name": "Godot_v4.7.1-stable_linux.x86_64",
+    "binary_sha256": "32f8d7596c4b41185512b1c49d69f2da3be018fd784a53e349fa92a98a97bcde"
+  },
+  "map_artifacts": {
+    "325e97a6677eb32e2f396fa9077b614c76a2150dad960243e8ae00b55909d14a": "maps/_future/closequarters/MAP_closequarters__CQ2__1p.json"
+  },
+  "ruleset_artifacts": {
+    "d7a78887b71c7d010db1b8ea1af84aa847ca877644878f6c3a0d96aed26aa57c": "tools/match-authority/fixtures/standard-rules.json"
+  }
+}

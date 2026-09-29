@@ -1,10 +1,21 @@
-# Main consolidation candidate — September 28, 2026
+# Main consolidation — completed September 29, 2026
 
-This candidate brings `main` up to the mobile beta baseline already tested on
-the owner's iPhone, while retaining current `main` and the live backend's
-session-auth behavior. It is prepared on `codex/main-consolidation-20260928`
-for a draft PR; the complete release gate on the final candidate remains a
-pre-merge requirement.
+The tested mobile beta baseline and the live backend's session-auth behavior
+are consolidated on `main`. [PR #5](https://github.com/entap11/SF/pull/5)
+merged as `3fed87cc6e2f18bf2ace7d57f680885600c123cc` after the final candidate
+`478334b45a2e97f74126884ffd3f5c71070e4811` passed
+[Release Readiness](https://github.com/entap11/SF/actions/runs/36508328666).
+
+Branch and worktree cleanup is complete. `main` is the sole active local and
+GitHub branch, and `SF/project` is the sole registered worktree. Unfinished
+experiments were preserved in archive tags rather than integrated into the
+tested game. The recovery catalog is
+[`archive/2026-09-29/complete`](https://github.com/entap11/SF/tree/8152d8dfeb06eb8d4d0646c5438494891dad8d6e).
+
+All five Render services reference `main`, with automatic deployment disabled.
+The branch changes preserved the running releases. The authority's reproducible
+build setup is recorded in [the deployment note](authority_render_build_2026-09-29.md).
+The preparation history below is retained as evidence, not an outstanding task list.
 
 ## Included history and resulting behavior
 
@@ -33,8 +44,8 @@ The full change against remote `main` is larger: 32 existing integration
 commits plus the backend and merge history. Before this handoff document it
 spans 1,374 paths, including 982 Godot import/UID metadata files. Review this
 as consolidation of the current mobile baseline, not as only the recent bot
-feedback change. Uncommitted experiments and active work remain in their
-existing worktrees.
+feedback change. Uncommitted experiments were subsequently archived and their
+extra worktrees retired during the September 29 cleanup.
 
 ## Preparation checks
 
@@ -57,10 +68,10 @@ The earlier combined build's full fast release gate and real iPhone feedback
 acceptance are documented in
 [the integration record](bot_beta_integration_2026-09-28.md) and
 [the phone acceptance review](bot_beta_phone_acceptance_2026-09-28.md).
-Those are prior-baseline evidence; the complete gate has not been rerun locally
-on this final consolidation candidate during preparation.
+Those were prior-baseline evidence at preparation time. The final candidate
+subsequently passed the complete CI gate linked above.
 
-## Before merge
+## Pre-merge validation history
 
 ### Resumed validation on the home Mac
 
@@ -77,19 +88,16 @@ The release-readiness CI job now selects that path by default, honors an explici
 The actual workflow shell block was checked with both installed engines: 4.2.2
 was rejected, and 4.7.1 passed and exported its path for subsequent steps.
 No gameplay source, test assertions, or timing budgets changed. The corrected
-candidate still requires its full CI gate before merge. Original CI output and
-resumed local checks are retained under
+candidate subsequently passed its full CI gate before merge. Original CI output
+and resumed local checks are retained under
 `SF/artifacts/branch-consolidation-2026-09-28/resume-checks/`.
 
-### Landing checklist
+## Completed landing checklist
 
-1. Review the full consolidated change and obtain a passing release gate on
-   the final candidate. Check the PR's CI result separately from the focused
-   local preparation checks above.
-2. Use a merge commit when landing this consolidation so the preserved branch
-   ancestry remains available for cleanup. Align the local `main` checkout
-   after remote `main` contains the result.
-3. Review remaining worktrees individually before retiring branches. An
-   ancestor branch tip does not establish that its uncommitted files can be
-   removed. Deployment history is included for correctness; service rollout
-   and store publication remain separate operations.
+- [x] Review and pass the complete release gate on the final PR candidate.
+- [x] Merge PR #5 with preserved ancestry and align local `main` with GitHub.
+- [x] Review every extra worktree; archive unfinished source and recovery evidence.
+- [x] Retire extra branches and worktrees, including the final Render deployment branch.
+- [x] Point all Render services to `main` with automatic deployment disabled.
+
+Service rollout and store publication remain separate release operations.

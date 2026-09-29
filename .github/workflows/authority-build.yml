@@ -1,0 +1,38 @@
+name: Certified Authority Build
+
+on:
+  pull_request:
+    paths:
+      - tools/match-authority/build-certified.mjs
+      - tools/match-authority/certified-release.json
+      - .github/workflows/authority-build.yml
+  push:
+    branches: [main]
+    paths:
+      - tools/match-authority/build-certified.mjs
+      - tools/match-authority/certified-release.json
+      - .github/workflows/authority-build.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  certified-build:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build and replay the pinned release
+        run: node tools/match-authority/build-certified.mjs
+      - name: Preserve build receipt
+        uses: actions/upload-artifact@v4
+        with:
+          name: certified-authority-build
+          include-hidden-files: true
+          path: |
+            .authority/build-receipt.json
+            .authority/cert-manifest.json

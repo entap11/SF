@@ -23,6 +23,42 @@ trusted lifecycle forfeit/no-contest receipts, and verifies the ES256 signature.
 
 ## Runtime
 
+### Certified Render build
+
+The build recipe on `main` packages the complete certified worker and simulation
+from the exact commit in [`certified-release.json`](certified-release.json).
+It preserves the worker/simulation IDs expected by VS. Main's newer game scripts
+and worker code are not relabeled as that certified release.
+
+Render uses these commands from the repository root:
+
+```sh
+# Build (Linux x86_64, Node >=20; git, tar, curl, unzip and Godot system libraries)
+node tools/match-authority/build-certified.mjs
+# Start
+npm start --prefix .authority/release/tools/match-authority
+```
+
+The recipe fetches the pinned commit independently of the linked branch, verifies
+the Git tree, map/rules hashes, and Godot archive/binary hashes, generates the
+pinned project's class registry, imports assets, compiles the pinned worker, and
+runs its real replay/signature smoke. It writes `.authority/cert-manifest.json`
+and `.authority/build-receipt.json` only after those checks pass. Generated files
+stay under ignored `.authority/`; the root game checkout is unchanged.
+
+The Render environment paths remain `/opt/render/project/src/.authority/godot`
+and `/opt/render/project/src/.authority/cert-manifest.json`. The manifest's
+`project_path` points to `.authority/release`. A conflicting worker ID or runtime
+path fails the build before replacing outputs. The dedicated GitHub workflow
+rebuilds this package on Linux when the recipe or pin changes.
+
+Changing the certified commit requires validating the new worker/simulation pair
+and coordinating their IDs with VS before rollout. Source-branch housekeeping
+does not change this release contract. See the
+[September 29 deployment note](../../docs/authority_render_build_2026-09-29.md).
+
+### Worker configuration
+
 Copy `.env.example` into service-secret configuration. The private verifier key
 belongs only to this worker; VS receives the matching public key. The worker token
 is also dedicated to verification job operations and must never ship in Godot.
