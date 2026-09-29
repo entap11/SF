@@ -14,6 +14,7 @@ def main():
     parser.add_argument("--godot", required=True)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--capture", action="store_true")
+    parser.add_argument("--timeout", type=int, default=240, help="Per-check deadline in seconds")
     parser.add_argument("--test", action="append", required=True)
     args = parser.parse_args()
     output = args.output.resolve()
@@ -42,7 +43,7 @@ def main():
             cmd += ["--rendering-method", "gl_compatibility"] if args.capture else ["--headless"]
             log = output / f"{test}.log"
             with log.open("w") as stream:
-                result = subprocess.run(cmd, env=env, stdout=stream, stderr=subprocess.STDOUT, timeout=240)
+                result = subprocess.run(cmd, env=env, stdout=stream, stderr=subprocess.STDOUT, timeout=args.timeout)
             text = log.read_text()
             errors = [line for line in text.splitlines() if "ERROR:" in line and
                       (args.capture or line.strip() != HEADLESS_SHADER_DIAGNOSTIC)]

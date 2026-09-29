@@ -39,6 +39,7 @@ func _run() -> void:
 	buff_state.apply_authoritative_projection(1, input, 1000)
 	var hud: Dictionary = arena.call("_buff_ui_player_snapshot", 1, buff_state, 1000) as Dictionary
 	_expect(hud["slots"][0]["duration_ms"] == 5000 and hud["slots"][0]["remaining_ms"] == 5000, "Arena forwards canonical effect duration to the HUD")
+	_expect(hud["chill_remaining_ms"] == 15000, "Arena forwards canonical chill to the HUD")
 	arena.free()
 	view._process(30.0)
 	_expect(view.get_snapshot()["markers"][0]["remaining_ms"] == 5000, "wall time cannot expire frozen simulation time")

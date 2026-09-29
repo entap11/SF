@@ -32,7 +32,6 @@ var _use_slash_labels: Array[Label] = []
 var _slot_snapshots: Array[Dictionary] = []
 var _slots_row: HBoxContainer = null
 var _snapshot_pid: int = 1
-var _ui_remaining_ms: Array[int] = []
 
 var _press_slot_index: int = -1
 var _press_pointer_kind: String = ""
@@ -42,29 +41,14 @@ var _pointer_drag_visual: bool = false
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
-	set_process(true)
+	set_process(false)
 	set_process_input(true)
 	_cache_slots()
-	_ui_remaining_ms.resize(_slots.size())
 	_configure_layout_for_thumb_access()
 	_ensure_slot_labels()
 	_ensure_slot_runtime_fx()
 	_reset_interaction_state()
 	_apply_empty_state()
-
-func _process(delta: float) -> void:
-	if _slot_snapshots.is_empty() or _ui_remaining_ms.is_empty():
-		return
-	var step_ms: int = int(round(maxf(0.0, delta) * 1000.0))
-	if step_ms <= 0:
-		return
-	var count: int = mini(_slot_snapshots.size(), _ui_remaining_ms.size())
-	for i in range(count):
-		var slot_data: Dictionary = _slot_snapshot(i)
-		if slot_data.is_empty() or not bool(slot_data.get("active", false)):
-			continue
-		_ui_remaining_ms[i] = max(0, _ui_remaining_ms[i] - step_ms)
-		_update_active_slot_runtime_fx(i, slot_data)
 
 func apply_snapshot(snapshot: Dictionary) -> void:
 	_snapshot_pid = int(snapshot.get("pid", _snapshot_pid))
@@ -72,17 +56,13 @@ func apply_snapshot(snapshot: Dictionary) -> void:
 	var slots_any: Variant = snapshot.get("slots", [])
 	var slots: Array = slots_any if typeof(slots_any) == TYPE_ARRAY else []
 	_slot_snapshots.clear()
-	_ui_remaining_ms.resize(_slots.size())
 	for i in range(_slots.size()):
 		var slot_data: Dictionary = {}
 		if i < slots.size() and typeof(slots[i]) == TYPE_DICTIONARY:
 			slot_data = (slots[i] as Dictionary).duplicate(true)
 		slot_data["index"] = i
 		slot_data["locked"] = bool(slot_data.get("locked", i >= slots_active))
-		if bool(slot_data.get("active", false)):
-			_ui_remaining_ms[i] = max(0, int(slot_data.get("remaining_ms", 0)))
-		else:
-			_ui_remaining_ms[i] = 0
+		slot_data["chill_remaining_ms"] = maxi(0, int(snapshot.get("chill_remaining_ms", 0)))
 		_slot_snapshots.append(slot_data)
 		_apply_slot_visual(i, slot_data)
 	if _pointer_drag_visual and _press_slot_index >= 0:
@@ -437,7 +417,7 @@ func _slot_can_arm(slot_index: int) -> bool:
 	var locked: bool = bool(slot_data.get("locked", true))
 	var active: bool = bool(slot_data.get("active", false))
 	var consumed: bool = bool(slot_data.get("consumed", false))
-	return not locked and not active and not consumed
+	return not locked and not active and not consumed and int(slot_data.get("chill_remaining_ms", 0)) <= 0
 
 func _slot_snapshot(slot_index: int) -> Dictionary:
 	if slot_index < 0 or slot_index >= _slot_snapshots.size():
@@ -451,10 +431,10 @@ func _apply_slot_armed_visual(slot_index: int) -> void:
 	_set_slot_active_fill(slot_index, 0.0, Color(1.0, 1.0, 1.0, 0.0))
 	_set_slot_countdown(slot_index, "", false)
 	if slot_index >= 0 and slot_index < _state_labels.size():
-		_name_labels[slot_index].visible = true
-		_meta_labels[slot_index].visible = true
-		_state_labels[slot_index].visible = false
-		_state_labels[slot_index].text = ""
+		_name_labels[slot_index].visible = false
+		_meta_labels[slot_index].visible = false
+		_state_labels[slot_index].visible = true
+		_state_labels[slot_index].text = "TARGET"
 
 func _apply_slot_visual(slot_index: int, slot_data: Dictionary) -> void:
 	if slot_index < 0 or slot_index >= _slots.size():
@@ -501,38 +481,37 @@ func _apply_slot_visual(slot_index: int, slot_data: Dictionary) -> void:
 	elif one_use_spent:
 		state_text = "1 USE LEFT"
 		meta_text = "%s • 1/2" % tier_text
+	var chill_ms: int = maxi(0, int(slot_data.get("chill_remaining_ms", 0)))
+	if chill_ms > 0 and not locked and not active and not consumed:
+		state_text = "WAIT %ds" % int(ceil(float(chill_ms) / 1000.0))
 	_slots[slot_index].self_modulate = tint
 	_set_slot_icon(slot_index, str(slot_data.get("icon_path", "")), show_icon)
 	_set_slot_active_fill(slot_index, active_fill_pct, _team_color_for_pid(_snapshot_pid))
 	_set_slot_countdown(slot_index, countdown_text, active)
 	_set_slot_use_slash(slot_index, one_use_spent and not consumed)
+	# Reserve a footer for state; do not cover the newly finished medallion
+	# with three centered lines of text. Targeting provides the full buff name.
+	var has_icon: bool = slot_index < _icon_rects.size() and _icon_rects[slot_index].visible
+	if slot_index < _icon_rects.size():
+		_icon_rects[slot_index].offset_bottom = -40.0 if not active else -10.0
+		_icon_rects[slot_index].modulate.a = 0.48 if active else 1.0
+	var text_box: VBoxContainer = _slots[slot_index].get_node_or_null("SlotText") as VBoxContainer
+	if text_box != null:
+		text_box.alignment = BoxContainer.ALIGNMENT_END if has_icon else BoxContainer.ALIGNMENT_CENTER
+	_slots[slot_index].tooltip_text = "%s · %s\n%s" % [name_text, tier_text.capitalize(), state_text]
 	if slot_index >= 0 and slot_index < _name_labels.size():
-		_name_labels[slot_index].visible = show_detail_labels
+		_name_labels[slot_index].visible = show_detail_labels and not has_icon
 		_name_labels[slot_index].text = name_text
 	if slot_index >= 0 and slot_index < _meta_labels.size():
-		_meta_labels[slot_index].visible = show_detail_labels
+		_meta_labels[slot_index].visible = show_detail_labels and not has_icon
 		_meta_labels[slot_index].text = meta_text
 	if slot_index >= 0 and slot_index < _state_labels.size():
 		_state_labels[slot_index].visible = show_detail_labels
 		_state_labels[slot_index].text = state_text
 
-func _active_remaining_ms(slot_index: int, slot_data: Dictionary) -> int:
-	var snapshot_remaining: int = max(0, int(slot_data.get("remaining_ms", 0)))
-	if slot_index < 0 or slot_index >= _ui_remaining_ms.size():
-		return snapshot_remaining
-	var ui_remaining: int = max(0, int(_ui_remaining_ms[slot_index]))
-	return ui_remaining if ui_remaining > 0 else snapshot_remaining
-
-func _update_active_slot_runtime_fx(slot_index: int, slot_data: Dictionary) -> void:
-	if slot_index < 0 or slot_index >= _slots.size():
-		return
-	if not bool(slot_data.get("active", false)):
-		return
-	var duration_ms: int = _slot_duration_ms(slot_data)
-	var remaining_ms: int = _active_remaining_ms(slot_index, slot_data)
-	var fill_pct: float = clampf(float(remaining_ms) / float(maxi(1, duration_ms)), 0.0, 1.0)
-	_set_slot_active_fill(slot_index, fill_pct, _team_color_for_pid(_snapshot_pid))
-	_set_slot_countdown(slot_index, "%.1f" % (float(remaining_ms) / 1000.0), remaining_ms > 0)
+func _active_remaining_ms(_slot_index: int, slot_data: Dictionary) -> int:
+	# Countdown and expiry are projections of simulation time, including pause.
+	return maxi(0, int(slot_data.get("remaining_ms", 0)))
 
 func _slot_duration_ms(slot_data: Dictionary) -> int:
 	var duration_ms: int = int(slot_data.get("duration_ms", 0))

@@ -2,6 +2,8 @@ extends Control
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
+const BuffUICopy := preload("res://scripts/ui/buff_ui_copy.gd")
+const BuffMenuPresentation := preload("res://scripts/ui/buff_menu_presentation.gd")
 const EconomyQuarantineUiPolicyScript = preload("res://scripts/ui/economy_quarantine_ui_policy.gd")
 const MAP_LOADER = preload("res://scripts/maps/map_loader.gd")
 const MAP_REGISTRY = preload("res://scripts/maps/map_registry.gd")
@@ -9882,7 +9884,7 @@ func _buff_filter_label(filter_id: String) -> String:
 		BUFF_FILTER_LANE:
 			return "LANE"
 		BUFF_FILTER_ACROSS:
-			return "ACROSS"
+			return "GLOBAL"
 		_:
 			return filter_id.to_upper()
 
@@ -10168,7 +10170,8 @@ func _refresh_buffs_library_buttons() -> void:
 		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.custom_minimum_size = Vector2(0.0, BUFF_UI_LIBRARY_BUTTON_HEIGHT)
 		button.clip_text = true
-		button.text = "%s%s%s - $%.2f" % [selected_mark, str(buff.get("name", buff_id)), ownership_tag, price_usd]
+		button.text = "%s%s%s\n%s · $%.2f" % [selected_mark, str(buff.get("name", buff_id)), ownership_tag, BuffUICopy.timing(buff), price_usd]
+		button.tooltip_text = BuffUICopy.description(buff)
 		_apply_buff_icon(button, buff)
 		_apply_font(button, _font_regular, BUFF_UI_BUTTON_FONT_SIZE)
 		_style_button(button, Color(0.12, 0.13, 0.16), Color(0.45, 0.48, 0.6), Color(0.92, 0.92, 0.92))
@@ -10189,6 +10192,8 @@ func _refresh_buffs_library_buttons() -> void:
 	if buffs_library_header != null:
 		buffs_library_header.text = "BUFF STORE %s %s" % [_buff_active_mode.to_upper(), _buff_filter_label(_buff_category_filter)]
 		_apply_display_label(buffs_library_header, 15, _font_semibold, BUFF_UI_HEADER_FONT_SIZE)
+
+	_refresh_buff_presentation()
 
 func _refresh_buffs_owned_ui() -> void:
 	if _buff_owned_flow == null:
@@ -10240,6 +10245,8 @@ func _refresh_buffs_owned_ui() -> void:
 		_buff_owned_header_label.text = "OWNED"
 		_apply_display_label(_buff_owned_header_label, 15, _font_semibold, BUFF_UI_HEADER_FONT_SIZE)
 
+	_refresh_buff_presentation()
+
 func _refresh_buffs_loadout_ui() -> void:
 	for idx in range(buffs_slot_buttons.size()):
 		var button: Button = buffs_slot_buttons[idx] as Button
@@ -10263,6 +10270,8 @@ func _refresh_buffs_loadout_ui() -> void:
 			label = "> " + label
 		button.text = label
 		_apply_buff_icon(button, buff)
+
+	_refresh_buff_presentation()
 
 func _apply_buff_icon(button: Button, buff: Dictionary) -> void:
 	if button == null:
@@ -10325,21 +10334,15 @@ func _update_buff_details() -> void:
 		var owned_count: int = _count_buff_in_ids(_buff_owned_ids, _buff_selected_id)
 		buffs_detail_meta_label.text = "Tier: %s | Category: %s | Source: %s | Mode: %s | Cost: $%.2f | Inventory: %d" % [tier, category, origin_tag, mode_tag, price_usd, owned_count]
 
+	_refresh_buff_presentation()
+
 func _buff_description(buff: Dictionary) -> String:
-	var effects_any: Variant = buff.get("effects", [])
-	if typeof(effects_any) != TYPE_ARRAY:
-		return "No details yet."
-	var effect_lines: Array[String] = []
-	for effect_v in effects_any as Array:
-		if typeof(effect_v) != TYPE_DICTIONARY:
-			continue
-		var effect: Dictionary = effect_v as Dictionary
-		var effect_type: String = str(effect.get("type", "effect"))
-		var value: Variant = effect.get("value", "")
-		effect_lines.append("%s=%s" % [effect_type, str(value)])
-	if effect_lines.is_empty():
-		return "No details yet."
-	return ", ".join(effect_lines)
+	return BuffUICopy.description(buff)
+
+func _refresh_buff_presentation() -> void:
+	var presentation: Node = get_node_or_null("BuffMenuPresentation")
+	if presentation != null:
+		presentation.call("refresh")
 
 func _on_buff_library_pressed(index: int) -> void:
 	# Legacy static-list path; tiered buttons use _on_buff_library_pressed_by_id.
@@ -16335,6 +16338,7 @@ func _open_buffs_panel() -> void:
 	_refresh_buffs_owned_ui()
 	_refresh_buffs_library_buttons()
 	_refresh_buffs_cart_ui()
+	BuffMenuPresentation.install(self)
 
 func _close_buffs_panel_immediate() -> void:
 	_buffs_direct_mode = false

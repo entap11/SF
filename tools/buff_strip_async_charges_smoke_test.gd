@@ -84,6 +84,18 @@ func _run() -> void:
 		timed["remaining_ms"] = duration / 2
 		strip.call("apply_snapshot", {"pid": 1, "slots_active": 2, "slots": [timed]})
 		_assert_true(is_equal_approx(fill.offset_top, maxf(1.0, slot_panel.size.y) * 0.5), "half duration renders half countdown fill")
+		var timer: Label = slot_panel.get_node("Countdown") as Label
+		var expected_text: String = timer.text
+		await create_timer(0.2).timeout
+		_assert_true(timer.text == expected_text and not strip.is_processing(), "stalled simulation cannot advance HUD countdown")
+	var waiting: Dictionary = base_slot.duplicate(true)
+	waiting.merge({"active": false, "consumed": false, "uses_remaining": 1}, true)
+	strip.call("apply_snapshot", {"pid": 1, "slots_active": 2, "chill_remaining_ms": 8100, "slots": [waiting]})
+	_assert_true(state_label.text == "WAIT 9s" and not strip.call("_slot_can_arm", 0), "canonical chill shows waiting instead of a misleading READY state")
+	await create_timer(0.2).timeout
+	_assert_true(state_label.text == "WAIT 9s", "wall time cannot run chill countdown")
+	strip.call("apply_snapshot", {"pid": 1, "slots_active": 2, "chill_remaining_ms": 0, "slots": [waiting]})
+	_assert_true(state_label.text == "1 USE LEFT" and strip.call("_slot_can_arm", 0), "canonical chill completion restores the remaining use")
 
 	if _failed:
 		quit(1)

@@ -17,6 +17,7 @@ signal ops_state_changed(iid: int)
 signal lanes_changed(iid: int)
 signal lane_intent_changed(iid: int, lane_id: int)
 signal hud_changed(hud: Dictionary)
+signal authoritative_buff_lifecycle(event: Dictionary)
 
 const CONTESTS_DIR := "res://data/contests"
 const MAPS_DIR := "res://data/maps"
@@ -385,6 +386,8 @@ func tick_authoritative_buff_effects(evaluation_tick: int = -1) -> Array[Diction
 		for event_any in events_any as Array:
 			if typeof(event_any) == TYPE_DICTIONARY:
 				events.append((event_any as Dictionary).duplicate(true))
+	for event: Dictionary in events:
+		authoritative_buff_lifecycle.emit(event.duplicate(true))
 	return events
 
 func get_authoritative_buff_snapshot() -> Dictionary:

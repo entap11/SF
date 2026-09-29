@@ -1,18 +1,20 @@
 # Buff sprint — UI, VFX, catalog art, testing and tuning
 
-Status: active-roster icon art complete. All six new or completed families are
-approved and integrated; all 36 active tier entries have distinct appropriate
-icons. The older-icon cleanup is integrated. Buff UI/VFX is in progress, with
-the first dramatic Freeze Lane preview ready; menu VFX/UI/UX is step 4.
+Status: all 36 active tier icons are complete and integrated. The owner approved
+Freeze Lane; the remaining eleven buff families now have presentation, and the
+catalog/loadout/HUD readability pass is implemented. Desktop validation and
+native reviews are recorded below. Combined physical-device testing and tuning
+remain open; general menu VFX/UI/UX follows as step 4.
 
 ## Restart checkpoint — September 25
 
 The owner requested a commit/push before restarting the computer. Resume on
 `codex/single-player-campaign` in `project-unified-mobile-release`.
-All approved icon art and the first Freeze Lane implementation are saved in
-source. The latest Freeze Lane animation is ready for visual review; remaining
-buff presentation, phone testing and tuning are still open. Menu VFX/UI/UX follows
-as step 4, using the saved menu artwork-fit changes as its baseline.
+All approved icon art and the first Freeze Lane implementation were saved in
+commit `cc9e7e1`. The subsequent continuation implements the remaining buff
+presentation and catalog/loadout/HUD changes. Physical phone testing and tuning
+are still open. Menu VFX/UI/UX follows as step 4, using the saved menu artwork-fit
+changes as its baseline.
 
 HTML/PDF/video reviews and full test logs remain on this computer under
 `../artifacts/buff-polish-2026-09-25/`, `../artifacts/buff-art-review-2026-09-25/`
@@ -20,6 +22,20 @@ and `../artifacts/menu-artwork-fit-2026-09-25/`; these artifact directories are
 outside the Git worktree. Use Godot 4.7.1 for subsequent checks.
 
 ## Authorized sequence
+
+### September 25 continuation
+
+The owner approved the Freeze Lane preview: "Yes, I think it looks good. Do it."
+Continue the remaining buff presentation pass on this worktree. Presentation is
+Baseline / ephemeral UI: read authoritative buff snapshots and existing simulation
+lifecycle events; never infer a release from an elapsed visual timer. Cover the
+other eleven families, exact hive scope, queued bonus count, overlap, reduced VFX,
+target loss, expiry and teardown. Replace implementation-field catalog copy with
+player explanations and verify catalog/loadout/HUD at phone window sizes.
+Acceptance: lifecycle/authority regression checks, existing buff and input suites,
+native visual review, and the fast readiness gate. Gameplay constants, inventory
+rules, the targeting rollout gate, publication and balance changes are excluded.
+Physical-device acceptance remains part of the combined phone pass.
 
 1. Polish older buff icons: remove baked-in backgrounds and normalize framing,
    preserving the existing motifs and Classic purple / Premium red / Elite gold.
@@ -206,11 +222,9 @@ before/after views, 30/48/64/112-pixel controls, light/dark backdrops, a PDF, th
 Freeze Lane video and the four-step sequence. Generation prompts and source paths
 are in its expandable details and `generation.json`.
 
-Next: review the native Freeze Lane treatment, check the icons in the actual
-catalog, loadout and player/opponent buff strips at phone size, and extend readable
-targeting, activation, active-time and expiry feedback to the other buffs.
-Follow with mechanics/device testing
-and evidence-based balance proposals. `scripts/shell.gd` currently keeps
+The continuation below covers the approved Freeze Lane treatment, native catalog,
+loadout and strip review, and the other buff families. Next: combined device
+testing and evidence-based balance proposals. `scripts/shell.gd` currently keeps
 `MATCH_BUFF_TARGETING_ENABLED` false; preserve that setting during this art pass
 and use the existing controlled targeting harness for the next device review.
 
@@ -239,8 +253,9 @@ It uses the production effect renderer and staged snapshots with illustrative
 unit motion; it demonstrates presentation, not a complete match or physical-device
 playtest. The source harness is `tools/buff_freeze_visual_harness.gd` and uses
 the existing isolated/offline capture runner. The production buff-targeting gate
-remains false. Other buff VFX, full catalog/loadout/strip phone review, physical
-testing and balance tuning are still open before step 4.
+remains false. The continuation below completes the other buff VFX and desktop
+catalog/loadout/strip review. Physical testing and balance tuning remain open
+before step 4.
 
 The focused validation adds freeze projection/lifecycle/authority checks and
 actual-duration fill checks. Existing mechanics fixtures exposed test-only
@@ -249,6 +264,77 @@ OpsState fixtures were outside the scene tree. Their setup/cleanup now respects 
 no assertion or gameplay rule is relaxed. All nine focused suites pass with no
 engine errors in the final runs. Final results are in
 `../artifacts/buff-polish-2026-09-25/checks/results.json`.
+
+## Buff presentation continuation
+
+`BuffEffectPresentation` projects the other eleven canonical families from
+authoritative snapshots: shield shells, shock arcs, production pulses, speed
+chevrons, global combat markers, Treacherous Lane turns and Supercharge queue
+markers. Global hive effects use the original simulation-owned scope, including
+its removal of lost hives. Source/global markers for speed and impact show the
+active stamping window; they do not claim to display each bee's persistent trait.
+Owner borders, exact tier countdowns and stacked markers retain effect identity.
+
+OpsState publishes copies of its already-computed lifecycle events. Expiry
+animation requires a real terminal event; the Supercharge release sweep also
+requires a nonzero authoritative released count. Missing snapshots, source loss,
+cancellation and match teardown cannot fabricate release success. Match changes
+and time resets clear presentation. Full motion interpolates at most one tick;
+reduced VFX uses static cues, and idle views stop processing.
+
+The buff menu has separate full-width loadout/owned and store views, explicit
+Classic/Premium/Elite selection, larger medallions, readable scope/duration and
+player descriptions, and a persistent Back control. Existing inventory, equip
+and cart handlers remain the writers of those actions. Native checks cover
+1080×1920, 720×1280, 1080×1500 and 944×2048 desktop windows, summary/content bounds,
+tier-specific selections, Async copy, navigation and unchanged inventory.
+
+The player strip now reserves a footer for state and keeps ready artwork clear.
+Active duration and the existing global cooldown read canonical snapshots; wall
+time cannot advance either while simulation time stalls. Available slots show
+`WAIT` during cooldown and return to readiness when its snapshot reaches zero.
+Async use indicators and opponent loadout concealment retain their existing rules.
+
+Review: `../artifacts/buff-continuation-2026-09-25/index.html`. It contains eleven
+native effect clips, activation/expiry/reduced stills, native menu captures and
+player/opponent strip captures, plus the previously approved Freeze Lane video.
+Effect clips use staged snapshots with the production renderer. These desktop
+captures establish presentation evidence, not phone performance or physical
+touch acceptance. Exact check results and changed-source hashes are recorded in
+that artifact directory's `verification.json`.
+
+All thirteen focused buff suites pass, including all 33 newly presented tier
+entries, exact scope/countdowns, pause, copied lifecycle events, duplicate expiry,
+real queued-unit release, loss at expiry, reduced VFX, teardown, mechanics across
+modes, touch lifecycle, Async charges and opponent visibility. Native menu checks
+and both visual capture harnesses also pass. Full readiness results are separate
+from these focused results in `readiness/fast-gate.log`.
+
+The canonical fast readiness run is **incomplete**: campaign fingerprints,
+onboarding/restart identity, all five lane/input checks, all 26 MVP assertions,
+the soak-launch contract and the 15 selected matrix contract rows passed. The
+matrix hit its unchanged 900-second stage deadline during the four-player
+stage-race runtime boot, before completing all boot routes and short soaks.
+Completed route logs contain PASS markers; a full readiness PASS is not claimed.
+Preserved earlier attempts show the corrected fingerprint freshness failure and
+an onboarding timeout that the final run passed. The MVP's 25 leaked-object /
+7 in-use-resource exit diagnostics also occur in the September 21 saved baseline.
+Completing the broader matrix remains a readiness follow-up before release.
+
+The campaign rules fingerprint was regenerated by the canonical tool because
+OpsState is a fingerprint input. No mechanics or balance value changed. The
+targeting rollout gate remains disabled. Remaining acceptance: controlled
+iPhone/Android target selection, overlapping effects in real matches, crowded
+scene performance, and play observations for explicit tuning proposals. No
+device build or publication is part of this continuation.
+
+The next phone pass should use the existing debug-only targeting harness and
+role/evidence matrix in `buff_targeting_loop5_iphone_device_plan_2026-07-15.md`.
+Its old Godot 4.2 exports are historical evidence, not builds of this change;
+rebuild from a clean recorded commit with the pinned Godot 4.7.1 toolchain. Include
+cooldown/pause, queue release versus source loss, exact global scope, reduced VFX
+and overlapping lane markers in the hands-on checks. Keep the production gate
+false while collecting this evidence.
 
 ## Sprint work and completion evidence
 
