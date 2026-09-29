@@ -1859,7 +1859,7 @@ func _build_bot_profile_for_seat(seat: int, style: String, tier: String) -> Dict
 	profile["think_interval_ms"] = int(profile.get("think_interval_ms", 900)) + BOT_REACTION_DELAY_EXTRA_MS
 	if normalized_style == BOT_STYLE_BALANCER and normalized_tier == BOT_TIER_MEDIUM:
 		# First behavior pilot; BotSystem restricts it to two-seat conquest matches.
-		profile["human_policy"] = "human_balancer_v2"
+		profile["human_policy"] = "human_balancer_v3"
 		profile["human_behavior_enabled"] = false
 		profile["human_timing"] = {"notice_delay_ms": 450,
 			"notice_jitter_ms": 200, "motor_delay_ms": 200, "motor_jitter_ms": 100,

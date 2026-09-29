@@ -59,7 +59,7 @@ def main():
     results = runs[0]["results"]
     if len(results) != 2 or any(not row["completed"] or not row["trace"] for row in results):
         raise RuntimeError("Canonical tournament did not finish both seat-swapped matches with real CPU decisions")
-    if not any(event.get("policy") == "human_balancer_v2" and event["event"] == "applied" for row in results for event in row["trace"]):
+    if not any(event.get("policy") == "human_balancer_v3" and event["event"] == "applied" for row in results for event in row["trace"]):
         raise RuntimeError("Canonical tournament never exercised the human-behavior pilot")
     print("PASS repeated canonical match results and decision traces", flush=True)
     horizon = artifacts / "horizon.json"

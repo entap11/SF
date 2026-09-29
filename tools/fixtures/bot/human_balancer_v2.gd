@@ -277,19 +277,15 @@ func _front_distance(obs: Dictionary, hive: Dictionary) -> float:
 	return distance
 
 func _develop_supply(obs: Dictionary, profile: Dictionary, threats: Dictionary, now_ms: int) -> Dictionary:
-	# Develop idle reserves, and use spare routes to support an existing front.
-	# Strictly decreasing distance prevents new supply from circulating backward.
+	# Put unused rear production behind the frontier. Strictly decreasing distance
+	# to the frontier avoids circulating supply between otherwise idle hives.
 	var candidates: Array[Dictionary] = []
 	for route in obs["routes"]:
 		var src: Dictionary = obs["hives"][str(route["src"])]
 		var dst: Dictionary = obs["hives"][str(route["dst"])]
 		if not _allied(obs, int(dst["owner"])) or bool(route["active"]):
 			continue
-		if int(src["open_slots"]) <= 0 or int(src["power"]) < int(profile.get("min_feed_power", 12)):
-			continue
-		# A busy reserve needs a concrete commitment to support; spare capacity
-		# alone is not a reason to add another route to an inactive hive.
-		if int(src.get("outgoing", 0)) > 0 and not _has_active_front(obs, int(dst["id"])):
+		if int(src.get("outgoing", 0)) > 0 or int(src["open_slots"]) <= 0 or int(src["power"]) < int(profile.get("min_feed_power", 12)):
 			continue
 		if int(dst["power"]) >= 40 or float(threats.get(str(src["id"]), 0.0)) > 0.0:
 			continue
@@ -303,14 +299,6 @@ func _develop_supply(obs: Dictionary, profile: Dictionary, threats: Dictionary, 
 		return {}
 	candidates.sort_custom(_better)
 	return candidates[0]
-
-func _has_active_front(obs: Dictionary, source: int) -> bool:
-	for row in obs["pressure"]:
-		if int(row["src"]) == source:
-			var target: Dictionary = obs["hives"].get(str(row["dst"]), {})
-			if not target.is_empty() and not _allied(obs, int(target["owner"])):
-				return true
-	return false
 
 func _friendly_incoming(obs: Dictionary, target: int, owner: int) -> float:
 	if owner <= 0:
@@ -341,7 +329,7 @@ func _active_route(obs: Dictionary, src: int, dst: int) -> Dictionary:
 	return {}
 
 func _command(route: Dictionary, intent: String, goal: String, score: float) -> Dictionary:
-	return {"src": int(route["src"]), "dst": int(route["dst"]), "intent": intent, "goal": goal, "score": score, "policy": "human_balancer_v3"}
+	return {"src": int(route["src"]), "dst": int(route["dst"]), "intent": intent, "goal": goal, "score": score, "policy": "human_balancer_v2"}
 
 func _set_plan(memory: Dictionary, goal: String, source: int, target: int, hives: Dictionary, now_ms: int) -> void:
 	var old: Dictionary = memory.get("plan", {})
