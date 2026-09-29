@@ -62,6 +62,27 @@ on this final consolidation candidate during preparation.
 
 ## Before merge
 
+### Resumed validation on the home Mac
+
+PR #5's initial Release Readiness run (`36501277935`) used the runner's
+legacy PATH engine, `4.2.2.stable.official.15073afe3`, rather than the unified
+mobile contract's `4.7.1.stable.official.a13da4feb`. Import reported unsupported
+API/parse errors and the gate stopped in onboarding identity. This failed run
+does not establish a regression under the supported runtime.
+
+The pinned macOS engine was installed at the existing unified mobile toolchain
+path after verifying the official release archive against its SHA-512 manifest.
+The release-readiness CI job now selects that path by default, honors an explicit
+`GODOT_BIN` repository variable, and rejects any version mismatch before import.
+The actual workflow shell block was checked with both installed engines: 4.2.2
+was rejected, and 4.7.1 passed and exported its path for subsequent steps.
+No gameplay source, test assertions, or timing budgets changed. The corrected
+candidate still requires its full CI gate before merge. Original CI output and
+resumed local checks are retained under
+`SF/artifacts/branch-consolidation-2026-09-28/resume-checks/`.
+
+### Landing checklist
+
 1. Review the full consolidated change and obtain a passing release gate on
    the final candidate. Check the PR's CI result separately from the focused
    local preparation checks above.
