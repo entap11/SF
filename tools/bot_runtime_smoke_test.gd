@@ -2,6 +2,7 @@ extends SceneTree
 
 const Observation := preload("res://scripts/bot/bot_observation.gd")
 const HumanPolicy := preload("res://scripts/bot/human_bot_policy.gd")
+const FrozenV2 := preload("res://tools/fixtures/bot/human_balancer_v2.gd")
 const Command := preload("res://scripts/bot/bot_command.gd")
 const Baseline := preload("res://scripts/bot/baseline_bot_policy.gd")
 const Random := preload("res://scripts/bot/bot_random.gd")
@@ -30,6 +31,7 @@ func _initialize() -> void:
 	_test_supported_defense_does_not_panic()
 	_test_donor_preserves_lane_capacity()
 	_test_backline_development()
+	_test_spare_capacity_supports_active_front()
 	_test_supported_frontier_can_expand()
 	_test_counterpressure_and_concentration()
 	_test_fragile_counterattack_waits()
@@ -216,6 +218,36 @@ func _test_backline_development() -> void:
 	Command.apply(_ops, 1, choice)
 	var second := policy._develop_supply(_view(state), {}, {}, 3000)
 	_expect(second.is_empty(), "development does not create a reciprocal feeding loop")
+
+func _test_spare_capacity_supports_active_front() -> void:
+	var state := _reset({"hives": [
+		{"id": 1, "x": 0, "y": 0, "owner_id": 1, "power": 35},
+		{"id": 2, "x": -3, "y": 0, "owner_id": 1, "power": 45},
+		{"id": 3, "x": 3, "y": 0, "owner_id": 1, "power": 15},
+		{"id": 4, "x": 6, "y": 0, "owner_id": 2, "power": 50}]})
+	_expect(bool(Command.apply(_ops, 1, {"src": 1, "dst": 2, "intent": "feed"}).get("ok", false)), "reserve fixture already supplies another hive")
+	_expect(bool(Command.apply(_ops, 1, {"src": 3, "dst": 4, "intent": "attack"}).get("ok", false)), "reserve fixture has an active unsupported front")
+	var memory := {"plan": {"goal": "pressure", "source": 3, "target": 4, "progress_ms": 0, "best_power": 50, "review_ms": 6000}}
+	var view := _view(state, 1000)
+	var before := JSON.stringify(view)
+	_expect(FrozenV2.new().choose(view, memory.duplicate(true), {}, 1000).is_empty(), "frozen v2 reproduces the unsupported-front hesitation")
+	var policy := HumanPolicy.new()
+	var choice := policy.choose(view, memory, {}, 1000)
+	_expect(str(choice.get("goal", "")) == "develop" and int(choice.get("src", 0)) == 1 and int(choice.get("dst", 0)) == 3, "a reserve with spare capacity reinforces an active front")
+	_expect(JSON.stringify(view) == before and not state.is_outgoing_lane_active(1, 3), "planning support leaves observation and gameplay unchanged")
+	_expect(int(memory["plan"]["target"]) == 4 and int(memory["plan"]["review_ms"]) == 6000, "routine support retains the current focus and review deadline")
+	# The spare route is not a mandate to fill every lane: it needs an active front.
+	Command.apply(_ops, 1, {"src": 3, "dst": 4, "intent": "retract"})
+	_expect(policy._develop_supply(_view(state), {}, {}, 1000).is_empty(), "a busy reserve does not add routine supply to an inactive front")
+	Command.apply(_ops, 1, {"src": 3, "dst": 4, "intent": "attack"})
+	_expect(policy._develop_supply(_view(state), {}, {"1": 8.0}, 1000).is_empty(), "a threatened reserve keeps its spare capacity")
+	_expect(policy._develop_supply(_view(state), {"blocked_intents_until_ms": {"1|3|feed": 2000}}, {}, 1000).is_empty(), "spare supply respects known command cooldowns")
+	state.find_hive_by_id(1).power = 9
+	_expect(policy._develop_supply(_view(state), {}, {}, 1000).is_empty(), "a depleted reserve cannot use nonexistent lane capacity")
+	state.find_hive_by_id(1).power = 35
+	_expect(bool(Command.apply(_ops, 1, choice).get("ok", false)), "spare supply executes through the authoritative command path")
+	_expect(state.is_outgoing_lane_active(1, 2) and state.is_outgoing_lane_active(1, 3) and state.is_outgoing_lane_active(3, 4), "reinforcement preserves the existing supply and attack routes")
+	_expect(policy._develop_supply(_view(state), {}, {}, 3000).is_empty(), "the next review does not duplicate supply or circulate it back")
 
 func _test_supported_frontier_can_expand() -> void:
 	var state := _reset({"hives": [
