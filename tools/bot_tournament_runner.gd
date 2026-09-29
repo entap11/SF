@@ -30,6 +30,7 @@ var _seed: int = 4101
 var _output_path: String = ""
 var _results: Array[Dictionary] = []
 var _pilot_control: bool = false
+var _pilot_control_version: String = "v1"
 var _focus_style: String = ""
 var _report_samples: bool = false
 var _ops_state: Node = null
@@ -101,7 +102,7 @@ func _init() -> void:
 			push_error("BOT_TOURNAMENT: cannot write " + _output_path)
 			quit(2)
 			return
-		file.store_string(JSON.stringify({"schema_version": 2, "engine": Engine.get_version_info(), "seed": _seed, "canonical_tick_ms": 100, "results": _results}, "\t"))
+		file.store_string(JSON.stringify({"schema_version": 2, "engine": Engine.get_version_info(), "seed": _seed, "canonical_tick_ms": 100, "user_data_dir": OS.get_user_data_dir(), "results": _results}, "\t"))
 		file.close()
 	if _ops_profile_builder != null:
 		_ops_profile_builder.free()
@@ -146,6 +147,10 @@ func _parse_args(args: Array) -> void:
 			_include_mirrors = true
 		elif arg == "--pilot-control":
 			_pilot_control = true
+			_pilot_control_version = "v1"
+		elif arg == "--pilot-control-v2":
+			_pilot_control = true
+			_pilot_control_version = "v2"
 		elif arg == "--report-samples":
 			_report_samples = true
 		elif arg.begins_with("--focus-style="):
@@ -313,7 +318,7 @@ func _run_game(map_row: Dictionary, pairing: Dictionary, iteration: int) -> Dict
 	var trace: Array[Dictionary] = []
 	var bot: Node = runner.get("bot_system")
 	if _pilot_control:
-		bot.set("_human_policy", load("res://tools/fixtures/bot/human_balancer_v1.gd").new())
+		bot.set("_human_policy", load("res://tools/fixtures/bot/human_balancer_%s.gd" % _pilot_control_version).new())
 	var board_samples: Array[Dictionary] = []
 	bot.connect("decision_event", func(event: Dictionary) -> void:
 		trace.append(event.duplicate(true))
@@ -348,7 +353,7 @@ func _run_game(map_row: Dictionary, pairing: Dictionary, iteration: int) -> Dict
 		"reason": reason, "sim_ms": sim_ms,
 		"state_hash": _ops_state.call("get_contract_state_hash"), "trace": trace,
 		"runtime_hash": JSON.stringify(_ops_state.get("bot_runtime_by_seat")).sha256_text(),
-		"pilot_controller": "v1_control" if _pilot_control else "current", "board_samples": board_samples,
+		"pilot_controller": _pilot_control_version + "_control" if _pilot_control else "current", "board_samples": board_samples,
 		"map_hash": JSON.stringify(data).sha256_text(), "active_seats": active_seats, "team_by_seat": team_by_seat,
 		"scores": _score_snapshot(state, team_by_seat),
 		"diagnostics": _finalize_game_diagnostics(diagnostics, state, unit_system, winner_profile, reason, sim_ms)
@@ -417,6 +422,8 @@ func _new_game_diagnostics(active_seats: Array) -> Dictionary:
 		"first_attack": {},
 		"first_capture_ms": -1,
 		"first_capture": {},
+		"ownership_changes": 0,
+		"last_ownership_change_ms": -1,
 		"first_tower_capture_ms": -1,
 		"first_tower_capture": {},
 		"last_state_by_seat": last_state_by_seat,
@@ -480,7 +487,7 @@ func _structure_owner_snapshot(structures: Array) -> Dictionary:
 	return out
 
 func _record_first_hive_capture(diagnostics: Dictionary, owners_before: Dictionary, state: GameState, sim_ms: int) -> void:
-	if int(diagnostics.get("first_capture_ms", -1)) >= 0 or state == null:
+	if state == null:
 		return
 	for hive_any in state.hives:
 		var hive: HiveData = hive_any as HiveData
@@ -489,7 +496,11 @@ func _record_first_hive_capture(diagnostics: Dictionary, owners_before: Dictiona
 		var hive_id: int = int(hive.id)
 		var prev_owner: int = int(owners_before.get(hive_id, int(hive.owner_id)))
 		var next_owner: int = int(hive.owner_id)
-		if next_owner <= 0 or next_owner == prev_owner:
+		if next_owner == prev_owner:
+			continue
+		diagnostics["ownership_changes"] = int(diagnostics.get("ownership_changes", 0)) + 1
+		diagnostics["last_ownership_change_ms"] = sim_ms
+		if next_owner <= 0 or int(diagnostics.get("first_capture_ms", -1)) >= 0:
 			continue
 		diagnostics["first_capture_ms"] = sim_ms
 		diagnostics["first_capture"] = {
@@ -498,7 +509,6 @@ func _record_first_hive_capture(diagnostics: Dictionary, owners_before: Dictiona
 			"next_owner": next_owner,
 			"power": int(hive.power)
 		}
-		return
 
 func _record_first_tower_capture(diagnostics: Dictionary, owners_before: Dictionary, state: GameState, sim_ms: int) -> void:
 	if int(diagnostics.get("first_tower_capture_ms", -1)) >= 0 or state == null:

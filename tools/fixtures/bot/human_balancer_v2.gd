@@ -71,8 +71,7 @@ func choose(observation: Dictionary, memory: Dictionary, profile: Dictionary, no
 			return followup
 		if not _active_route(observation, int(plan["source"]), int(plan["target"])).is_empty():
 			var watching: Array = memory.get("watching", [])
-			var routine_expansion := bool(profile.get("human_review_uncontested_expansion", false)) and _uncontested_expansion(observation, plan, threats)
-			if (now_ms < int(plan.get("review_ms", 0)) and not routine_expansion) or watching.size() >= 2:
+			if now_ms < int(plan.get("review_ms", 0)) or watching.size() >= 2:
 				return _develop_supply(observation, profile, threats, now_ms)
 			# Orders keep running while attention moves. Remember a bounded number
 			# of commitments and inspect only one of them per observation.
@@ -127,21 +126,6 @@ func choose(observation: Dictionary, memory: Dictionary, profile: Dictionary, no
 	_set_plan(memory, str(choice["goal"]), int(choice["src"]), int(choice["dst"]), hives, now_ms)
 	return _advance_attack(observation, memory["plan"], profile, now_ms)
 
-func _uncontested_expansion(obs: Dictionary, plan: Dictionary, threats: Dictionary) -> bool:
-	# Once a safe neutral order is visibly underway, attention can move at the
-	# ordinary decision cadence. Keep contested fronts under the normal review.
-	var target := int(plan.get("target", -1))
-	var hive: Dictionary = obs["hives"].get(str(target), {})
-	if str(plan.get("goal", "")) != "expand" or int(hive.get("owner", -1)) != 0:
-		return false
-	if float(threats.get(str(plan.get("source", -1)), 0.0)) > 0.0:
-		return false
-	for rows in [obs["pressure"], obs["incoming"]]:
-		for row in rows:
-			if int(row["dst"]) == target and not _allied(obs, int(row["owner"])):
-				return false
-	return true
-
 func _target_watched(memory: Dictionary, target: int) -> bool:
 	for plan in memory.get("watching", []):
 		if int(plan.get("target", -1)) == target:
@@ -186,16 +170,6 @@ func _advance_attack(obs: Dictionary, plan: Dictionary, profile: Dictionary, now
 			var resistance := float(dst["power"]) + _friendly_incoming(obs, int(dst["id"]), int(dst["owner"]))
 			if can_burst and _preserves_capacity(src) and resistance <= float(src["power"]) + 3.0 and _available(profile, route, "swarm", now_ms):
 				return _command(route, "swarm", str(plan["goal"]), 50.0)
-			if bool(profile.get("human_reinforce_active_fronts", false)) and int(dst["owner"]) > 0 and int(src["power"]) < 40 and float(src["power"]) < resistance + 5.0 and _friendly_pressure(obs, int(src["id"])) < 2:
-				# A committed front can ask a lateral ally for help. Reuse the
-				# ordinary donor checks and supply limits without extending the
-				# attack's progress deadline or accelerating the next decision.
-				var reinforcement := _feed_to(obs, int(src["id"]), profile, now_ms, false, true)
-				if not reinforcement.is_empty():
-					# "supply" belongs to the primary plan's prepared opening
-					# sequence; a watched front must not advance that sequence.
-					reinforcement["goal"] = "reinforce"
-					return reinforcement
 			return {}
 		# Build a short supply sequence before opening an evenly matched attack.
 		if int(src["power"]) < int(dst["power"]) + 5 and not bool(plan.get("supply_ordered", false)):
@@ -221,15 +195,13 @@ func _best_defense(obs: Dictionary, threats: Dictionary, profile: Dictionary, no
 	candidates.sort_custom(_better)
 	return candidates[0]
 
-func _feed_to(obs: Dictionary, target: int, profile: Dictionary, now_ms: int, urgent: bool, avoid_cycles: bool = false) -> Dictionary:
+func _feed_to(obs: Dictionary, target: int, profile: Dictionary, now_ms: int, urgent: bool) -> Dictionary:
 	var candidates: Array[Dictionary] = []
 	var donor_threats := _threats(obs)
 	for route in obs["routes"]:
 		if int(route["dst"]) != target:
 			continue
 		if not _active_route(obs, target, int(route["src"])).is_empty():
-			continue
-		if avoid_cycles and _supply_reaches(obs, target, int(route["src"])):
 			continue
 		var src: Dictionary = obs["hives"][str(route["src"])]
 		if int(src["power"]) < maxi(12, int(profile.get("min_feed_power", 12))):
@@ -254,26 +226,6 @@ func _feed_to(obs: Dictionary, target: int, profile: Dictionary, now_ms: int, ur
 		return {}
 	candidates.sort_custom(_better)
 	return candidates[0]
-
-func _supply_reaches(obs: Dictionary, source: int, target: int) -> bool:
-	# Follow only visible allied supply routes. Lateral reinforcement must not
-	# close an indirect cycle, even when the immediate reverse route is absent.
-	var pending: Array[int] = [source]
-	var visited: Dictionary = {}
-	while not pending.is_empty():
-		var current: int = pending.pop_back()
-		if current == target:
-			return true
-		if visited.has(current):
-			continue
-		visited[current] = true
-		for row in obs["pressure"]:
-			if int(row["src"]) != current or not _allied(obs, int(row["owner"])):
-				continue
-			var destination: Dictionary = obs["hives"].get(str(row["dst"]), {})
-			if _allied(obs, int(destination.get("owner", 0))):
-				pending.append(int(row["dst"]))
-	return false
 
 func _threats(obs: Dictionary) -> Dictionary:
 	var out: Dictionary = {}
@@ -325,19 +277,15 @@ func _front_distance(obs: Dictionary, hive: Dictionary) -> float:
 	return distance
 
 func _develop_supply(obs: Dictionary, profile: Dictionary, threats: Dictionary, now_ms: int) -> Dictionary:
-	# Develop idle reserves, and use spare routes to support an existing front.
-	# Strictly decreasing distance prevents new supply from circulating backward.
+	# Put unused rear production behind the frontier. Strictly decreasing distance
+	# to the frontier avoids circulating supply between otherwise idle hives.
 	var candidates: Array[Dictionary] = []
 	for route in obs["routes"]:
 		var src: Dictionary = obs["hives"][str(route["src"])]
 		var dst: Dictionary = obs["hives"][str(route["dst"])]
 		if not _allied(obs, int(dst["owner"])) or bool(route["active"]):
 			continue
-		if int(src["open_slots"]) <= 0 or int(src["power"]) < int(profile.get("min_feed_power", 12)):
-			continue
-		# A busy reserve needs a concrete commitment to support; spare capacity
-		# alone is not a reason to add another route to an inactive hive.
-		if int(src.get("outgoing", 0)) > 0 and not _has_active_front(obs, int(dst["id"])):
+		if int(src.get("outgoing", 0)) > 0 or int(src["open_slots"]) <= 0 or int(src["power"]) < int(profile.get("min_feed_power", 12)):
 			continue
 		if int(dst["power"]) >= 40 or float(threats.get(str(src["id"]), 0.0)) > 0.0:
 			continue
@@ -351,14 +299,6 @@ func _develop_supply(obs: Dictionary, profile: Dictionary, threats: Dictionary, 
 		return {}
 	candidates.sort_custom(_better)
 	return candidates[0]
-
-func _has_active_front(obs: Dictionary, source: int) -> bool:
-	for row in obs["pressure"]:
-		if int(row["src"]) == source:
-			var target: Dictionary = obs["hives"].get(str(row["dst"]), {})
-			if not target.is_empty() and not _allied(obs, int(target["owner"])):
-				return true
-	return false
 
 func _friendly_incoming(obs: Dictionary, target: int, owner: int) -> float:
 	if owner <= 0:
@@ -389,7 +329,7 @@ func _active_route(obs: Dictionary, src: int, dst: int) -> Dictionary:
 	return {}
 
 func _command(route: Dictionary, intent: String, goal: String, score: float) -> Dictionary:
-	return {"src": int(route["src"]), "dst": int(route["dst"]), "intent": intent, "goal": goal, "score": score, "policy": "human_balancer_v3"}
+	return {"src": int(route["src"]), "dst": int(route["dst"]), "intent": intent, "goal": goal, "score": score, "policy": "human_balancer_v2"}
 
 func _set_plan(memory: Dictionary, goal: String, source: int, target: int, hives: Dictionary, now_ms: int) -> void:
 	var old: Dictionary = memory.get("plan", {})
