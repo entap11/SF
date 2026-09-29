@@ -356,6 +356,40 @@
       "tag": "archive/2026-09-29/wip/project-unified-mobile-release",
       "changed_files": 25,
       "changed_files_archive_sha256": "d38f6df486be6dcaf2c542ea5519386518f4496394f438b429a2541710cd41f9"
+    },
+    {
+      "worktree": "project-bot-reinforcement-audit-20260922",
+      "base": "dc19ddaffb91424c9d9cb1db185dc928214c5283",
+      "commit": "a9c06a43b719d1414a714d138907f4558a43e2d3",
+      "tag": "archive/2026-09-29/wip/project-bot-reinforcement-audit-20260922",
+      "changed_files": 28,
+      "changed_files_archive_sha256": "4cd406deaafa39675dae9ee95f1ec75bf4902fb352629b38ea6e0dc5b7f76d45",
+      "copied_git_metadata": true
+    },
+    {
+      "worktree": "project-bot-reinforcement-need-20260922",
+      "base": "dc19ddaffb91424c9d9cb1db185dc928214c5283",
+      "commit": "2a15f05482091ed74d1591bfbc2ded05c9d66f01",
+      "tag": "archive/2026-09-29/wip/project-bot-reinforcement-need-20260922",
+      "changed_files": 27,
+      "changed_files_archive_sha256": "23c0ef631f1feb55986fc2f1b22676bc6cbcca81cc071a887c16ecfb7e1edf05",
+      "copied_git_metadata": true
     }
-  ]
+  ],
+  "completion": {
+    "canonical_checkout": "SF/project",
+    "local_branches": [
+      "main"
+    ],
+    "remote_branches": [
+      "deploy/staging-cert-20260720",
+      "main"
+    ],
+    "retired_local_branches": 31,
+    "retired_remote_branches": 18,
+    "retired_registered_worktrees": 28,
+    "archived_extra_copied_directories": 2,
+    "unfinished_source_snapshots": 18,
+    "source_unchanged": true
+  }
 }
