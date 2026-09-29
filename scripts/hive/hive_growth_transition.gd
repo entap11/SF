@@ -1,559 +1,296 @@
 class_name HiveGrowthTransition
 extends Node2D
+## Disposable presentation over canonical tier edges. Never writes gameplay state.
 
 signal transition_started(old_tier: int, new_tier: int)
-# Fires once when the final ring launches from the lower hive and begins the
-# bottom-to-top old-proxy crop. Presentation-owned tier adornments commit here.
-signal final_ring_reveal_started(new_tier: int)
+signal reveal_started(new_tier: int)
 signal transition_finished(new_tier: int)
 signal transition_cancelled(reason: String)
 
+const Timing := preload("res://scripts/hive/hive_transition_timing.gd")
+const BODY_SHADER := preload("res://shaders/hive_transform_surface.gdshader")
+const CONTACT_SHADER := preload("res://shaders/hive_transform_contact.gdshader")
 const SFLog := preload("res://scripts/util/sf_log.gd")
-const RING_SHADER := preload("res://shaders/hive_growth_ring.gdshader")
+const GROWTH_SOUND_PATH := "res://assets/sprites/sf_skin_v1/sf_sounds/hive_growth.ogg"
 
-const GROWTH_SOUND_PATH: String = "res://assets/sprites/sf_skin_v1/sf_sounds/hive_growth.ogg"
-const MAX_RING_COUNT: int = 3
-const PRECHARGE_SEC: float = 0.080
-const RING_STAGGER_SEC: float = 0.105
-const RING_LIFETIME_SEC: float = 0.250
-const SETTLE_SEC: float = 0.160
-const REDUCED_RING_SEC: float = 0.145
-const RING_START_WIDTH_SCALE: float = 0.98
-const RING_END_WIDTH_SCALE: float = 1.12
-const RING_FOOTPRINT_WIDTH_SCALE: float = 1.38
-const RING_FOOTPRINT_HEIGHT_SCALE: float = 0.52
-const RING_MIN_HEIGHT_PX: float = 40.0
-const RING_MAX_HEIGHT_PX: float = 68.0
-const RING_VERTICAL_PAD_PX: float = 3.0
-const RING_SHADER_RADIUS: float = 0.72
-const RING_SHADER_CORE_OUTER: float = 0.080
-const RING_CORE_LINE_WIDTH_PX: float = 2.60
-const RING_CORE_ARC_SEGMENTS: int = 24
-const RING_REAR_INTENSITY: float = 0.82
-const RING_FRONT_INTENSITY: float = 1.00
-const FINAL_RING_INTENSITY_MULTIPLIER: float = 1.15
-const PORT_CONFIRM_SEC: float = 0.240
-
-var _old_sprite: Sprite2D = null
-var _ring_slots: Array[Dictionary] = []
-var _ring_tweens: Array[Tween] = []
-var _timeline_tween: Tween = null
-var _port_tween: Tween = null
-var _audio_player: AudioStreamPlayer = null
-var _captured_old_size: Vector2 = Vector2.ZERO
-var _old_source_rect: Rect2 = Rect2()
-var _old_source_offset: Vector2 = Vector2.ZERO
-var _old_source_centered: bool = true
-var _ring_start_y: float = 0.0
-var _ring_end_y: float = 0.0
-var _ring_width: float = 80.0
-var _ring_height: float = 20.0
-var _configured_bounds: Vector2 = Vector2.ZERO
-var _active: bool = false
-var _mode: String = "none"
-var _old_tier: int = 0
-var _new_tier: int = 0
-var _ring_count: int = 0
-var _final_ring_index: int = -1
-var _reveal_event_emitted: bool = false
-var _pending_port_entry: Dictionary = {}
-var _port_outline: Line2D = null
-var _port_fill: Polygon2D = null
-var _port_outline_width: float = 1.0
-var _port_outline_modulate: Color = Color.WHITE
-var _port_fill_scale: Vector2 = Vector2.ONE
-var _port_fill_modulate: Color = Color.WHITE
+var _body: Polygon2D
+var _contact: Polygon2D
+var _body_material: ShaderMaterial
+var _contact_material: ShaderMaterial
+var _audio_player: AudioStreamPlayer
+var _source: Sprite2D
+var _before: Dictionary = {}
+var _after: Dictionary = {}
+var _active := false
+var _mode := "none"
+var _old_tier := 0
+var _new_tier := 0
+var _elapsed := 0.0
+var _side := 1.0
+var _quad_center := Vector2.ZERO
+var _port_entry: Dictionary = {}
+var _core_layers: Array[CanvasItem] = []
+var _revealed := false
+var _pose: Dictionary = {}
+var _style_signature: Array = []
+var _initial_reveal := 0.0
+var _resume_reveal := 0.0
+var _resume_from := 0
+var _resume_to := 0
+var _port: CanvasItem
+var _port_modulate := Color.WHITE
+var _port_elapsed := -1.0
 
 func _ready() -> void:
 	_ensure_nodes()
-	reset_visuals()
+	set_process(false)
 
 func capture_old_sprite(source: Sprite2D, old_size: Vector2) -> bool:
 	_ensure_nodes()
+	_resume_reveal = float(_pose.get("reveal", 0.0)) if _active else 0.0
+	_resume_from = _old_tier if _active else 0
+	_resume_to = _new_tier if _active else 0
 	cancel_and_reveal_final("replaced", false)
-	if source == null or not is_instance_valid(source) or source.texture == null:
-		_old_sprite.visible = false
-		_captured_old_size = Vector2.ZERO
-		return false
-	_old_sprite.texture = source.texture
-	_old_sprite.centered = source.centered
-	_old_sprite.flip_h = source.flip_h
-	_old_sprite.flip_v = source.flip_v
-	_old_sprite.material = source.material
-	_old_sprite.modulate = source.modulate
-	_old_sprite.self_modulate = source.self_modulate
-	_old_sprite.global_transform = source.global_transform
-	_old_source_centered = source.centered
-	_old_source_offset = source.offset
-	_old_source_rect = source.region_rect if source.region_enabled else Rect2(Vector2.ZERO, source.texture.get_size())
-	if _old_source_rect.size.x <= 0.0 or _old_source_rect.size.y <= 0.0:
-		_old_source_rect = Rect2(Vector2.ZERO, source.texture.get_size())
-	_old_sprite.offset = _old_source_offset
-	_old_sprite.region_enabled = true
-	_old_sprite.region_rect = _old_source_rect
-	_old_sprite.visible = true
-	_captured_old_size = old_size
-	return true
+	_source = source
+	_before = _sample_sprite(source, old_size)
+	return not _before.is_empty()
 
-func play(
-	final_size: Vector2,
-	center: Vector2,
-	owner_color: Color,
-	old_tier: int,
-	new_tier: int,
-	port_entry: Dictionary = {},
-	mode: String = "full"
-) -> void:
+func play(final_size: Vector2, center: Vector2, owner_color: Color, old_tier: int, new_tier: int, port_entry: Dictionary = {}, mode: String = "full") -> void:
 	_ensure_nodes()
-	_kill_tweens()
+	_after = _sample_sprite(_source, final_size)
+	_port_entry = port_entry
+	_quad_center = center
+	if _before.is_empty() or _after.is_empty() or mode == "none":
+		cancel_and_reveal_final("unavailable_source")
+		return
 	_old_tier = old_tier
 	_new_tier = new_tier
 	_mode = mode
+	_elapsed = 0.0
+	_revealed = false
+	_initial_reveal = 0.0
+	if _resume_from == new_tier and _resume_to == old_tier and mode == "full":
+		_initial_reveal = 1.0 - _resume_reveal
+	_resume_from = 0
+	_resume_to = 0
 	_active = true
-	_reveal_event_emitted = false
-	_pending_port_entry = port_entry.duplicate()
-	_ring_count = 1 if mode == "reduced" else clampi(new_tier, 2, MAX_RING_COUNT)
-	_final_ring_index = _ring_count - 1
-	var bounds := Vector2(
-		maxf(_captured_old_size.x, final_size.x),
-		maxf(_captured_old_size.y, final_size.y)
-	)
-	if bounds.x <= 0.0 or bounds.y <= 0.0:
-		bounds = Vector2(86.0, 112.0)
-	_configure_geometry(bounds, center)
-	_configure_colors(owner_color)
-	_set_old_reveal_progress(0.0)
+	_style_signature.clear()
+	_side = maxf(maxf(_before.size.x, _after.size.x), maxf(_before.size.y, _after.size.y)) * 1.12
+	var rect := Rect2(center - Vector2.ONE * _side * 0.5, Vector2.ONE * _side)
+	_set_quad(_body, _body_material, rect)
+	var ground := center + Vector2(0.0, final_size.y * 0.31)
+	_set_quad(_contact, _contact_material, Rect2(ground - Vector2(final_size.x * 0.70, final_size.x * 0.20), Vector2(final_size.x * 1.40, final_size.x * 0.40)))
+	for entry in [["before", _before], ["after", _after]]:
+		var prefix: String = entry[0]
+		var data: Dictionary = entry[1]
+		_body_material.set_shader_parameter(prefix + "_tex", data.texture)
+		_body_material.set_shader_parameter(prefix + "_size", data.size / _side)
+		_body_material.set_shader_parameter(prefix + "_center", (data.center - center) / _side)
+		_body_material.set_shader_parameter(prefix + "_region", data.region)
+		_body_material.set_shader_parameter(prefix + "_flip", data.flip)
+		_body_material.set_shader_parameter(prefix + "_key_enabled", data.key_enabled)
+	_body_material.set_shader_parameter("direction", 1.0 if new_tier > old_tier else -1.0)
+	_body_material.set_shader_parameter("reduced", 1.0 if mode == "reduced" else 0.0)
+	_body_material.set_shader_parameter("owner_color", owner_color)
+	_contact_material.set_shader_parameter("owner_color", owner_color)
+	_refresh_source_style()
+	_body.visible = true
+	_contact.visible = mode == "full"
+	_source.visible = false
 	transition_started.emit(old_tier, new_tier)
-	SFLog.info("HIVE_GROWTH_FX_START", {
-		"hive_id": _hive_id(),
-		"old_tier": old_tier,
-		"new_tier": new_tier,
-		"ring_count": _ring_count,
-		"mode": mode,
-		"shape": "wrapped_energy_rings"
-	})
-	if mode == "reduced":
-		_play_reduced()
+	_sample_time(0.0)
+	set_process(_active)
+	SFLog.info("HIVE_TRANSFORM_START", {"old_tier": old_tier, "new_tier": new_tier, "mode": mode})
+
+func _sample_sprite(source: Sprite2D, size: Vector2) -> Dictionary:
+	if source == null or not is_instance_valid(source) or source.texture == null:
+		return {}
+	var texture: Texture2D = source.texture
+	var region := Rect2(Vector2.ZERO, texture.get_size())
+	if texture is AtlasTexture:
+		region = (texture as AtlasTexture).region
+		texture = (texture as AtlasTexture).atlas
+		if texture == null:
+			return {}
+	if source.region_enabled:
+		region = Rect2(region.position + source.region_rect.position, source.region_rect.size)
+	var total := texture.get_size()
+	if total.x <= 0.0 or total.y <= 0.0:
+		return {}
+	var sprite_center := source.offset
+	if not source.centered:
+		sprite_center += region.size * 0.5
+	var key_enabled: Variant = source.material.get_shader_parameter("key_enabled") if source.material is ShaderMaterial else 0.0
+	return {"texture": texture, "size": size, "center": to_local(source.to_global(sprite_center)),
+		"region": Vector4(region.position.x / total.x, region.position.y / total.y, region.size.x / total.x, region.size.y / total.y),
+		"flip": Vector2(float(source.flip_h), float(source.flip_v)),
+		"key_enabled": float(key_enabled) if key_enabled != null else 0.0}
+
+func sync_source_style(owner: int, power: int, selected: bool, selection_color: Color, opacity: float) -> void:
+	if not _active:
+		return
+	var signature := [owner, power, selected, selection_color, opacity]
+	if signature == _style_signature:
+		return
+	_style_signature = signature
+	_refresh_source_style()
+
+func _refresh_source_style() -> void:
+	if _source == null or not is_instance_valid(_source):
+		return
+	var mat := _source.material as ShaderMaterial
+	if mat == null:
+		return
+	for key in ["global_alpha", "glow_strength", "additive_glow", "white_strength", "selected_hot", "selected_hot_color", "selected_metal_lift", "selected_hot_edge", "key_color", "key_threshold", "key_softness"]:
+		var value: Variant = mat.get_shader_parameter(key)
+		if value != null:
+			_body_material.set_shader_parameter(key, value)
+	var tint: Variant = mat.get_shader_parameter("team_color")
+	if tint != null:
+		_body_material.set_shader_parameter("owner_color", tint)
+	_body_material.set_shader_parameter("neutral", 1.0 if mat.shader != null and mat.shader.resource_path.ends_with("hive_npc_grayscale.gdshader") else 0.0)
+
+func _process(delta: float) -> void:
+	if _active:
+		_elapsed += maxf(delta, 0.0)
+		_sample_time(_elapsed)
+	if _port_elapsed >= 0.0:
+		_port_elapsed += maxf(delta, 0.0)
+		if is_instance_valid(_port):
+			_port.modulate = _port_modulate.lerp(Color(1.0, 0.96, 0.75), sin(clampf(_port_elapsed / 0.20, 0.0, 1.0) * PI) * 0.55)
+		if _port_elapsed >= 0.20:
+			_restore_port()
+	set_process(_active or _port_elapsed >= 0.0)
+
+func _sample_time(seconds: float) -> void:
+	if not is_instance_valid(_source):
+		cancel_and_reveal_final("source_removed")
+		return
+	_pose = Timing.sample(seconds, _old_tier, _new_tier, _mode == "reduced")
+	_pose["reveal"] = lerpf(_initial_reveal, 1.0, float(_pose.reveal))
+	var progress: float = _pose.reveal
+	var center: Vector2 = (_before.center as Vector2).lerp(_after.center, progress)
+	var bounds: Vector2 = (_before.size as Vector2).lerp(_after.size, progress)
+	var origin: Vector2 = _quad_center
+	var ground: float = (center.y - origin.y + bounds.y * 0.44) / _side
+	var top: float = ground - bounds.y * 0.87 / _side
+	var bottom: float = ground - bounds.y * 0.045 / _side
+	_body_material.set_shader_parameter("sweep", lerpf(bottom, top, progress) if _new_tier > _old_tier else lerpf(top, bottom, progress))
+	for key in ["reveal", "charge", "band_energy", "settle", "body_scale"]:
+		_body_material.set_shader_parameter(key, _pose[key])
+	_contact_material.set_shader_parameter("energy", _pose.ground)
+	_contact_material.set_shader_parameter("arrival", progress)
+	if progress > 0.0 and not _revealed:
+		_revealed = true
+		reveal_started.emit(_new_tier)
+		confirm_port_entry(_port_entry)
+		if _new_tier > _old_tier and _audio_player.stream != null:
+			_audio_player.play()
+	# Blend to the actual, currently styled final sprite during the seating phase.
+	# This also preserves cosmetic materials and live selection changes at handoff.
+	if progress >= 0.999:
+		_source.visible = true
+		_body.modulate.a = 1.0 - smoothstep(0.46 if _new_tier > _old_tier else 0.34, 0.66 if _new_tier > _old_tier else 0.49, seconds)
 	else:
-		_play_full()
+		_source.visible = false
+		_body.modulate.a = 1.0
+	_body_material.set_shader_parameter("surface_opacity", _body.modulate.a)
+	for layer in _core_layers:
+		if is_instance_valid(layer):
+			layer.visible = progress >= 0.999
+	if bool(_pose.done):
+		_active = false
+		_reveal_final()
+		transition_finished.emit(_new_tier)
 
 func cancel_and_reveal_final(reason: String = "cancelled", emit_event: bool = true) -> void:
-	var was_active: bool = _active
-	_kill_tweens()
+	var was_active := _active
+	_active = false
 	_restore_port()
+	_reveal_final()
+	set_process(false)
 	if _audio_player != null:
 		_audio_player.stop()
-	reset_visuals()
-	_active = false
 	if was_active and emit_event:
 		transition_cancelled.emit(reason)
-		SFLog.info("HIVE_GROWTH_FX_CANCEL", {
-			"hive_id": _hive_id(),
-			"tier": _new_tier,
-			"reason": reason
-		})
 
-func reset_visuals() -> void:
-	if _old_sprite != null:
-		_old_sprite.visible = false
-		_old_sprite.texture = null
-		_old_sprite.region_enabled = false
-		_old_sprite.offset = Vector2.ZERO
-	for slot in _ring_slots:
-		var root: Node2D = slot.get("root", null) as Node2D
-		if root != null:
-			root.visible = false
-			root.modulate = Color.WHITE
-			root.scale = Vector2.ONE
-	_captured_old_size = Vector2.ZERO
-	_pending_port_entry.clear()
+func _reveal_final() -> void:
+	if is_instance_valid(_source):
+		_source.visible = true
+	for layer in _core_layers:
+		if is_instance_valid(layer):
+			layer.visible = true
+	if _body != null:
+		_body.visible = false
+		_body.modulate = Color.WHITE
+	if _contact != null:
+		_contact.visible = false
+
+func confirm_port_entry(entry: Dictionary) -> void:
+	_restore_port()
+	if _mode != "full":
+		return
+	_port = entry.get("fill", null) as CanvasItem
+	if is_instance_valid(_port):
+		_port_modulate = _port.modulate
+		_port_elapsed = 0.0
+		set_process(true)
+
+func _restore_port() -> void:
+	if is_instance_valid(_port):
+		_port.modulate = _port_modulate
+	_port = null
+	_port_elapsed = -1.0
 
 func is_active() -> bool:
 	return _active
 
+func set_debug_elapsed(seconds: float) -> void:
+	set_process(false)
+	if _active:
+		_elapsed = maxf(seconds, 0.0)
+		_sample_time(_elapsed)
+	set_process(false)
+
 func get_debug_snapshot() -> Dictionary:
-	var visible_rings: int = 0
-	var material_instance_ids: Array[int] = []
-	for slot in _ring_slots:
-		var root: Node2D = slot.get("root", null) as Node2D
-		if root != null and root.visible:
-			visible_rings += 1
-		for key in ["rear_material", "front_material"]:
-			var ring_material: ShaderMaterial = slot.get(key, null) as ShaderMaterial
-			if ring_material != null:
-				material_instance_ids.append(ring_material.get_instance_id())
-	return {
-		"active": _active,
-		"old_tier": _old_tier,
-		"new_tier": _new_tier,
-		"ring_count": _ring_count,
-		"visible_ring_count": visible_rings,
-		"final_ring_index": _final_ring_index,
-		"reveal_started": _reveal_event_emitted,
-		"old_proxy_visible": _old_sprite != null and _old_sprite.visible,
-		"ring_width": _ring_width,
-		"ring_height": _ring_height,
-		"configured_bounds": _configured_bounds,
-		"bright_outer_width_ratio": (
-			(_ring_width * (RING_SHADER_RADIUS + RING_SHADER_CORE_OUTER))
-			/ _configured_bounds.x
-			if _configured_bounds.x > 0.0
-			else 0.0
-		),
-		"core_line_width": RING_CORE_LINE_WIDTH_PX,
-		"rear_intensity": RING_REAR_INTENSITY,
-		"front_intensity": RING_FRONT_INTENSITY,
-		"final_ring_intensity_multiplier": FINAL_RING_INTENSITY_MULTIPLIER,
-		"rear_z_index": -22,
-		"front_z_index": -7,
-		"material_instance_ids": material_instance_ids,
-		"material_count": material_instance_ids.size(),
-		"child_count": get_child_count()
-	}
-
-func set_debug_ring_phase(index: int, progress: float) -> void:
-	if index < 0 or index >= _ring_slots.size():
-		return
-	_kill_tweens()
-	for slot in _ring_slots:
-		var slot_root: Node2D = slot.get("root", null) as Node2D
-		if slot_root != null:
-			slot_root.visible = false
-	var root: Node2D = (_ring_slots[index] as Dictionary).get("root", null) as Node2D
-	if root == null:
-		return
-	root.visible = true
-	_set_ring_progress(clampf(progress, 0.0, 0.999), index)
-
-func confirm_port_entry(port_entry: Dictionary) -> void:
-	_capture_port_entry(port_entry)
-	_play_port_confirmation()
-
-func _play_full() -> void:
-	for i in range(_ring_count):
-		var delay: float = PRECHARGE_SEC + (float(i) * RING_STAGGER_SEC)
-		_launch_ring_tween(i, delay, RING_LIFETIME_SEC)
-	var total: float = PRECHARGE_SEC + (float(_ring_count - 1) * RING_STAGGER_SEC) + RING_LIFETIME_SEC + SETTLE_SEC
-	_timeline_tween = create_tween()
-	_timeline_tween.tween_interval(total)
-	_timeline_tween.tween_callback(_finish)
-
-func _play_reduced() -> void:
-	_launch_ring_tween(0, 0.0, REDUCED_RING_SEC)
-	_timeline_tween = create_tween()
-	_timeline_tween.tween_interval(REDUCED_RING_SEC)
-	_timeline_tween.tween_callback(_finish)
-
-func _launch_ring_tween(index: int, delay: float, lifetime: float) -> void:
-	if index < 0 or index >= _ring_slots.size():
-		return
-	var root: Node2D = (_ring_slots[index] as Dictionary).get("root", null) as Node2D
-	if root == null:
-		return
-	root.visible = false
-	root.position = Vector2(root.position.x, _ring_start_y)
-	root.scale = Vector2(RING_START_WIDTH_SCALE, 1.0)
-	root.modulate.a = 0.0
-	var tween: Tween = create_tween()
-	_ring_tweens.append(tween)
-	if delay > 0.0:
-		tween.tween_interval(delay)
-	tween.tween_callback(Callable(self, "_on_ring_launched").bind(index))
-	tween.tween_method(Callable(self, "_set_ring_progress").bind(index), 0.0, 1.0, lifetime)
-	tween.tween_callback(Callable(self, "_on_ring_finished").bind(index))
-
-func _on_ring_launched(index: int) -> void:
-	if not _active or index < 0 or index >= _ring_slots.size():
-		return
-	var root: Node2D = (_ring_slots[index] as Dictionary).get("root", null) as Node2D
-	if root != null:
-		root.visible = true
-	if index == _final_ring_index:
-		_begin_final_ring_reveal()
-
-func _set_ring_progress(progress: float, index: int) -> void:
-	if not _active or index < 0 or index >= _ring_slots.size():
-		return
-	var root: Node2D = (_ring_slots[index] as Dictionary).get("root", null) as Node2D
-	if root == null:
-		return
-	var t: float = clampf(progress, 0.0, 1.0)
-	var travel_t: float = smoothstep(0.0, 1.0, t)
-	root.position.y = lerpf(_ring_start_y, _ring_end_y, travel_t)
-	root.scale.x = lerpf(RING_START_WIDTH_SCALE, RING_END_WIDTH_SCALE, t)
-	var fade_in: float = smoothstep(0.0, 0.10, t)
-	var fade_out: float = 1.0 - smoothstep(0.66, 0.92, t)
-	root.modulate.a = pow(maxf(0.0, fade_in * fade_out), 0.72)
-	if index == _final_ring_index:
-		_set_old_reveal_progress(smoothstep(0.02, 0.98, t))
-
-func _on_ring_finished(index: int) -> void:
-	if index < 0 or index >= _ring_slots.size():
-		return
-	var root: Node2D = (_ring_slots[index] as Dictionary).get("root", null) as Node2D
-	if root != null:
-		root.visible = false
-	if index == _final_ring_index:
-		_set_old_reveal_progress(1.0)
-
-func _begin_final_ring_reveal() -> void:
-	if not _active or _reveal_event_emitted:
-		return
-	_reveal_event_emitted = true
-	_play_sound()
-	if not _pending_port_entry.is_empty():
-		confirm_port_entry(_pending_port_entry)
-	final_ring_reveal_started.emit(_new_tier)
-
-func _finish() -> void:
-	if not _active:
-		return
-	_set_old_reveal_progress(1.0)
-	_active = false
-	for slot in _ring_slots:
-		var root: Node2D = slot.get("root", null) as Node2D
-		if root != null:
-			root.visible = false
-	_timeline_tween = null
-	_ring_tweens.clear()
-	transition_finished.emit(_new_tier)
-	SFLog.info("HIVE_GROWTH_FX_END", {
-		"hive_id": _hive_id(),
-		"tier": _new_tier,
-		"ring_count": _ring_count
-	})
-
-func _set_old_reveal_progress(progress: float) -> void:
-	if _old_sprite == null or _old_sprite.texture == null:
-		return
-	var t: float = clampf(progress, 0.0, 1.0)
-	if t >= 0.999:
-		_old_sprite.visible = false
-		return
-	var visible_height: float = maxf(1.0, _old_source_rect.size.y * (1.0 - t))
-	var cropped: Rect2 = _old_source_rect
-	cropped.size.y = visible_height
-	_old_sprite.region_enabled = true
-	_old_sprite.region_rect = cropped
-	if _old_source_centered:
-		var removed_height: float = _old_source_rect.size.y - visible_height
-		_old_sprite.offset = _old_source_offset + Vector2(0.0, -removed_height * 0.5)
-	else:
-		_old_sprite.offset = _old_source_offset
-	_old_sprite.visible = true
-
-func _configure_geometry(bounds: Vector2, center: Vector2) -> void:
-	_configured_bounds = bounds
-	_ring_width = maxf(48.0, bounds.x * RING_FOOTPRINT_WIDTH_SCALE)
-	_ring_height = clampf(bounds.x * RING_FOOTPRINT_HEIGHT_SCALE, RING_MIN_HEIGHT_PX, RING_MAX_HEIGHT_PX)
-	_ring_start_y = center.y + (bounds.y * 0.47) - RING_VERTICAL_PAD_PX
-	_ring_end_y = center.y - (bounds.y * 0.47) + RING_VERTICAL_PAD_PX
-	for slot in _ring_slots:
-		var root: Node2D = slot.get("root", null) as Node2D
-		var rear: Polygon2D = slot.get("rear", null) as Polygon2D
-		var front: Polygon2D = slot.get("front", null) as Polygon2D
-		var rear_core: Line2D = slot.get("rear_core", null) as Line2D
-		var front_core: Line2D = slot.get("front_core", null) as Line2D
-		if root != null:
-			root.position.x = center.x
-		_set_ring_quad(rear, _ring_width, _ring_height)
-		_set_ring_quad(front, _ring_width, _ring_height)
-		_set_ring_core_arc(rear_core, _ring_width, _ring_height, false)
-		_set_ring_core_arc(front_core, _ring_width, _ring_height, true)
-
-func _configure_colors(owner_color: Color) -> void:
-	var shoulder := Color(1.0, 0.94, 0.76, 1.0)
-	var fringe := owner_color.lerp(Color(1.0, 0.84, 0.48, 1.0), 0.78)
-	fringe.a = 1.0
-	for index in range(_ring_slots.size()):
-		var slot: Dictionary = _ring_slots[index]
-		var final_multiplier: float = (
-			FINAL_RING_INTENSITY_MULTIPLIER if index == _final_ring_index else 1.0
-		)
-		for key in ["rear_material", "front_material"]:
-			var material: ShaderMaterial = slot.get(key, null) as ShaderMaterial
-			if material != null:
-				material.set_shader_parameter("shoulder_color", shoulder)
-				material.set_shader_parameter("fringe_color", fringe)
-				var arc_intensity: float = (
-					RING_REAR_INTENSITY if key == "rear_material" else RING_FRONT_INTENSITY
-				)
-				material.set_shader_parameter("intensity", arc_intensity * final_multiplier)
-		var rear_core: Line2D = slot.get("rear_core", null) as Line2D
-		if rear_core != null:
-			rear_core.default_color = Color(1.0, 0.965, 0.82, 0.62 * final_multiplier)
-		var front_core: Line2D = slot.get("front_core", null) as Line2D
-		if front_core != null:
-			front_core.default_color = Color(1.0, 0.995, 0.96, minf(1.0, final_multiplier))
-
-func _set_ring_quad(poly: Polygon2D, width: float, height: float) -> void:
-	if poly == null:
-		return
-	var half := Vector2(width, height) * 0.5
-	poly.polygon = PackedVector2Array([
-		Vector2(-half.x, -half.y),
-		Vector2(half.x, -half.y),
-		Vector2(half.x, half.y),
-		Vector2(-half.x, half.y)
-	])
-	poly.uv = PackedVector2Array([
-		Vector2(0.0, 0.0),
-		Vector2(1.0, 0.0),
-		Vector2(1.0, 1.0),
-		Vector2(0.0, 1.0)
-	])
-
-func _set_ring_core_arc(line: Line2D, width: float, height: float, front: bool) -> void:
-	if line == null:
-		return
-	var points := PackedVector2Array()
-	var start_angle: float = 0.0 if front else PI
-	var end_angle: float = PI if front else TAU
-	var radius := Vector2(width, height) * 0.5 * RING_SHADER_RADIUS
-	for i in range(RING_CORE_ARC_SEGMENTS + 1):
-		var t: float = float(i) / float(RING_CORE_ARC_SEGMENTS)
-		var angle: float = lerpf(start_angle, end_angle, t)
-		points.append(Vector2(cos(angle) * radius.x, sin(angle) * radius.y))
-	line.points = points
-
-func _capture_port_entry(port_entry: Dictionary) -> void:
-	_restore_port()
-	_port_outline = port_entry.get("outline", null) as Line2D
-	_port_fill = port_entry.get("fill", null) as Polygon2D
-	if _port_outline != null and is_instance_valid(_port_outline):
-		_port_outline_width = _port_outline.width
-		_port_outline_modulate = _port_outline.modulate
-	if _port_fill != null and is_instance_valid(_port_fill):
-		_port_fill_scale = _port_fill.scale
-		_port_fill_modulate = _port_fill.modulate
-
-func _play_port_confirmation() -> void:
-	if _port_outline == null and _port_fill == null:
-		return
-	if _port_tween != null and _port_tween.is_valid():
-		_port_tween.kill()
-	_port_tween = create_tween()
-	_port_tween.set_trans(Tween.TRANS_SINE)
-	_port_tween.set_ease(Tween.EASE_OUT)
-	if _port_outline != null and is_instance_valid(_port_outline):
-		_port_outline.width = maxf(_port_outline_width, 3.0)
-		_port_outline.modulate = Color.WHITE
-		_port_outline.scale = Vector2.ONE * 1.42
-		_port_tween.tween_property(_port_outline, "scale", Vector2.ONE, PORT_CONFIRM_SEC)
-		_port_tween.parallel().tween_property(_port_outline, "modulate", _port_outline_modulate, PORT_CONFIRM_SEC)
-	if _port_fill != null and is_instance_valid(_port_fill):
-		_port_fill.modulate = Color.WHITE
-		_port_fill.scale = _port_fill_scale * 1.32
-		_port_tween.parallel().tween_property(_port_fill, "scale", _port_fill_scale, PORT_CONFIRM_SEC)
-		_port_tween.parallel().tween_property(_port_fill, "modulate", _port_fill_modulate, PORT_CONFIRM_SEC)
-	_port_tween.tween_callback(_restore_port)
-
-func _restore_port() -> void:
-	if _port_outline != null and is_instance_valid(_port_outline):
-		_port_outline.width = _port_outline_width
-		_port_outline.scale = Vector2.ONE
-		_port_outline.modulate = _port_outline_modulate
-	if _port_fill != null and is_instance_valid(_port_fill):
-		_port_fill.scale = _port_fill_scale
-		_port_fill.modulate = _port_fill_modulate
-	_port_outline = null
-	_port_fill = null
-	_port_tween = null
-
-func _play_sound() -> void:
-	if _audio_player == null or _audio_player.stream == null or not _audio_allowed():
-		return
-	_audio_player.stop()
-	_audio_player.play()
-
-func _audio_allowed() -> bool:
-	var profile_manager: Node = get_node_or_null("/root/ProfileManager")
-	if profile_manager == null:
-		return true
-	if profile_manager.has_method("is_audio_enabled") and not bool(profile_manager.call("is_audio_enabled")):
-		return false
-	if profile_manager.has_method("is_sfx_enabled") and not bool(profile_manager.call("is_sfx_enabled")):
-		return false
-	return true
-
-func _kill_tweens() -> void:
-	if _timeline_tween != null and _timeline_tween.is_valid():
-		_timeline_tween.kill()
-	_timeline_tween = null
-	for tween in _ring_tweens:
-		if tween != null and tween.is_valid():
-			tween.kill()
-	_ring_tweens.clear()
-	if _port_tween != null and _port_tween.is_valid():
-		_port_tween.kill()
-	_port_tween = null
+	return {"active": _active, "old_tier": _old_tier, "new_tier": _new_tier, "mode": _mode,
+		"elapsed": _elapsed, "reveal_started": _revealed, "reveal": _pose.get("reveal", 0.0),
+		"shape": "fitted_energy_sweep", "ring_count": 1,
+		"visible_ring_count": int(_active and float(_pose.get("band_energy", 0.0)) > 0.01),
+		"material_count": 2, "material_instance_ids": [_body_material.get_instance_id(), _contact_material.get_instance_id()] if _body_material != null else [],
+		"child_count": get_child_count(), "base_sprite_visible": is_instance_valid(_source) and _source.visible}
 
 func _ensure_nodes() -> void:
-	if _old_sprite == null:
-		_old_sprite = Sprite2D.new()
-		_old_sprite.name = "OldSpriteProxy"
-		_old_sprite.z_index = -18
-		add_child(_old_sprite)
-	while _ring_slots.size() < MAX_RING_COUNT:
-		var index: int = _ring_slots.size()
-		var root := Node2D.new()
-		root.name = "EnergyRing_%d" % index
-		add_child(root)
-		var rear_material := ShaderMaterial.new()
-		rear_material.shader = RING_SHADER
-		rear_material.set_shader_parameter("front_arc", false)
-		rear_material.set_shader_parameter("intensity", RING_REAR_INTENSITY)
-		var rear := Polygon2D.new()
-		rear.name = "RearArc"
-		rear.z_index = -22
-		rear.material = rear_material
-		root.add_child(rear)
-		var rear_core := Line2D.new()
-		rear_core.name = "RearCore"
-		rear_core.z_index = -21
-		rear_core.width = RING_CORE_LINE_WIDTH_PX
-		rear_core.default_color = Color(1.0, 0.965, 0.82, 0.54)
-		rear_core.antialiased = true
-		root.add_child(rear_core)
-		var front_material := ShaderMaterial.new()
-		front_material.shader = RING_SHADER
-		front_material.set_shader_parameter("front_arc", true)
-		front_material.set_shader_parameter("intensity", RING_FRONT_INTENSITY)
-		var front := Polygon2D.new()
-		front.name = "FrontArc"
-		front.z_index = -7
-		front.material = front_material
-		root.add_child(front)
-		var front_core := Line2D.new()
-		front_core.name = "FrontCore"
-		front_core.z_index = -6
-		front_core.width = RING_CORE_LINE_WIDTH_PX
-		front_core.default_color = Color(1.0, 0.995, 0.96, 1.0)
-		front_core.antialiased = true
-		root.add_child(front_core)
-		_ring_slots.append({
-			"root": root,
-			"rear": rear,
-			"front": front,
-			"rear_core": rear_core,
-			"front_core": front_core,
-			"rear_material": rear_material,
-			"front_material": front_material
-		})
-	if _audio_player == null:
-		_audio_player = AudioStreamPlayer.new()
-		_audio_player.name = "GrowthSfxPlayer"
-		_audio_player.bus = &"Master"
-		_audio_player.volume_db = -5.0
-		if ResourceLoader.exists(GROWTH_SOUND_PATH):
-			_audio_player.stream = load(GROWTH_SOUND_PATH) as AudioStream
-		add_child(_audio_player)
+	if _body != null:
+		return
+	for path in ["../../CoreEnergyLayer", "../../CoreGlowLayer"]:
+		var layer := get_node_or_null(path) as CanvasItem
+		if layer != null:
+			_core_layers.append(layer)
+	_body_material = ShaderMaterial.new()
+	_body_material.shader = BODY_SHADER
+	_contact_material = ShaderMaterial.new()
+	_contact_material.shader = CONTACT_SHADER
+	_contact = Polygon2D.new()
+	_contact.name = "ContactEnergy"
+	_contact.z_index = -24
+	_contact.material = _contact_material
+	_contact.visible = false
+	add_child(_contact)
+	_body = Polygon2D.new()
+	_body.name = "TransformSurface"
+	_body.z_index = -11
+	_body.material = _body_material
+	_body.visible = false
+	add_child(_body)
+	_audio_player = AudioStreamPlayer.new()
+	_audio_player.name = "GrowthSfxPlayer"
+	_audio_player.volume_db = -5.0
+	if ResourceLoader.exists(GROWTH_SOUND_PATH):
+		_audio_player.stream = load(GROWTH_SOUND_PATH) as AudioStream
+	add_child(_audio_player)
 
-func _hive_id() -> int:
-	var visual: Node = get_parent().get_parent() if get_parent() != null else null
-	var hive_node: Node = visual.get_parent() if visual != null else null
-	if hive_node != null:
-		var value: Variant = hive_node.get("hive_id")
-		if value != null:
-			return int(value)
-	return -1
+func _set_quad(quad: Polygon2D, mat: ShaderMaterial, rect: Rect2) -> void:
+	quad.polygon = PackedVector2Array([rect.position, rect.position + Vector2(rect.size.x, 0), rect.end, rect.position + Vector2(0, rect.size.y)])
+	mat.set_shader_parameter("quad_origin", rect.position)
+	mat.set_shader_parameter("quad_size", rect.size)

@@ -69,6 +69,8 @@ func _connect_sim_runner(node: Node) -> void:
 
 func _on_runtime_match_ended(winner_id: int, reason: String) -> void:
 	var tree: SceneTree = get_tree()
+	if tree != null and tree.has_meta("campaign_level_id"):
+		return # CampaignRuntime owns challenge-scoped results for both entry routes.
 	if tree == null:
 		return
 	var local_owner_id: int = clampi(int(tree.get_meta(META_LOCAL_OWNER_ID, 1)), 1, 4)

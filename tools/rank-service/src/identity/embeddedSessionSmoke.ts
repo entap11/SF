@@ -1,39 +1,12 @@
 import crypto from "node:crypto";
-import type { Pool, QueryResult } from "pg";
-import { PGlite, type PGliteInterface } from "@electric-sql/pglite";
+import type { Pool } from "pg";
+import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { runMigrations } from "../db/migrate.js";
 import { IdentitySessionError, IdentitySessionStore } from "./sessionStore.js";
 import { verifyPlayerAccessToken, type PlayerTokenKeyConfig } from "./playerToken.js";
 
-type PGliteResult<T> = { rows: T[]; affectedRows?: number };
-
-class PGlitePoolAdapter {
-  constructor(private readonly db: PGliteInterface) {}
-
-  async query<T extends Record<string, unknown> = Record<string, unknown>>(sql: string, params: unknown[] = []): Promise<QueryResult<T>> {
-    if (params.length === 0 && sql.split(";").filter((part) => part.trim()).length > 1) {
-      const results = await this.db.exec(sql);
-      const last = (results.at(-1) ?? { rows: [], affectedRows: 0 }) as PGliteResult<T>;
-      return this.normalize(last);
-    }
-    return this.normalize(await this.db.query<T>(sql, params) as PGliteResult<T>);
-  }
-
-  async connect(): Promise<PGlitePoolAdapter & { release: () => void }> {
-    return Object.assign(this, { release: () => undefined });
-  }
-
-  private normalize<T extends Record<string, unknown>>(result: PGliteResult<T>): QueryResult<T> {
-    return {
-      command: "",
-      rowCount: result.rows.length > 0 ? result.rows.length : (result.affectedRows ?? 0),
-      oid: 0,
-      fields: [],
-      rows: result.rows
-    };
-  }
-}
+import { PGlitePoolAdapter } from "./embeddedPool.js";
 
 function expect(condition: unknown, message: string, details?: unknown): void {
   if (!condition) throw new Error(`${message}${details == null ? "" : `: ${JSON.stringify(details)}`}`);

@@ -85,7 +85,7 @@ func _run() -> void:
 		var core_material: ShaderMaterial = core_line.material as ShaderMaterial
 		_expect(core_material != null, "curved rail must retain the lane texture shader")
 		if core_material != null:
-			_expect(is_equal_approx(float(core_material.get_shader_parameter("lane_brightness")), 3.4), "curved rail brightness must be exactly five times the 0.68 baseline")
+			_expect(is_equal_approx(float(core_material.get_shader_parameter("lane_brightness")), 3.75), "curved rail brightness must be exactly five times the 0.75 baseline")
 			_expect(is_equal_approx(float(core_material.get_shader_parameter("glow_boost")), 2.5), "curved rail shader must use the hot glow boost")
 	var hidden_straight: Color = renderer.call("_lane_grab_preview_color", 1, "a", Color.YELLOW) as Color
 	_expect(hidden_straight.a <= 0.001, "straight selected rail must disappear beneath the detached curve")
@@ -94,7 +94,7 @@ func _run() -> void:
 	var selected_material: ShaderMaterial = selected_piece.material as ShaderMaterial
 	_expect(selected_material != null, "selected straight-rail fallback must retain a lane shader")
 	if selected_material != null:
-		_expect(is_equal_approx(float(selected_material.get_shader_parameter("lane_brightness")), 3.4), "selected straight-rail fallback must also use fivefold brightness")
+		_expect(is_equal_approx(float(selected_material.get_shader_parameter("lane_brightness")), 3.75), "selected straight-rail fallback must also use fivefold brightness")
 		_expect(is_equal_approx(float(selected_material.get_shader_parameter("glow_boost")), 2.5), "selected straight-rail fallback must also glow")
 	selected_piece.free()
 	renderer.call("clear_lane_grab_preview")

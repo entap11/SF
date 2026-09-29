@@ -571,6 +571,10 @@ not satisfy this gate. The required two-iOS/two-Android mixed-platform and
 four-seat cells therefore cannot run, and no product-owner limitation has been
 accepted. Unique device identifiers were intentionally not recorded.
 
+September 2 supplement: a current signed iOS development IPA now exists, but
+install/launch proof and the multi-device matrix remain incomplete. See
+[P6 Signed Candidate Evidence — 2026-09-02](p6-signed-candidate-evidence-2026-09-02.md).
+
 ## P7 decision
 
 Status: `HOLD`

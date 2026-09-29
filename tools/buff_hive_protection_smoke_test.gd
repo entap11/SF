@@ -3,10 +3,15 @@ extends SceneTree
 const BuffSystem := preload("res://scripts/sim/authoritative_buff_system.gd")
 
 var _failed: bool = false
+var _fixture_systems: Array[RefCounted] = []
 
 func _init() -> void:
 	_test_single_and_global_shields()
 	_test_single_and_global_shock_immunity()
+	for system: RefCounted in _fixture_systems:
+		# Break fixture GameState <-> UnitSystem reference cycles.
+		system.set("state", null)
+	_fixture_systems.clear()
 	if _failed:
 		quit(1)
 		return
@@ -16,6 +21,7 @@ func _init() -> void:
 func _test_single_and_global_shields() -> void:
 	var state := _state()
 	var units := UnitSystem.new()
+	_fixture_systems.append(units)
 	units.bind_state(state)
 	var activated: Dictionary = BuffSystem.activate(state, _command("shield-single", "buff_hive_shield_single_classic", "hive", 1))
 	_expect(bool(activated.get("ok", false)), "single Hive Shield activates")
@@ -28,6 +34,7 @@ func _test_single_and_global_shields() -> void:
 
 	var global_state := _state()
 	var global_units := UnitSystem.new()
+	_fixture_systems.append(global_units)
 	global_units.bind_state(global_state)
 	var global_result: Dictionary = BuffSystem.activate(global_state, _command("shield-global", "buff_hive_shield_global_classic", "global", "global"))
 	_expect(bool(global_result.get("ok", false)), "global Hive Shield activates")
@@ -50,12 +57,14 @@ func _test_single_and_global_shields() -> void:
 func _test_single_and_global_shock_immunity() -> void:
 	var baseline := _state()
 	var baseline_swarm := SwarmSystem.new()
+	_fixture_systems.append(baseline_swarm)
 	baseline_swarm.bind_state(baseline)
 	baseline_swarm._spawn_swarm(1, 2)
 	_expect(int(baseline.hive_spawn_block_until_us.get(1, 0)) > 0, "ordinary swarm launch applies source spawn shock")
 
 	var single_state := _state()
 	var single_swarm := SwarmSystem.new()
+	_fixture_systems.append(single_swarm)
 	single_swarm.bind_state(single_state)
 	var single: Dictionary = BuffSystem.activate(single_state, _command("shock-single", "buff_shock_immunity_classic", "hive", 1))
 	_expect(bool(single.get("ok", false)), "single Shock Immunity activates")
@@ -66,6 +75,7 @@ func _test_single_and_global_shock_immunity() -> void:
 
 	var global_state := _state()
 	var global_swarm := SwarmSystem.new()
+	_fixture_systems.append(global_swarm)
 	global_swarm.bind_state(global_state)
 	var global: Dictionary = BuffSystem.activate(global_state, _command("shock-global", "buff_global_shock_immunity_classic", "global", "global"))
 	_expect(bool(global.get("ok", false)), "global Shock Immunity activates")

@@ -31,16 +31,13 @@ Tap and hold the source hive, drag to the destination hive, then release.
 
 If both hives are yours, sending from the opposite hive back to the original source reverses the lane direction.
 
-To remove a lane completely, double tap the source half of the lane. That is the half closest to the sending hive. The lane will immediately disappear.
+To remove a lane completely, press its source side, pull it sideways, and release to throw it away.
 
 Swarms
 
 Swarms are one of the most powerful mechanics in the game, but they come with a cost.
 
-You can launch a swarm in one of two ways:
-
-- Repeat source-to-destination on an existing active lane.
-- Double tap the destination half of an existing lane.
+To launch a swarm, repeat source-to-destination on an existing active lane.
 
 A swarm begins with 5 attack power. As it travels down the lane, it absorbs every friendly bee it encounters. For example, if it starts at 5 and picks up 3 more bees along the way, it will strike the enemy hive with 8 power.
 
@@ -153,21 +150,21 @@ const HONEY_SHADOW_COLOR: Color = Color(0.10, 0.04, 0.01, 0.88)
 const HONEY_WIDGET_PANEL_WIDTH: float = 300.0
 const HONEY_WIDGET_PANEL_HEIGHT: float = 200.0
 const HONEY_WIDGET_RIGHT_MARGIN: float = 22.0
-const HONEY_WIDGET_TOP_OFFSET: float = 10.0
+const HONEY_WIDGET_TOP_OFFSET: float = 35.0
 const TIER_WIDGET_LEFT_MARGIN: float = 8.0
-const TIER_WIDGET_TOP_OFFSET: float = 10.0
+const TIER_WIDGET_TOP_OFFSET: float = 35.0
 const TIER_WIDGET_PANEL_WIDTH: float = 415.0
 const TIER_WIDGET_PANEL_HEIGHT: float = 200.0
 const MM_BACKGROUND_Y_SHIFT: float = -615.0
 const MM_BACKGROUND_X_SCALE: float = 0.88
-const MM_BACKGROUND_EXTRA_SIDE_PX: float = 90.0
+const MM_BACKGROUND_EXTRA_SIDE_PX: float = 40.0
 const MM_BACKGROUND_STRETCH_MODE: int = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
 const MM_PLATFORM_DIMMER_ALPHA: float = 0.19
 const MM_HERO_PANEL_ANCHOR_LEFT: float = 0.14
 const MM_HERO_PANEL_ANCHOR_RIGHT: float = 0.86
 const MM_HERO_PANEL_ANCHOR_TOP: float = 0.30
 const MM_HERO_PANEL_ANCHOR_BOTTOM: float = 0.66
-const MM_WELCOME_HANDLE_TOP_PX: float = 350.0
+const MM_WELCOME_HANDLE_TOP_PX: float = 420.0
 const MM_WELCOME_HANDLE_HEIGHT_PX: float = 96.0
 const MATCH_REPLAY_SAVE_DIR: String = "user://matches"
 const MM_BOOT_SOUND_ENABLED: bool = false
@@ -183,10 +180,10 @@ const MENU_AUDIO_FADE_OUT_DB: float = -60.0
 const SHELL_SCENE_PATH: String = "res://scenes/Shell.tscn"
 const TREE_META_TUTORIAL_CONTROLS_BOOT_LAUNCH: String = "tutorial_controls_boot_launch"
 const HIVE_TAB_KEY := "ui.mm.hive.normal"
-const HIVE_BUTTON_SCALE: float = 1.5
+const HIVE_BUTTON_SCALE: float = 1.65
 const HIVE_BUTTON_BASE_WIDTH: float = 140.0
 const HIVE_BUTTON_BASE_HEIGHT: float = 70.0
-const HIVE_BUTTON_CENTER_Y: float = 45.0
+const HIVE_BUTTON_CENTER_Y: float = 70.0
 const DASH_TAB_KEY_RIGHT := "ui.mm.dash.left"
 const DASH_TAB_KEY_LEFT := "ui.mm.dash.right"
 const UI_SURFACE_DASH := "dash"
@@ -399,6 +396,7 @@ var _battle_pass_panel: Control = null
 var _rank_panel: Control = null
 var _rank_context_panel: Panel = null
 var _jukebox_panel: Panel = null
+var _challenge_hub: Panel = null
 var _dash_hex_jukebox: HexButton = null
 var _async_contest_dash_panel: Panel = null
 var _dash_hex_async_contest: HexButton = null
@@ -429,6 +427,8 @@ var _pending_friend_invite: Dictionary = {}
 var _dash_active_tab: String = DASH_HERO_TAB_GARAGE
 var _honey_widget: Control = null
 var _tier_widget: Control = null
+var _home_menu: Control = null
+var _vs_mode_select: Control = null
 var _game_hub_live_refresh_pending: bool = false
 var _free_roll_press_block_until_msec: int = 0
 var _latest_replay_data: Dictionary = {}
@@ -571,7 +571,7 @@ var _player_profile := {
 var _wallet_profile := {
 	"balance_usd": 0
 }
-var _dev_bypass_cash_balance := true
+var _dev_bypass_cash_balance := OS.is_debug_build() and not OS.has_feature("store_release")
 const HIVE_PANEL_PROFILE_DEFAULT := {
 	"view_mode": HIVE_VIEW_MEMBER,
 	"name": "Swarmfront Prime",
@@ -775,7 +775,8 @@ const BOTTOM_NAV_HEIGHT_SCALE: float = 1.0
 const BOTTOM_NAV_BASE_BUTTON_SIZE: Vector2 = Vector2(64.0, 36.0)
 const BOTTOM_NAV_OUTER_PADDING: float = 8.0
 const BOTTOM_NAV_BUTTON_SEPARATION: int = 8
-const BOTTOM_NAV_ROW_SEPARATION: float = 12.0
+const BOTTOM_NAV_ROW_SEPARATION: float = 32.0
+const BOTTOM_NAV_BOTTOM_LIFT: float = 45.0
 const HIVE_DROPDOWN_WIDTH: float = 720.0
 const HIVE_DROPDOWN_HEIGHT: float = 640.0
 const HIVE_DROPDOWN_TOP_GAP: float = 8.0
@@ -1340,6 +1341,7 @@ const STORE_SKUS := [
 ]
 
 func _ready() -> void:
+	CampaignRuntime.finish_session()
 	if _maybe_route_headless_shell_smoke():
 		return
 	set_process(true)
@@ -1360,6 +1362,7 @@ func _ready() -> void:
 	_ensure_async_stage_contest_section()
 	_ensure_payout_proof_button()
 	_wire_buttons()
+	_ensure_campaign_navigation()
 	if not get_viewport().size_changed.is_connected(_apply_bottom_nav_layout):
 		get_viewport().size_changed.connect(_apply_bottom_nav_layout)
 	if not get_viewport().size_changed.is_connected(_apply_background_art_direction):
@@ -1386,6 +1389,7 @@ func _ready() -> void:
 	_apply_performance_pref_from_profile()
 	call_deferred("_init_dash_state")
 	call_deferred("_finish_noncritical_menu_boot")
+	call_deferred("_apply_campaign_return")
 	call_deferred("_apply_pending_jukebox_reopen_request")
 	call_deferred("_apply_pending_stage_leaderboard_request")
 	_apply_player_profile(_player_profile)
@@ -1405,6 +1409,21 @@ func _ready() -> void:
 	call_deferred("_layout_payout_proof_button")
 	call_deferred("_apply_ops_config_menu_gates")
 	call_deferred("_release_main_menu_loading_cover")
+	_ensure_home_menu()
+	_sync_main_art_shroud()
+
+func _ensure_home_menu() -> void:
+	_home_menu = preload("res://scripts/ui/main_menu_home.gd").new()
+	add_child(_home_menu)
+	move_child(_home_menu, top_bar.get_index())
+	_home_menu.call("configure", self)
+	_refresh_home_replay_hint()
+	hero_panel.hide()
+	bottom_bar.hide()
+
+func _open_home_replay() -> void:
+	_open_match_replay(0)
+	_replay_direct_mode = true
 
 func _release_main_menu_loading_cover() -> void:
 	var loading_coordinator: Variant = get_node_or_null("/root/MainMenuLoadingCoordinator")
@@ -1685,9 +1704,18 @@ func _process(_delta: float) -> void:
 	_sync_main_art_shroud()
 	_refresh_open_free_roll_game_hub_if_stale()
 	_refresh_profile_handle_labels()
+	if is_instance_valid(_entry_route_modal):
+		var readable_hub := _entry_route_modal.get_node_or_null("ReadableHub")
+		if readable_hub != null:
+			readable_hub.call("sync_status", status_label.text)
 
 func _sync_main_art_shroud() -> void:
 	var should_shroud: bool = _has_open_main_menu_surface()
+	if _home_menu != null:
+		_home_menu.visible = not should_shroud
+		top_bar.visible = should_shroud
+		if not should_shroud:
+			dash_tab.hide()
 	if should_shroud == _main_art_shroud_active:
 		return
 	_main_art_shroud_active = should_shroud
@@ -1697,6 +1725,12 @@ func _sync_main_art_shroud() -> void:
 		platform_dimmer.visible = should_shroud
 
 func _has_open_main_menu_surface() -> bool:
+	if is_instance_valid(_vs_mode_select) and _vs_mode_select.visible:
+		return true
+	if is_instance_valid(_challenge_hub) and _challenge_hub.visible:
+		return true
+	if is_instance_valid(_public_contest_dash) and _public_contest_dash.visible:
+		return true
 	if onboarding_overlay != null and onboarding_overlay.visible:
 		return true
 	if dash_panel != null and dash_panel.visible:
@@ -1775,6 +1809,10 @@ func _input(event: InputEvent) -> void:
 			_finish_buff_drag(touch.position)
 
 func _unhandled_input(event: InputEvent) -> void:
+	if is_instance_valid(_challenge_hub) and event.is_action_pressed("ui_cancel"):
+		_close_challenge_hub()
+		get_viewport().set_input_as_handled()
+		return
 	if dash_settings_panel == null or not dash_settings_panel.visible:
 		return
 	if not event.is_action_pressed("ui_cancel"):
@@ -2303,7 +2341,6 @@ func _bind_onboarding_gate() -> void:
 				onboarding_panel.onboarding_guide_prompt_requested.connect(_on_onboarding_guide_prompt_requested)
 	else:
 		onboarding_overlay.visible = false
-		_ensure_profile_registered_for_rank()
 
 func _apply_performance_pref_from_profile() -> void:
 	if not ProfileManager.has_method("get_content_scale_factor"):
@@ -2314,7 +2351,6 @@ func _apply_performance_pref_from_profile() -> void:
 		window_ref.content_scale_factor = clampf(scale_factor, 0.7, 1.1)
 
 func _on_onboarding_done() -> void:
-	_ensure_profile_registered_for_rank()
 	onboarding_overlay.visible = false
 	_refresh_scholastic_dash_visibility()
 	_maybe_show_sfa_join_cta(true)
@@ -2432,31 +2468,6 @@ func _on_onboarding_guide_prompt_confirmed() -> void:
 
 func _on_onboarding_guide_prompt_canceled() -> void:
 	status_label.text = "Quick Start guide skipped."
-
-func _ensure_profile_registered_for_rank() -> void:
-	if ProfileManager == null or not ProfileManager.has_method("get_user_id") or not ProfileManager.has_method("get_display_name"):
-		return
-	var existing_player_id: String = str(ProfileManager.call("get_user_id")).strip_edges()
-	var existing_entap_id: String = str(ProfileManager.call("get_entap_id")).strip_edges() if ProfileManager.has_method("get_entap_id") else ""
-	if not existing_player_id.is_empty() and not existing_entap_id.is_empty():
-		return
-	var call_sign: String = str(ProfileManager.call("get_display_name")).strip_edges()
-	if call_sign.is_empty():
-		return
-	var rank_state: Node = get_node_or_null("/root/RankState")
-	if rank_state == null or not rank_state.has_method("intent_register_player"):
-		return
-	var install_metadata: Dictionary = {
-		"client": "swarmfront",
-		"platform": OS.get_name(),
-		"source": "main_menu"
-	}
-	var result: Dictionary = rank_state.call("intent_register_player", "", call_sign, "NA", [], install_metadata, false) as Dictionary
-	if not bool(result.get("ok", false)):
-		SFLog.warn("PROFILE_RANK_REGISTRATION_FAILED", {
-			"reason": str(result.get("reason", result.get("err", "unknown"))),
-			"call_sign": call_sign
-		}, "", 3000)
 
 func _load_fonts() -> void:
 	_font_regular = UITypography.regular_font()
@@ -2806,8 +2817,8 @@ func _style_dash_top_tabs() -> void:
 	_ensure_beta_help_tab()
 	if dash_tabs != null:
 		dash_tabs.alignment = BoxContainer.ALIGNMENT_CENTER
-		dash_tabs.add_theme_constant_override("separation", 12)
-	for button in [dash_garage_tab, dash_buffs_tab, dash_achievements_tab, _dash_friends_tab, _dash_help_tab, _dash_scholastic_tab, dash_settings_tab]:
+		dash_tabs.add_theme_constant_override("separation", 8)
+	for button in [dash_garage_tab, dash_buffs_tab, dash_achievements_tab, _dash_friends_tab, _dash_help_tab, _dash_scholastic_tab, dash_settings_tab, _payout_proof_button]:
 		if button == null:
 			continue
 		button.toggle_mode = button != _dash_help_tab
@@ -2863,7 +2874,7 @@ func _wire_buttons() -> void:
 	menu_free_roll_button.pressed.connect(_open_free_roll_split)
 	menu_cash_button.pressed.connect(_open_cash_split)
 	menu_battle_pass_button.pressed.connect(_on_battle_pass_pressed)
-	menu_jukebox_button.pressed.connect(_open_jukebox_from_menu_button)
+	menu_jukebox_button.pressed.connect(_open_campaign)
 	if menu_unused_button != null:
 		menu_unused_button.pressed.connect(_open_tournament_panel)
 	hive_button.pressed.connect(_toggle_hive_dropdown)
@@ -7167,6 +7178,8 @@ func _current_profile_handle() -> String:
 	return "Player"
 
 func _refresh_profile_handle_labels() -> void:
+	if _home_menu != null:
+		_home_menu.call("refresh_identity")
 	var handle: String = _current_profile_handle()
 	if welcome_handle_label != null:
 		var welcome_text: String = "Welcome %s" % handle
@@ -8619,6 +8632,8 @@ func _bottom_nav_scaled_button_size(row_button_count: int) -> Vector2:
 	return Vector2(max_width, floor(target_size.y * fit_scale))
 
 func _apply_bottom_nav_layout() -> void:
+	if _home_menu != null:
+		return
 	if menu_buttons_row == null:
 		return
 	var utility_row: HBoxContainer = _ensure_bottom_nav_two_row_layout()
@@ -8659,7 +8674,7 @@ func _apply_bottom_nav_layout() -> void:
 	var status_top: float = menu_buttons_row.offset_bottom + 6.0
 	status_label.offset_top = status_top
 	status_label.offset_bottom = status_top + 30.0
-	bottom_bar.offset_top = -(status_label.offset_bottom + 8.0)
+	bottom_bar.offset_top = -(status_label.offset_bottom + 8.0 + BOTTOM_NAV_BOTTOM_LIFT)
 
 func _usd_skin_candidates(amount: int) -> PackedStringArray:
 	var candidates: PackedStringArray = PackedStringArray()
@@ -10858,6 +10873,8 @@ func _ensure_dash_replay_map_view() -> void:
 		note.text = "Saved visual replay frames from the most recent match."
 
 func _auto_start_home_replay() -> void:
+	if _home_menu != null:
+		return
 	if not is_inside_tree():
 		return
 	if onboarding_overlay != null and onboarding_overlay.visible:
@@ -10889,6 +10906,9 @@ func _open_latest_match_replay(auto_play: bool = false) -> void:
 func _refresh_home_replay_hint() -> void:
 	if _latest_replay_data.is_empty():
 		_refresh_latest_match_replay_cache()
+	if _home_menu != null:
+		var replay_summary: String = "%s · %s · %s" % [str(_latest_replay_data.get("result", "")), str(_latest_replay_data.get("map", "")), str(_latest_replay_data.get("duration", ""))]
+		_home_menu.call("set_replay", replay_summary, not _latest_replay_data.is_empty())
 	if hero_title_label != null:
 		hero_title_label.text = "Last Match Replay"
 	if hero_sub_label == null:
@@ -12373,6 +12393,45 @@ func _open_insufficient_balance_modal(subtitle: String = "Would you like to:") -
 	_apply_free_roll_atlas_font(free_roll, 13)
 	_style_game_hub_cancel_button(cancel)
 	_entry_route_modal = panel
+	var journey = preload("res://scripts/ui/menu_journey_frame.gd").new()
+	panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	panel.add_child(journey)
+	var heading: Label = body.get_node("EntryTitle")
+	var explanation: Label = body.get_node("EntrySubtitle")
+	cancel.text = "BACK TO MAIN MENU"
+	journey.configure(heading, cancel, free_roll)
+	# Preserve the existing overlay artwork behind the new layout.
+	journey.add_theme_stylebox_override("panel", journey.Style.surface(Color.TRANSPARENT, Color.TRANSPARENT, 0))
+	var info := PanelContainer.new()
+	info.add_theme_stylebox_override("panel", journey.Style.surface(Color(0.055, 0.065, 0.08, 0.96), Color("424957")))
+	journey.body.add_child(info)
+	var info_copy := VBoxContainer.new()
+	info_copy.add_theme_constant_override("separation", 24)
+	info.add_child(info_copy)
+	journey.adopt(explanation, info_copy)
+	journey.label(explanation, 44)
+	var availability := Label.new()
+	availability.text = "Adding funds and cards is not available in this build. You can play a Free Roll or return to the main menu."
+	journey.label(availability)
+	info_copy.add_child(availability)
+	for button in [add_funds, add_card]:
+		journey.adopt(button, journey.body)
+		journey.action(button)
+		button.disabled = true
+		button.text += " · UNAVAILABLE"
+	# Keep the existing CANCEL artwork and scale it with its touch target.
+	cancel.text = ""
+	cancel.tooltip_text = "Cancel and return to the main menu"
+	if cancel.icon != null:
+		var cancel_art := AtlasTexture.new()
+		cancel_art.atlas = cancel.icon
+		var art_size := cancel.icon.get_size()
+		# The source includes broad empty margins above and below its button band.
+		cancel_art.region = Rect2(0, art_size.y * 0.20, art_size.x, art_size.y * 0.50)
+		cancel.icon = cancel_art
+	cancel.add_theme_constant_override("icon_max_width", 600)
+	cancel.custom_minimum_size.y = 164
+	panel.get_node("EntryScroll").hide()
 
 func _open_crucible_confirmation() -> void:
 	if not _public_rollout_allows_mode("CRUCIBLE"):
@@ -12567,6 +12626,7 @@ func _format_crucible_wax_millis(millis: int) -> String:
 
 func _open_game_hub(paid: bool, denomination: int) -> void:
 	_close_top_level_windows(UI_SURFACE_ENTRY)
+	status_label.text = ""
 	var selected_denom: int = denomination
 	if paid and selected_denom <= 0:
 		selected_denom = _default_money_denomination()
@@ -12670,6 +12730,7 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 		_enable_touch_drag_scroll(panel.get_node_or_null("EntryScroll") as ScrollContainer)
 		_entry_route_modal = panel
 		_refresh_money_games_paid_route_buttons()
+		_install_readable_game_hub(panel, true)
 		return
 	if not paid:
 		_add_game_hub_spacer(match_type_block, GAME_HUB_FREE_SECTION_SPACER_PX)
@@ -12756,6 +12817,13 @@ func _open_game_hub(paid: bool, denomination: int) -> void:
 	_configure_game_hub_option_button(cancel, broadcast_free_roll)
 	_enable_touch_drag_scroll(panel.get_node_or_null("EntryScroll") as ScrollContainer)
 	_entry_route_modal = panel
+	if paid:
+		_refresh_money_games_paid_route_buttons()
+
+func _install_readable_game_hub(panel: Panel, paid: bool) -> void:
+	var presentation := preload("res://scripts/ui/game_hub_readability.gd").new()
+	panel.add_child(presentation)
+	presentation.configure(self, panel, paid)
 	if paid:
 		_refresh_money_games_paid_route_buttons()
 
@@ -12908,6 +12976,7 @@ func _open_free_roll_game_hub(selected_denom: int = 0) -> void:
 	_configure_free_roll_game_hub_scene(panel, selected_denom)
 	_enable_touch_drag_scroll(panel.get_node_or_null("EntryScroll") as ScrollContainer)
 	_entry_route_modal = panel
+	_install_readable_game_hub(panel, false)
 
 func _shift_free_roll_overlay_down(panel: Panel) -> void:
 	if panel == null:
@@ -13582,6 +13651,7 @@ func _build_money_games_division_layer(body: VBoxContainer, panel: Panel, broadc
 	if body == null:
 		return
 	var tabs_row := HBoxContainer.new()
+	tabs_row.name = "MoneyDivisions"
 	tabs_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tabs_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	tabs_row.add_theme_constant_override("separation", 12)
@@ -13593,6 +13663,7 @@ func _build_money_games_division_layer(body: VBoxContainer, panel: Panel, broadc
 	body.add_child(entry_label)
 	_apply_font(entry_label, _font_semibold, MONEY_ENTRY_LABEL_SIZE)
 	var tier_row := HBoxContainer.new()
+	tier_row.name = "MoneyEntryTiers"
 	tier_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	tier_row.alignment = BoxContainer.ALIGNMENT_CENTER
 	tier_row.add_theme_constant_override("separation", 14)
@@ -13604,6 +13675,7 @@ func _build_money_games_division_layer(body: VBoxContainer, panel: Panel, broadc
 	body.add_child(division_arena_label)
 	_apply_font(division_arena_label, _font_semibold, MONEY_ARENA_LABEL_SIZE)
 	var entry_fee_label := Label.new()
+	entry_fee_label.name = "MoneyEntryFee"
 	entry_fee_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	entry_fee_label.add_theme_color_override("font_color", MONEY_ENTRY_LABEL_COLOR)
 	body.add_child(entry_fee_label)
@@ -13613,6 +13685,7 @@ func _build_money_games_division_layer(body: VBoxContainer, panel: Panel, broadc
 	for division_id in MONEY_DIVISION_TAB_IDS:
 		var bound_division_id: String = division_id
 		var tab_button := Button.new()
+		tab_button.set_meta("sf_money_division_id", bound_division_id)
 		tab_button.custom_minimum_size = MONEY_DIVISION_TAB_SIZE
 		var label_text: String = str(MONEY_DIVISION_LABELS.get(bound_division_id, "DIVISION"))
 		if bound_division_id == MONEY_DIVISION_CLASSIFIED:
@@ -13853,6 +13926,9 @@ func _refresh_money_games_paid_route_buttons() -> void:
 	for button in buttons:
 		_refresh_money_game_paid_route_button(button)
 	_refresh_money_games_paid_contest_buttons(_entry_route_modal)
+	var readable_hub: Node = _entry_route_modal.get_node_or_null("ReadableHub")
+	if readable_hub != null:
+		readable_hub.call("refresh_money")
 
 func _refresh_money_games_paid_contest_buttons(root_node: Node) -> void:
 	if root_node == null:
@@ -14255,6 +14331,8 @@ func _set_game_hub_option_hover_state(
 		return
 	if not is_instance_valid(button) or not is_instance_valid(edge) or not is_instance_valid(shell_tone) or not is_instance_valid(inner_glow):
 		return
+	if button.has_meta("sf_readable_menu"):
+		return
 	if button.disabled:
 		return
 	button.set_meta("sf_game_hub_hovered", hovered)
@@ -14308,6 +14386,8 @@ func _set_game_hub_option_pressed_state(
 	if button == null:
 		return
 	if not is_instance_valid(button):
+		return
+	if button.has_meta("sf_readable_menu"):
 		return
 	if button.disabled:
 		return
@@ -15109,12 +15189,14 @@ func _open_async_entry_selector(free_roll: bool) -> void:
 
 func _open_vs_mode_select_panel(free_roll: bool, preset_mode: String = "", denomination: int = 0) -> void:
 	_close_top_level_windows(UI_SURFACE_PLAY_MODE)
+	_close_play_mode_select()
 	var panel := preload("res://scenes/ui/VsModeSelect.tscn").instantiate()
 	if panel.has_method("configure_entry"):
 		panel.call("configure_entry", free_roll, denomination)
 	if not preset_mode.is_empty() and panel.has_method("configure_preset_mode"):
 		panel.call("configure_preset_mode", preset_mode)
-	panel.closed.connect(func(): panel.queue_free())
+	_vs_mode_select = panel
+	panel.closed.connect(_close_play_mode_select)
 	add_child(panel)
 
 func _paid_entries_enabled() -> bool:
@@ -15253,33 +15335,29 @@ func _build_entry_overlay(title: String, subtitle: String, size: Vector2 = Vecto
 func _ensure_payout_proof_button() -> void:
 	if _payout_proof_button != null and is_instance_valid(_payout_proof_button):
 		return
+	if dash_tabs == null:
+		return
 	_payout_proof_button = Button.new()
 	_payout_proof_button.name = "PayoutProofButton"
 	_payout_proof_button.text = "$"
 	_payout_proof_button.tooltip_text = "Payout proof"
 	_payout_proof_button.focus_mode = Control.FOCUS_NONE
-	_payout_proof_button.custom_minimum_size = Vector2(44.0, 44.0)
-	_payout_proof_button.modulate = Color(1.0, 1.0, 1.0, 0.68)
-	_payout_proof_button.z_index = 90
+	_payout_proof_button.custom_minimum_size = Vector2(64.0, DASH_TOP_TAB_SIZE.y)
+	_payout_proof_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
 	_payout_proof_button.pressed.connect(_open_payout_proof_panel)
-	add_child(_payout_proof_button)
+	dash_tabs.add_child(_payout_proof_button)
 	_apply_font(_payout_proof_button, _font_semibold, 18)
-	_style_button(_payout_proof_button, Color(0.05, 0.07, 0.08, 0.34), Color(0.87, 0.70, 0.25, 0.58), Color(1.0, 0.88, 0.46, 0.92))
+	_apply_dash_top_tab_style(_payout_proof_button, false)
 	_layout_payout_proof_button()
 
 func _layout_payout_proof_button() -> void:
 	if _payout_proof_button == null or not is_instance_valid(_payout_proof_button):
 		return
-	_payout_proof_button.layout_mode = 1
-	_payout_proof_button.anchor_left = 1.0
-	_payout_proof_button.anchor_right = 1.0
-	_payout_proof_button.anchor_top = 1.0
-	_payout_proof_button.anchor_bottom = 1.0
-	_payout_proof_button.offset_left = -74.0
-	_payout_proof_button.offset_right = -24.0
-	_payout_proof_button.offset_top = -148.0
-	_payout_proof_button.offset_bottom = -98.0
-	_payout_proof_button.move_to_front()
+	_payout_proof_button.custom_minimum_size = Vector2(64.0, DASH_TOP_TAB_SIZE.y)
+	_payout_proof_button.size_flags_horizontal = Control.SIZE_SHRINK_CENTER
+	if dash_tabs != null and _payout_proof_button.get_parent() == dash_tabs and _dash_friends_tab != null:
+		var target_index: int = mini(_dash_friends_tab.get_index() + 1, dash_tabs.get_child_count() - 1)
+		dash_tabs.move_child(_payout_proof_button, target_index)
 
 func _open_payout_proof_panel() -> void:
 	_close_top_level_windows(UI_SURFACE_ENTRY)
@@ -16072,6 +16150,8 @@ func _format_async_stage_total_time_ms(value_ms: int) -> String:
 	return "%02d:%02d.%03d" % [minutes, seconds, millis]
 
 func _close_entry_route_modal() -> void:
+	# A dismissed selector must not suppress a fresh tap on the returning screen.
+	_free_roll_press_block_until_msec = 0
 	if _entry_route_modal != null and is_instance_valid(_entry_route_modal):
 		_entry_route_modal.queue_free()
 	else:
@@ -16081,6 +16161,9 @@ func _close_entry_route_modal() -> void:
 	_entry_route_modal = null
 
 func _close_play_mode_select() -> void:
+	if is_instance_valid(_vs_mode_select):
+		_vs_mode_select.queue_free()
+	_vs_mode_select = null
 	if _play_mode_select == null:
 		return
 	if is_instance_valid(_play_mode_select):
@@ -16332,6 +16415,7 @@ func _on_dash_settings_close_pressed() -> void:
 	_close_dash_panel(dash_settings_panel)
 
 func _toggle_dash() -> void:
+	dash_tab.show()
 	_play_mm_base_drop_sfx()
 	if _hive_dropdown_open:
 		_hide_hive_dropdown_immediate()
@@ -16554,26 +16638,76 @@ func _ensure_async_contest_dash_panel() -> void:
 		_set_hex_buttons()
 
 func _open_jukebox_panel() -> void:
-	if _jukebox_panel == null:
-		_ensure_jukebox_panel()
-	if _jukebox_panel == null:
-		return
-	_play_mm_base_drop_sfx()
-	_close_top_level_windows(UI_SURFACE_DASH)
-	_jukebox_direct_mode = true
-	_hide_dash_panels()
-	_set_dash_chrome_visible(false)
-	_set_dash_panel_store_passthrough(false)
-	_set_dash_offsets(0.0)
-	dash_panel.visible = true
-	_jukebox_panel.visible = true
-	_dash_open = true
+	_open_challenge_hub("jukebox")
 
 func _close_jukebox_panel() -> void:
-	_jukebox_direct_mode = false
-	if _jukebox_panel != null:
-		_jukebox_panel.visible = false
-	_set_dash_hidden_state()
+	_close_challenge_hub()
+
+func _ensure_campaign_navigation() -> void:
+	menu_jukebox_button.text = "CAMPAIGN"
+	menu_jukebox_button.tooltip_text = "Continue your single-player campaign"
+	var skin: Control = menu_jukebox_button.get_node_or_null("SkinTex") as Control
+	if skin != null:
+		skin.visible = false
+	menu_jukebox_button.add_theme_color_override("font_color", Color("ffe19a"))
+	menu_jukebox_button.add_theme_color_override("font_hover_color", Color.WHITE)
+	menu_jukebox_button.add_theme_color_override("font_pressed_color", Color.WHITE)
+	menu_jukebox_button.add_theme_font_size_override("font_size", 44)
+	var surface := StyleBoxFlat.new()
+	surface.bg_color = Color("202938")
+	surface.border_color = Color("d9b95d")
+	surface.set_border_width_all(2)
+	surface.set_corner_radius_all(12)
+	menu_jukebox_button.add_theme_stylebox_override("normal", surface)
+	menu_jukebox_button.add_theme_stylebox_override("hover", surface)
+	menu_jukebox_button.add_theme_stylebox_override("pressed", surface)
+	menu_jukebox_button.flat = false
+	if dash_root != null and not dash_root.has_node("JukeboxEntry"):
+		var button := Button.new()
+		button.name = "JukeboxEntry"
+		button.text = "JUKEBOX · CHOOSE A CAMPAIGN CHALLENGE"
+		button.custom_minimum_size.y = 132
+		button.add_theme_font_size_override("font_size", 40)
+		dash_root.add_child(button)
+		dash_root.move_child(button, 2)
+		button.pressed.connect(_open_jukebox_panel)
+
+func _open_campaign() -> void:
+	_open_challenge_hub("campaign")
+
+func _open_challenge_hub(mode: String, level_id: String = "") -> void:
+	_close_top_level_windows(UI_SURFACE_DASH)
+	if is_instance_valid(_challenge_hub):
+		_challenge_hub.queue_free()
+	var script = preload("res://scripts/ui/campaign_hub_panel.gd")
+	_challenge_hub = script.new()
+	_challenge_hub.name = "CampaignHub" if mode == "campaign" else "JukeboxHub"
+	_challenge_hub.set("mode", mode)
+	_challenge_hub.set("selected_id", level_id)
+	_challenge_hub.z_index = 100
+	add_child(_challenge_hub)
+	_challenge_hub.call("set_content_top_offset", _top_safe_area_inset_px())
+	_challenge_hub.connect("closed", _close_challenge_hub)
+
+func _close_challenge_hub() -> void:
+	if not is_instance_valid(_challenge_hub):
+		return
+	var from_jukebox: bool = str(_challenge_hub.get("mode")) == "jukebox"
+	_challenge_hub.queue_free()
+	_challenge_hub = null
+	if from_jukebox:
+		_set_dash_chrome_visible(true)
+		_set_dash_offsets(0.0)
+		dash_panel.visible = true
+		_dash_open = true
+
+func _apply_campaign_return() -> void:
+	var tree := get_tree()
+	if not tree.has_meta("campaign_return"):
+		return
+	var context: Dictionary = tree.get_meta("campaign_return", {})
+	tree.remove_meta("campaign_return")
+	_open_challenge_hub(str(context.get("entry", "campaign")), str(context.get("level_id", "")))
 
 func _open_async_contest_dash_panel() -> void:
 	if _async_contest_dash_panel == null:

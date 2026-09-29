@@ -28,8 +28,8 @@ export const config = {
     enableRollupScheduler: parseBoolean(process.env.ENABLE_ROLLUP_SCHEDULER, true),
     rollupHourlyEnabled: parseBoolean(process.env.ROLLUP_HOURLY_ENABLED, true),
     rollupDailyEnabled: parseBoolean(process.env.ROLLUP_DAILY_ENABLED, true),
-    adminBootstrapUsername: process.env.ADMIN_BOOTSTRAP_USERNAME ?? "Mattballou",
-    adminBootstrapPassword: process.env.ADMIN_BOOTSTRAP_PASSWORD ?? "$warmFr0nt"
+    adminBootstrapUsername: process.env.ADMIN_BOOTSTRAP_USERNAME?.trim() ?? "",
+    adminBootstrapPassword: process.env.ADMIN_BOOTSTRAP_PASSWORD ?? ""
 };
 if (!config.databaseUrl) {
     throw new Error("DATABASE_URL is required");

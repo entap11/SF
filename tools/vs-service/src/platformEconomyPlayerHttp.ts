@@ -2,6 +2,7 @@ import type { Request, Response as ExpressResponse } from "express";
 import { config } from "./config.js";
 import { bearerPlayerToken, PlayerAuthError, verifyPlayerToken } from "./playerAuth.js";
 import type { JsonRecord } from "./repositories/durableCore.js";
+import { fetchDependency } from "./httpDependency.js";
 
 const ACTIONS = new Set(["get_honey_balance", "debit_honey"]);
 
@@ -23,9 +24,10 @@ export async function handlePlatformEconomyPlayerAction(action: string, req: Req
       throw new PlayerAuthError("identity_mismatch", 403);
     }
     if (action === "get_honey_balance") {
-      const response = await fetch(`${config.rankServiceUrl}/v1/platform/economy/me`, {
+      const response = await fetchDependency("rank.platform_economy.me",
+        `${config.rankServiceUrl}/v1/platform/economy/me`, {
         headers: { Authorization: `Bearer ${token}` }
-      });
+      }, config.rankServiceTimeoutMs);
       const body = await safeJson(response);
       if (!response.ok || body.ok !== true) { proxyFailure(res, response.status, body); return true; }
       res.json({ ...body, balance_centi: Number(body.honey_centi ?? 0) });
@@ -35,11 +37,12 @@ export async function handlePlatformEconomyPlayerAction(action: string, req: Req
     if (!actionId.startsWith("store_sku:") && !actionId.startsWith("analysis_")) {
       fail(res, "catalog_action_required", 400); return true;
     }
-    const response = await fetch(`${config.rankServiceUrl}/v1/platform/economy/honey/spend`, {
+    const response = await fetchDependency("rank.platform_economy.honey_spend",
+      `${config.rankServiceUrl}/v1/platform/economy/honey/spend`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
       body: JSON.stringify({ request_id: text(req.body?.idempotency_key), catalog_action_id: actionId })
-    });
+    }, config.rankServiceTimeoutMs);
     const body = await safeJson(response);
     if (!response.ok || body.ok !== true) { proxyFailure(res, response.status, body); return true; }
     res.json(body);

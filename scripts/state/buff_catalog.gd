@@ -104,15 +104,15 @@ static func _sprite_stems_for(canonical_id: String) -> PackedStringArray:
 		BuffDefinitions.HIVE_SHIELD_GLOBAL:
 			return PackedStringArray(["hive_global_hivedefense"])
 		BuffDefinitions.HIVE_SHOCK_IMMUNITY:
-			return PackedStringArray(["hive_lane_hivedefense", "hive_global_hivedefense"])
+			return PackedStringArray(["hive_shock_immunity"])
 		BuffDefinitions.HIVE_GLOBAL_SHOCK_IMMUNITY:
-			return PackedStringArray(["hive_global_hivedefense", "hive_lane_hivedefense"])
+			return PackedStringArray(["hive_global_shock_immunity"])
 		BuffDefinitions.HIVE_SUPERCHARGE_QUEUE:
-			return PackedStringArray(["hive_global_production", "hive_lane_production"])
+			return PackedStringArray(["hive_supercharge_queue"])
 		BuffDefinitions.LANE_FREEZE:
-			return PackedStringArray(["tower_rangeincrease_local"])
+			return PackedStringArray(["lane_freeze"])
 		BuffDefinitions.LANE_TREACHEROUS:
-			return PackedStringArray(["tower_doubletap"])
+			return PackedStringArray(["lane_treacherous"])
 	return PackedStringArray()
 
 static func _register_entry(entry: Dictionary) -> void:

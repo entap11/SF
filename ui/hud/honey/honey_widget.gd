@@ -13,6 +13,7 @@ const DEFAULT_WIDGET_HEIGHT: float = 200.0
 
 @export var viewport_path: NodePath = NodePath("HoneyViewport")
 @export var display_path: NodePath = NodePath("HoneyDisplay")
+@export var text_row_path: NodePath = NodePath("HoneyViewport/HoneyRenderRoot/HoneyTextRow")
 @export var prefix_label_path: NodePath = NodePath("HoneyViewport/HoneyRenderRoot/HoneyTextRow/HoneyPrefixLabel")
 @export var value_label_path: NodePath = NodePath("HoneyViewport/HoneyRenderRoot/HoneyTextRow/HoneyValueLabel")
 @export var label_path: NodePath = NodePath("HoneyViewport/HoneyRenderRoot/HoneyRenderLabel")
@@ -32,6 +33,7 @@ static var _boot_drip_emitted: bool = false
 var _profile_manager: Node = null
 var _honey_viewport: SubViewport = null
 var _honey_display: TextureRect = null
+var _honey_text_row: VBoxContainer = null
 var _honey_prefix_label: Label = null
 var _honey_value_label: Label = null
 var _drip_spawn_point: Node2D = null
@@ -107,6 +109,7 @@ func set_honey_value(new_value: int, reason: String = "", emit_gain: bool = true
 func _resolve_nodes() -> void:
 	_honey_viewport = get_node_or_null(viewport_path) as SubViewport
 	_honey_display = get_node_or_null(display_path) as TextureRect
+	_honey_text_row = get_node_or_null(text_row_path) as VBoxContainer
 	_honey_prefix_label = get_node_or_null(prefix_label_path) as Label
 	_honey_value_label = get_node_or_null(value_label_path) as Label
 	_use_legacy_single_label = false
@@ -170,6 +173,7 @@ func _update_honey_label() -> void:
 	if _honey_prefix_label != null:
 		_honey_prefix_label.text = honey_prefix.strip_edges()
 	_honey_value_label.text = _format_number(_current_honey)
+	_align_text_block_to_value_left()
 
 func _accumulate_gain(delta: int) -> void:
 	if delta <= 0:
@@ -471,7 +475,7 @@ func _apply_text_layout() -> void:
 		target_height = custom_minimum_size.y
 	if target_height < 1.0:
 		target_height = DEFAULT_WIDGET_HEIGHT
-	var prefix_size: int = maxi(12, int(round(target_height * 0.16)))
+	var prefix_size: int = maxi(12, int(round(target_height * 0.32)))
 	var value_size: int = maxi(prefix_size + 12, int(round(target_height * 0.50)))
 	if _label_size_hint > 0:
 		prefix_size = maxi(prefix_size, int(round(float(_label_size_hint) * 0.72)))
@@ -485,6 +489,24 @@ func _apply_text_layout() -> void:
 		if _label_font != null:
 			_honey_value_label.add_theme_font_override("font", _label_font)
 		_honey_value_label.add_theme_font_size_override("font_size", value_size)
+	_align_text_block_to_value_left()
+
+func _align_text_block_to_value_left() -> void:
+	if _honey_text_row == null or _honey_prefix_label == null or _honey_value_label == null:
+		return
+	_honey_prefix_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	_honey_value_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_LEFT
+	var row_parent: Control = _honey_text_row.get_parent() as Control
+	var available_width: float = DEFAULT_WIDGET_WIDTH - 4.0
+	if row_parent != null and row_parent.size.x > 4.0:
+		available_width = row_parent.size.x - 4.0
+	var prefix_width: float = _measure_label_text(_honey_prefix_label, _honey_prefix_label.text).x
+	var value_width: float = _measure_label_text(_honey_value_label, _honey_value_label.text).x
+	var block_width: float = minf(available_width, ceilf(maxf(prefix_width, value_width) + 4.0))
+	_honey_text_row.anchor_left = 1.0
+	_honey_text_row.anchor_right = 1.0
+	_honey_text_row.offset_left = -2.0 - block_width
+	_honey_text_row.offset_right = -2.0
 
 func _ensure_prefix_label_styling() -> void:
 	if _honey_prefix_label == null:

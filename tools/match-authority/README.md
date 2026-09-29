@@ -13,6 +13,10 @@ npm run build
 npm run smoke
 ```
 
+`MATCH_AUTHORITY_HTTP_TIMEOUT_MS` bounds each worker-to-VS request and defaults
+to `10000`. `MATCH_AUTHORITY_REPLAY_TIMEOUT_MS` separately bounds each Godot
+replay process.
+
 The smoke launches real headless Godot twice, proves a stable terminal hash,
 rejects a wrong map hash, exercises replay-disagreement no-contest, validates
 trusted lifecycle forfeit/no-contest receipts, and verifies the ES256 signature.

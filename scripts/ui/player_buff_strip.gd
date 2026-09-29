@@ -15,11 +15,7 @@ const TEAM_COLOR_P1: Color = Color(0.85, 0.72, 0.12, 1.0)
 const TEAM_COLOR_P2: Color = Color(0.95, 0.20, 0.20, 1.0)
 const TEAM_COLOR_P3: Color = Color(0.13, 0.55, 0.23, 1.0)
 const TEAM_COLOR_P4: Color = Color(0.08, 0.28, 0.75, 1.0)
-const TIER_DURATION_MS := {
-	"classic": 10000,
-	"premium": 15000,
-	"elite": 20000
-}
+const BuffCatalog := preload("res://scripts/state/buff_catalog.gd")
 
 const POINTER_TOUCH: String = "touch"
 const POINTER_MOUSE: String = "mouse"
@@ -80,7 +76,7 @@ func apply_snapshot(snapshot: Dictionary) -> void:
 	for i in range(_slots.size()):
 		var slot_data: Dictionary = {}
 		if i < slots.size() and typeof(slots[i]) == TYPE_DICTIONARY:
-			slot_data = slots[i] as Dictionary
+			slot_data = (slots[i] as Dictionary).duplicate(true)
 		slot_data["index"] = i
 		slot_data["locked"] = bool(slot_data.get("locked", i >= slots_active))
 		if bool(slot_data.get("active", false)):
@@ -493,8 +489,7 @@ func _apply_slot_visual(slot_index: int, slot_data: Dictionary) -> void:
 		# Keep the duration fill/countdown, but remove the buff sprite at 0/2.
 		show_icon = not (uses_total == 2 and uses_remaining <= 0)
 		remaining_ms = _active_remaining_ms(slot_index, slot_data)
-		var tier_key: String = tier_text.to_lower()
-		var duration_ms: int = int(TIER_DURATION_MS.get(tier_key, TIER_DURATION_MS["classic"]))
+		var duration_ms: int = _slot_duration_ms(slot_data)
 		active_fill_pct = clampf(float(remaining_ms) / float(maxi(1, duration_ms)), 0.0, 1.0)
 		countdown_text = "%.1f" % (float(remaining_ms) / 1000.0)
 	elif consumed:
@@ -533,12 +528,18 @@ func _update_active_slot_runtime_fx(slot_index: int, slot_data: Dictionary) -> v
 		return
 	if not bool(slot_data.get("active", false)):
 		return
-	var tier_key: String = str(slot_data.get("tier", "classic")).to_lower()
-	var duration_ms: int = int(TIER_DURATION_MS.get(tier_key, TIER_DURATION_MS["classic"]))
+	var duration_ms: int = _slot_duration_ms(slot_data)
 	var remaining_ms: int = _active_remaining_ms(slot_index, slot_data)
 	var fill_pct: float = clampf(float(remaining_ms) / float(maxi(1, duration_ms)), 0.0, 1.0)
 	_set_slot_active_fill(slot_index, fill_pct, _team_color_for_pid(_snapshot_pid))
 	_set_slot_countdown(slot_index, "%.1f" % (float(remaining_ms) / 1000.0), remaining_ms > 0)
+
+func _slot_duration_ms(slot_data: Dictionary) -> int:
+	var duration_ms: int = int(slot_data.get("duration_ms", 0))
+	if duration_ms <= 0:
+		var buff: Dictionary = BuffCatalog.get_buff(str(slot_data.get("id", "")))
+		duration_ms = int(round(float(buff.get("duration_sec", 0.0)) * 1000.0))
+	return maxi(1, duration_ms)
 
 func _set_slot_active_fill(slot_index: int, fill_pct: float, team_color: Color) -> void:
 	if slot_index < 0 or slot_index >= _fill_overlays.size() or slot_index >= _slots.size():

@@ -6,6 +6,9 @@ const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
 const BuffState = preload("res://scripts/state/buff_state.gd")
 
 const PREMIUM_BUFF: String = "buff_unit_speed_premium"
+const PREMIUM_BUFF_2: String = "buff_swarm_damage_premium"
+const ELITE_BUFF: String = "buff_unit_speed_elite"
+const ELITE_BUFF_2: String = "buff_swarm_damage_elite"
 const STARTER_HIVE: String = "buff_hive_faster_production_classic"
 const STARTER_TOWER: String = "buff_tower_fire_rate_classic"
 const TEST_USER_ID: String = "018f2b2c-1234-7abc-8def-123456789abc"
@@ -41,6 +44,21 @@ func _init() -> void:
 	_assert_true(int(profile.call("get_owned_buff_quantity", PREMIUM_BUFF, "vs")) == 3, "reward quantity reaches shared inventory")
 	_assert_true(int(profile.call("get_owned_buff_quantity", PREMIUM_BUFF, "async")) == 3, "mode views share one inventory quantity")
 	_assert_true(str(profile.call("get_buff_inventory_revision")) != original_revision, "inventory revision changes after a committed grant")
+	_assert_ok(profile.call("grant_buff", PREMIUM_BUFF_2, 1, "tier_cap_smoke") as Dictionary, "grant second Premium fixture")
+	_assert_ok(profile.call("grant_buff", ELITE_BUFF, 1, "tier_cap_smoke") as Dictionary, "grant first Elite fixture")
+	_assert_ok(profile.call("grant_buff", ELITE_BUFF_2, 1, "tier_cap_smoke") as Dictionary, "grant second Elite fixture")
+	_assert_true(
+		not bool(profile.call("set_buff_loadout_ids_for_mode", "vs", [PREMIUM_BUFF, PREMIUM_BUFF_2, STARTER_TOWER])),
+		"current profile path rejects a second Premium buff"
+	)
+	_assert_true(
+		not bool(profile.call("set_buff_loadout_ids_for_mode", "vs", [ELITE_BUFF, ELITE_BUFF_2, STARTER_TOWER])),
+		"current profile path rejects a second Elite buff"
+	)
+	_assert_true(
+		bool(profile.call("set_buff_loadout_ids_for_mode", "vs", [PREMIUM_BUFF, ELITE_BUFF, STARTER_TOWER])),
+		"current profile path accepts one Premium, one Elite, and one Classic"
+	)
 
 	var vs_loadout: Array = [PREMIUM_BUFF, STARTER_HIVE, STARTER_TOWER]
 	var async_loadout: Array = [PREMIUM_BUFF, STARTER_HIVE, STARTER_TOWER]
@@ -91,6 +109,15 @@ func _init() -> void:
 		var buff: Dictionary = BuffCatalog.get_buff(buff_id)
 		runtime_entries.append({"id": buff_id, "tier": str(buff.get("tier", "classic"))})
 	var runtime := BuffState.new()
+	var invalid_runtime: Dictionary = runtime.configure_loadout([
+		{"id": PREMIUM_BUFF, "tier": "premium"},
+		{"id": PREMIUM_BUFF_2, "tier": "premium"},
+		{"id": STARTER_TOWER, "tier": "classic"}
+	])
+	_assert_true(
+		not bool(invalid_runtime.get("ok", false)) and str(invalid_runtime.get("code", "")) == "too_many_premium",
+		"authoritative runtime rejects a second Premium buff"
+	)
 	runtime_entries[0]["uses"] = 2
 	runtime_entries[0]["uses_total"] = 2
 	_assert_ok(runtime.configure_loadout(runtime_entries), "runtime loadout configuration")

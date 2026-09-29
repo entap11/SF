@@ -1,5 +1,9 @@
 # Economy Beta Certification Report — 2026-08-17
 
+> September 2 update: this report preserves the pre-canary baseline. The later
+> bounded capability rollout and current reconciliation are recorded in
+> [Economy Canary Rollout Evidence — 2026-09-02](canary-rollout-evidence-2026-09-02.md).
+
 ## Decision
 
 The authoritative Platform economy foundation and zero opening epoch are

@@ -71,9 +71,9 @@
     "flush_interval_sec": 30
   },
   "support": {
-    "email": "support@entap.games",
-    "privacy_url": "https://entap.games/privacy",
-    "terms_url": "https://entap.games/terms",
-    "data_deletion_url": "mailto:support@entap.games"
+    "email": "biodynamic.ai@gmail.com",
+    "privacy_url": "https://swarmfront.games/privacy",
+    "terms_url": "https://swarmfront.games/terms",
+    "data_deletion_url": "https://swarmfront.games/delete-account"
   }
 }

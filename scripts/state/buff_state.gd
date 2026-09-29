@@ -3,6 +3,7 @@ extends RefCounted
 
 const BuffDefinitions = preload("res://scripts/state/buff_definitions.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
+const BuffLoadoutPolicy = preload("res://scripts/state/buff_loadout_policy.gd")
 
 signal buff_state_changed(snapshot: Dictionary)
 signal buff_activated(payload: Dictionary)
@@ -11,7 +12,7 @@ signal buff_replaced(payload: Dictionary)
 signal buff_activation_rejected(payload: Dictionary)
 signal supercharge_release_requested(payload: Dictionary)
 
-const LOADOUT_SIZE: int = 3
+const LOADOUT_SIZE: int = BuffLoadoutPolicy.LOADOUT_SIZE
 const START_SLOTS: int = 2
 const OVERTIME_SLOTS: int = 3
 
@@ -74,6 +75,9 @@ func configure_loadout(entries: Array) -> Dictionary:
 			"uses_remaining": uses,
 			"ends_ms": 0
 		})
+	var policy_result: Dictionary = BuffLoadoutPolicy.validate_entries(next_slots)
+	if not bool(policy_result.get("ok", false)):
+		return policy_result
 	loadout = entries.duplicate(true)
 	slots = next_slots
 	slots_active = min(START_SLOTS, slots.size())

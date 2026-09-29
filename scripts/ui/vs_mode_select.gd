@@ -1,5 +1,10 @@
 extends Control
 
+const Journey = preload("res://scripts/ui/menu_journey_frame.gd")
+var _journey: PanelContainer
+var _entry_notice: Label
+var _entry_notice_text := ""
+
 signal closed
 
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
@@ -19,21 +24,21 @@ const CTF_FLAG_MOVE_COUNTS := [0, 1, 2]
 @onready var back_button: Button = $Panel/VBox/Header/Back
 @onready var map_row: VBoxContainer = $Panel/VBox/MapRow
 @onready var mode_label: Label = $Panel/VBox/ModeRow/ModeLabel
-@onready var mode_buttons: HBoxContainer = $Panel/VBox/ModeRow/ModeButtons
+@onready var mode_buttons: Container = $Panel/VBox/ModeRow/ModeButtons
 @onready var map_label: Label = $Panel/VBox/MapRow/MapLabel
-@onready var map_buttons: HBoxContainer = $Panel/VBox/MapRow/MapButtons
+@onready var map_buttons: Container = $Panel/VBox/MapRow/MapButtons
 @onready var ctf_settings_row: VBoxContainer = $Panel/VBox/CtfSettingsRow
 @onready var ctf_label: Label = $Panel/VBox/CtfSettingsRow/CtfLabel
-@onready var ctf_select_row: HBoxContainer = $Panel/VBox/CtfSettingsRow/CtfSelectRow
+@onready var ctf_select_row: Container = $Panel/VBox/CtfSettingsRow/CtfSelectRow
 @onready var ctf_select_prompt: Label = $Panel/VBox/CtfSettingsRow/CtfSelectRow/CtfSelectPrompt
-@onready var ctf_select_buttons: HBoxContainer = $Panel/VBox/CtfSettingsRow/CtfSelectRow/CtfSelectButtons
+@onready var ctf_select_buttons: Container = $Panel/VBox/CtfSettingsRow/CtfSelectRow/CtfSelectButtons
 @onready var ctf_move_prompt: Label = $Panel/VBox/CtfSettingsRow/CtfMoveRow/CtfMovePrompt
-@onready var ctf_move_buttons: HBoxContainer = $Panel/VBox/CtfSettingsRow/CtfMoveRow/CtfMoveButtons
-@onready var ctf_reveal_row: HBoxContainer = $Panel/VBox/CtfSettingsRow/CtfRevealRow
+@onready var ctf_move_buttons: Container = $Panel/VBox/CtfSettingsRow/CtfMoveRow/CtfMoveButtons
+@onready var ctf_reveal_row: Container = $Panel/VBox/CtfSettingsRow/CtfRevealRow
 @onready var ctf_reveal_prompt: Label = $Panel/VBox/CtfSettingsRow/CtfRevealRow/CtfRevealPrompt
-@onready var ctf_reveal_buttons: HBoxContainer = $Panel/VBox/CtfSettingsRow/CtfRevealRow/CtfRevealButtons
+@onready var ctf_reveal_buttons: Container = $Panel/VBox/CtfSettingsRow/CtfRevealRow/CtfRevealButtons
 @onready var price_label: Label = $Panel/VBox/PriceRow/PriceLabel
-@onready var price_buttons: HBoxContainer = $Panel/VBox/PriceRow/PriceButtons
+@onready var price_buttons: Container = $Panel/VBox/PriceRow/PriceButtons
 @onready var summary_label: Label = $Panel/VBox/Summary
 @onready var confirm_button: Button = $Panel/VBox/ConfirmRow/Confirm
 
@@ -45,7 +50,6 @@ var _ctf_move_count_buttons: Dictionary = {}
 var _ctf_reveal_buttons: Dictionary = {}
 var _font_regular: Font
 var _font_semibold: Font
-var _font_free_roll_atlas: Font
 
 var _selected_mode := "STAGE_RACE"
 var _selected_map_count := 3
@@ -57,9 +61,14 @@ var _free_roll := false
 var _entry_lock := "any" # "any", "free_only", "paid_only"
 
 func configure_entry(free_roll: bool, denomination: int = 0) -> void:
+	_entry_notice_text = ""
 	if not free_roll and not _paid_entries_enabled():
+		_entry_notice_text = "Paid entry is unavailable. This setup uses Free Roll."
 		free_roll = true
 		denomination = 0
+	if _entry_notice != null:
+		_entry_notice.text = _entry_notice_text
+		_entry_notice.visible = not _entry_notice_text.is_empty()
 	_entry_lock = "free_only" if free_roll else "paid_only"
 	_selected_price = 0 if free_roll else _clamp_price(denomination)
 	_free_roll = free_roll
@@ -82,6 +91,7 @@ func configure_preset_mode(mode_id: String) -> void:
 func _ready() -> void:
 	_load_fonts()
 	_apply_static_fonts()
+	_build_readable_setup()
 	back_button.pressed.connect(_on_back_pressed)
 	confirm_button.pressed.connect(_on_confirm_pressed)
 	_build_buttons()
@@ -181,13 +191,13 @@ func _build_buttons() -> void:
 	if _entry_lock != "paid_only":
 		var free_button := Button.new()
 		free_button.text = "Free Roll"
-		if not _apply_free_roll_atlas_font(free_button, 13):
-			_apply_font(free_button, _font_semibold, 13)
+		_apply_font(free_button, _font_semibold, 40)
 		free_button.toggle_mode = true
 		free_button.button_group = price_group
 		free_button.pressed.connect(func(): _select_price(0))
 		price_buttons.add_child(free_button)
 		_price_buttons[0] = free_button
+	(price_buttons as GridContainer).columns = 1 if _entry_lock == "free_only" else 3
 
 	_select_mode(_selected_mode)
 	_select_map_count(_selected_map_count)
@@ -281,6 +291,8 @@ func _is_capture_flag_mode(mode_id: String) -> bool:
 
 func _on_confirm_pressed() -> void:
 	if not _free_roll and not _paid_entries_enabled():
+		_entry_notice.text = "Paid entry is unavailable. This setup uses Free Roll."
+		_entry_notice.show()
 		_free_roll = true
 		_selected_price = 0
 		_entry_lock = "free_only"
@@ -310,10 +322,11 @@ func _on_confirm_pressed() -> void:
 	lobby.configure(_selected_mode, _selected_map_count, _selected_price, _free_roll, options)
 	lobby.closed.connect(func():
 		lobby.queue_free()
-		visible = true
+		_journey.show()
+		confirm_button.grab_focus()
 	)
 	add_child(lobby)
-	visible = false
+	_journey.hide()
 
 func _paid_entries_enabled() -> bool:
 	var ops_config: Node = get_node_or_null("/root/OpsConfig")
@@ -327,10 +340,9 @@ func _on_back_pressed() -> void:
 func _load_fonts() -> void:
 	_font_regular = UITypography.regular_font()
 	_font_semibold = UITypography.semibold_font()
-	_font_free_roll_atlas = UITypography.free_roll_font()
 
 func _apply_static_fonts() -> void:
-	_apply_free_roll_atlas_font(title_label, 20)
+	_apply_font(title_label, _font_semibold, 60)
 	_apply_font(back_button, _font_regular, 14)
 	_apply_font(mode_label, _font_semibold, 14)
 	_apply_font(map_label, _font_semibold, 14)
@@ -343,10 +355,13 @@ func _apply_static_fonts() -> void:
 	_apply_font(confirm_button, _font_semibold, 14)
 
 func _apply_font(node: Control, font: Font, size: int) -> void:
-	UITypography.apply_font(node, font, size)
+	UITypography.apply_font(node, font, maxi(34, size))
+	if node is Button:
+		Journey.action(node)
+		node.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	elif node is Label:
+		Journey.label(node, maxi(38, size))
 
-func _apply_free_roll_atlas_font(node: Control, size: int) -> bool:
-	return UITypography.apply_free_roll_atlas_font(node, size)
 
 func _sync_button_states() -> void:
 	for mode_id in _mode_buttons.keys():
@@ -373,3 +388,27 @@ func _sync_button_states() -> void:
 		var button := _ctf_reveal_buttons.get(reveal_key) as BaseButton
 		if button != null:
 			button.button_pressed = bool(reveal_key) == _selected_ctf_flag_move_reveals
+
+func _build_readable_setup() -> void:
+	_journey = Journey.new()
+	$Panel.add_child(_journey)
+	title_label.text = "MATCH SETUP"
+	back_button.text = "BACK"
+	confirm_button.text = "CONTINUE TO LOBBY"
+	_journey.configure(title_label, back_button, confirm_button)
+	_entry_notice = Label.new()
+	_entry_notice.text = _entry_notice_text
+	_entry_notice.visible = not _entry_notice_text.is_empty()
+	Journey.label(_entry_notice)
+	_journey.body.add_child(_entry_notice)
+	for path in ["ModeRow", "MapRow", "CtfSettingsRow", "PriceRow"]:
+		var section: Control = get_node("Panel/VBox/" + path)
+		Journey.adopt(section, _journey.body)
+		section.add_theme_constant_override("separation", 16)
+		if path == "ModeRow":
+			section.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	mode_buttons.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	Journey.adopt(summary_label, _journey.footer)
+	_journey.footer.move_child(summary_label, 0)
+	Journey.label(summary_label, 34)
+	$Panel/VBox.hide()

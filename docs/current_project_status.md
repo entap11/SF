@@ -1,5 +1,8 @@
 # Current Project Status
 
+> Historical snapshot from March 12, 2026. For the current cross-workstream
+> status and priorities, see [Project Update — September 2, 2026](project_update_2026-09-02.md).
+
 Date: March 12, 2026
 
 ## Executive Summary

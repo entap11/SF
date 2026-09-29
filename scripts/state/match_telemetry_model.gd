@@ -1,7 +1,7 @@
 class_name MatchTelemetryModel
 extends RefCounted
 
-const SCHEMA_VERSION: int = 8
+const SCHEMA_VERSION: int = 9
 const SELF_SCRIPT_PATH: String = "res://scripts/state/match_telemetry_model.gd"
 
 const MATCH_TYPE_VS: int = 0
@@ -184,6 +184,7 @@ static func _default_metrics() -> Dictionary:
 		"lane_budget_utilization_ratio_vs_top_opponent_by_player": [],
 		"fully_utilized_lane_time_ratio_vs_top_opponent_by_player": [],
 		"underutilized_lane_time_ratio_vs_top_opponent_by_player": [],
+		"reaction_observations": {},
 		"reaction_time_s_by_player": [],
 		"reaction_time_samples_by_player": [],
 		"early_meaningful_actions_per_min_by_player": [],

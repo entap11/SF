@@ -56,11 +56,11 @@ func _assert_selected_denomination_menu(menu: Node, selected_denomination: int) 
 			_fail("$%d menu exposed $%d contest %s" % [selected_denomination, button_denomination, button.text])
 			return false
 		var family_label: String = str(button.get_meta("sf_paid_contest_family_label", "")).strip_edges().to_upper()
-		if button.icon == null or not button.text.strip_edges().is_empty():
-			_fail("$%d menu still uses a placeholder for %s" % [selected_denomination, family_label])
+		if not button.text.contains(family_label) or not button.text.contains("$%d" % selected_denomination):
+			_fail("$%d menu must show the mode and entry in live text for %s" % [selected_denomination, family_label])
 			return false
-		if button.tooltip_text.contains("$"):
-			_fail("$%d menu repeats denomination on contest %s" % [selected_denomination, family_label])
+		if button.custom_minimum_size.y < 140 or button.get_theme_font_size("font_size") < 44:
+			_fail("$%d contest %s is too small" % [selected_denomination, family_label])
 			return false
 		visible_labels[family_label] = true
 	if visible_count != EXPECTED_VISIBLE_CONTEST_BUTTONS:
@@ -73,8 +73,8 @@ func _assert_selected_denomination_menu(menu: Node, selected_denomination: int) 
 	var route_buttons: Array[Button] = []
 	_collect_paid_route_buttons(menu, route_buttons)
 	for button in route_buttons:
-		if button.visible and (button.text.contains("$") or button.tooltip_text.contains("$")):
-			_fail("$%d menu repeats denomination on route %s" % [selected_denomination, button.tooltip_text])
+		if button.visible and not button.text.contains("$%d" % selected_denomination):
+			_fail("$%d menu must show the selected entry on route %s" % [selected_denomination, button.tooltip_text])
 			return false
 	return true
 

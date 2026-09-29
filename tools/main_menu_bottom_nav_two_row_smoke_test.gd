@@ -1,101 +1,38 @@
 extends SceneTree
-
-const TEST_VIEWPORT_SIZE := Vector2i(944, 2048)
-const MIN_BUTTON_WIDTH := 180.0
-const MIN_BUTTON_HEIGHT := 80.0
-const MIN_BUTTON_ASPECT := 1.45
-const MIN_SKIN_ASPECT := 1.45
-
+# Historical test entry point retained for release scripts; home now uses a primary
+# Campaign choice, mode list, and a persistent two-row utility footer.
 func _init() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
-	get_root().size = TEST_VIEWPORT_SIZE
-	await process_frame
-	var scene: PackedScene = load("res://scenes/MainMenu.tscn") as PackedScene
-	if scene == null:
-		push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: failed to load MainMenu.tscn")
+	root.size = Vector2i(944, 2048)
+	var menu: Control = load("res://scenes/MainMenu.tscn").instantiate()
+	root.add_child(menu)
+	for _frame in range(6):
+		await process_frame
+	var home: Control = menu.get("_home_menu")
+	if home == null:
+		push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: home shell missing")
 		quit(1)
 		return
-	var menu: Node = scene.instantiate()
-	get_root().add_child(menu)
+	for property in ["menu_store_button", "menu_buffs_button", "menu_battle_pass_button", "menu_free_roll_button", "menu_cash_button", "menu_jukebox_button", "menu_unused_button"]:
+		var button: Button = menu.get(property)
+		var rect := button.get_global_rect()
+		if button.size.y < 96 or rect.position.x < 0 or rect.end.x > root.get_visible_rect().size.x + 1:
+			push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: button is too small or offscreen: " + property)
+			quit(1)
+			return
+		if button.get_signal_connection_list("pressed").size() != 1:
+			push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: missing or duplicated route: " + property)
+			quit(1)
+			return
+	for property in ["menu_store_button", "menu_buffs_button", "menu_battle_pass_button"]:
+		var button: Button = menu.get(property)
+		if not root.get_visible_rect().encloses(button.get_global_rect()):
+			push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: utility footer is offscreen")
+			quit(1)
+			return
+	menu.queue_free()
 	await process_frame
-	await process_frame
-
-	var utility_row: HBoxContainer = menu.get_node_or_null("BottomBar/UtilityButtons") as HBoxContainer
-	var primary_row: HBoxContainer = menu.get_node_or_null("BottomBar/MenuButtons") as HBoxContainer
-	if utility_row == null or primary_row == null:
-		push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: two-row bottom nav missing")
-		quit(1)
-		return
-	var top_buttons: Array[Button] = [
-		menu.get_node_or_null("BottomBar/UtilityButtons/AsyncButton") as Button,
-		menu.get_node_or_null("BottomBar/UtilityButtons/BuffsButton") as Button,
-		menu.get_node_or_null("BottomBar/UtilityButtons/ClanButton") as Button
-	]
-	var bottom_buttons: Array[Button] = [
-		menu.get_node_or_null("BottomBar/MenuButtons/StoreButton") as Button,
-		menu.get_node_or_null("BottomBar/MenuButtons/PlayButton") as Button,
-		menu.get_node_or_null("BottomBar/MenuButtons/JukeboxButton") as Button,
-		menu.get_node_or_null("BottomBar/MenuButtons/SettingsButton") as Button
-	]
-	if not _assert_row_buttons(top_buttons, "utility"):
-		return
-	if not _assert_row_buttons(bottom_buttons, "primary"):
-		return
-	if top_buttons[0].get_global_rect().position.y >= bottom_buttons[0].get_global_rect().position.y:
-		push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: utility row is not above primary row")
-		quit(1)
-		return
-	if not _assert_even_spacing(top_buttons, "utility"):
-		return
-	if not _assert_even_spacing(bottom_buttons, "primary"):
-		return
 	print("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: PASS")
 	quit(0)
-
-func _assert_row_buttons(buttons: Array[Button], label: String) -> bool:
-	var viewport_width: float = get_root().get_visible_rect().size.x
-	for button in buttons:
-		if button == null or not button.visible:
-			push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: %s row button missing" % label)
-			quit(1)
-			return false
-		if button.custom_minimum_size.x < MIN_BUTTON_WIDTH or button.custom_minimum_size.y < MIN_BUTTON_HEIGHT:
-			push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: %s row button too small: %s" % [label, str(button.custom_minimum_size)])
-			quit(1)
-			return false
-		var aspect: float = button.custom_minimum_size.x / maxf(1.0, button.custom_minimum_size.y)
-		if aspect < MIN_BUTTON_ASPECT:
-			push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: %s row button should preserve banner aspect: %s" % [label, str(button.custom_minimum_size)])
-			quit(1)
-			return false
-		var skin_tex: TextureRect = button.get_node_or_null("SkinTex") as TextureRect
-		if skin_tex == null or skin_tex.texture == null:
-			push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: %s row button missing readable skin texture" % label)
-			quit(1)
-			return false
-		var tex_size: Vector2 = skin_tex.texture.get_size()
-		var tex_aspect: float = tex_size.x / maxf(1.0, tex_size.y)
-		if tex_aspect < MIN_SKIN_ASPECT:
-			push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: %s row skin should be cropped to banner art: %s" % [label, str(tex_size)])
-			quit(1)
-			return false
-		var rect: Rect2 = button.get_global_rect()
-		if rect.position.x < -0.5 or rect.end.x > viewport_width + 0.5:
-			push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: %s row button offscreen: %s" % [label, str(rect)])
-			quit(1)
-			return false
-	return true
-
-func _assert_even_spacing(buttons: Array[Button], label: String) -> bool:
-	var widths: Array[float] = []
-	for button in buttons:
-		widths.append(button.get_global_rect().size.x)
-	var first_width: float = widths[0]
-	for width in widths:
-		if absf(width - first_width) > 2.0:
-			push_error("MAIN_MENU_BOTTOM_NAV_TWO_ROW_SMOKE: %s row is not evenly sized: %s" % [label, str(widths)])
-			quit(1)
-			return false
-	return true

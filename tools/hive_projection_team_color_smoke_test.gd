@@ -37,9 +37,10 @@ func _init() -> void:
 	_assert_true(pip_layer != null and power_label_layer != null and is_equal_approx(pip_layer.position.y, power_label_layer.position.y - 10.0), "lane budget indicators should remain 10 px above the moving power-label layer")
 	var medium_size: Vector2 = visual.get("_current_size") as Vector2
 	var medium_offset: Vector2 = visual.get("_sprite_offset") as Vector2
-	var expected_power_y: float = medium_offset.y + (medium_size.y * -0.345) - 12.0
+	var readable: bool = bool(ProjectSettings.get_setting("swarmfront/arena/combat_readability_enabled", false))
+	var expected_power_y: float = medium_offset.y + (medium_size.y * (-0.23 if readable else -0.345)) - 12.0
 	var power_base_offset: Vector2 = visual.call("_power_label_offset") as Vector2
-	_assert_true(is_equal_approx(power_base_offset.y, expected_power_y), "power number should be raised 12 px above the flat-top anchor")
+	_assert_true(is_equal_approx(power_base_offset.y, expected_power_y), "power number should use the configured flat-top badge anchor")
 	_assert_true(_is_white(pip_fill.color), "available red-team pip should be white")
 	_assert_true(pip_outline != null and _is_white(pip_outline.default_color), "red-team pip container should be white")
 	_assert_true(pip_fill.color.a > 0.5, "available P2 pip should be visible")

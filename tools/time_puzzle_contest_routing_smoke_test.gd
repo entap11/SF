@@ -42,7 +42,7 @@ func _assert_scope_routes_to_stage_race_lobby(scope: String) -> void:
 	await process_frame
 	lobby.set_scope(scope)
 	await process_frame
-	var contest_list: VBoxContainer = lobby.get_node_or_null("Panel/VBox/ContestList") as VBoxContainer
+	var contest_list: VBoxContainer = lobby.get("contest_list") as VBoxContainer
 	if contest_list == null:
 		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: contest list missing")
 		quit(1)
@@ -77,7 +77,7 @@ func _assert_scope_routes_to_stage_race_lobby(scope: String) -> void:
 	var route_contest_state: Node = get_root().get_node_or_null("ContestState")
 	if route_contest_state != null:
 		route_contest_state.call("enter_contest", hub.contest_id)
-	var play_button: Button = hub.get_node_or_null("Panel/VBox/StageRaceActions/StageRacePlay") as Button
+	var play_button: Button = hub.get("stage_race_play_button") as Button
 	if play_button == null:
 		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: %s play button missing" % scope)
 		quit(1)
@@ -90,11 +90,11 @@ func _assert_scope_routes_to_stage_race_lobby(scope: String) -> void:
 	await process_frame
 	var vs_lobby: Control = _find_descendant_by_name(hub, "VsLobby") as Control
 	if vs_lobby == null:
-		var route_summary: Label = hub.get_node_or_null("Panel/VBox/StageRaceSummary") as Label
+		var route_summary: Label = hub.get("stage_race_summary_label") as Label
 		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: %s did not open Stage Race VS lobby (%s)" % [scope, route_summary.text if route_summary != null else "no summary"])
 		quit(1)
 		return
-	var summary: Label = vs_lobby.get_node_or_null("Panel/VBox/Summary") as Label
+	var summary: Label = vs_lobby.get("summary_label") as Label
 	if summary == null or not summary.text.contains("Stage Race"):
 		push_error("TIME_PUZZLE_CONTEST_ROUTING_SMOKE: %s VS lobby summary is not Stage Race" % scope)
 		quit(1)

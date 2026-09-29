@@ -93,8 +93,12 @@ func _spawn_swarm(src_id: int, dst_id: int) -> void:
 		_log_swarm_ignored(src_id, dst_id, "no_power")
 		return
 	var chained_count: int = _consume_recent_landed_swarm_count(src_id, owner_id, power_before)
-	var start_count := maxi(clampi(power_before - 1, 1, SWARM_MAX_START), chained_count)
-	var power_after := power_before - start_count
+	var overflow_count: int = _consume_swarm_overflow_count(src_id, owner_id)
+	# Only absorbed bees and this hive's contribution are drawn from power.
+	# Overflow never entered hive power and must not be charged a second time.
+	var power_draw := mini(power_before - 1, SWARM_MAX_START + chained_count)
+	var start_count := power_draw + overflow_count
+	var power_after := power_before - power_draw
 	from_hive.power = power_after
 	if not AuthoritativeBuffSystem.hive_is_shock_immune(state, owner_id, src_id):
 		if state.hive_spawn_block_until_us == null:
@@ -153,7 +157,8 @@ func _spawn_swarm(src_id: int, dst_id: int) -> void:
 		"src": src_id,
 		"dst": dst_id,
 		"start_count": start_count,
-		"chained_count": chained_count,
+		"chained_count": chained_count + overflow_count,
+		"overflow_count": overflow_count,
 		"src_power_before": power_before,
 		"src_power_after": power_after
 	})
@@ -277,7 +282,8 @@ func _apply_swarm_arrival(packet: Dictionary, unit_system: UnitSystem) -> void:
 			"b_id": int(packet.get("b_id", -1)),
 			"dir": int(packet.get("dir", 1)),
 			"skip_pressure": true,
-			"arrive_source": "swarm_system"
+			"arrive_source": "swarm_system",
+			"reserve_swarm_overflow": before_owner == int(packet.get("owner_id", -1))
 		}
 		unit_system._apply_unit_arrival(unit)
 		_record_recent_landed_swarm(packet, before_owner, before_power)
@@ -304,19 +310,30 @@ func _record_recent_landed_swarm(packet: Dictionary, before_owner: int, before_p
 		carry_count = clampi(after_power - before_power, 0, arrived_count)
 	else:
 		carry_count = mini(after_power, arrived_count)
-	if carry_count <= 0:
-		return
 	var now_us: int = int(state._sim_time_us)
-	_recent_landed_swarms_by_hive[dst_id] = {
-		"owner_id": owner_id,
-		"count": carry_count,
-		"expires_us": now_us + (SWARM_CHAIN_WINDOW_MS * 1000),
-		"swarm_id": int(packet.get("id", -1))
-	}
+	var expires_us: int = now_us + (SWARM_CHAIN_WINDOW_MS * 1000)
+	var overflow_count: int = 0
+	if before_owner == owner_id and float(hive.shock_ms) <= 0.0:
+		overflow_count = arrived_count - carry_count
+		if overflow_count > 0:
+			state.swarm_overflow_batches.append({
+				"hive_id": dst_id, "owner_id": owner_id, "count": overflow_count,
+				"expires_us": expires_us, "swarm_id": int(packet.get("id", -1))
+			})
+	if carry_count <= 0 and overflow_count <= 0:
+		return
+	if carry_count > 0:
+		_recent_landed_swarms_by_hive[dst_id] = {
+			"owner_id": owner_id,
+			"count": carry_count,
+			"expires_us": expires_us,
+			"swarm_id": int(packet.get("id", -1))
+		}
 	SFLog.info("SWARM_CHAIN_READY", {
 		"hive_id": dst_id,
 		"owner_id": owner_id,
-		"count": carry_count,
+		"count": carry_count + overflow_count,
+		"overflow_count": overflow_count,
 		"source_swarm_id": int(packet.get("id", -1)),
 		"window_ms": SWARM_CHAIN_WINDOW_MS
 	})
@@ -345,6 +362,21 @@ func _consume_recent_landed_swarm_count(src_id: int, owner_id: int, power_before
 		"source_swarm_id": int(recent.get("swarm_id", -1))
 	})
 	return chained_count
+
+func _consume_swarm_overflow_count(src_id: int, owner_id: int) -> int:
+	var carried: int = 0
+	for index in range(state.swarm_overflow_batches.size() - 1, -1, -1):
+		var batch: Dictionary = state.swarm_overflow_batches[index]
+		if int(batch.get("hive_id", -1)) != src_id:
+			continue
+		if int(batch.get("owner_id", 0)) != owner_id:
+			state.swarm_overflow_batches.remove_at(index)
+			continue
+		if int(state._sim_time_us) > int(batch.get("expires_us", 0)):
+			continue
+		carried += maxi(0, int(batch.get("count", 0)))
+		state.swarm_overflow_batches.remove_at(index)
+	return carried
 
 func _emit_swarm_landed(packet: Dictionary) -> void:
 	if _sim_events == null or not _sim_events.has_signal("swarm_landed"):

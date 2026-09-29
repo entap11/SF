@@ -54,9 +54,10 @@ func _test_host_guest_command_bridge_and_restore(runtime: Node) -> void:
 	_expect(bool(guest.call("restore_authority_snapshot", snapshot)), "guest imports host authority snapshot")
 	_expect(str(host.call("get_contract_state_hash")) == str(guest.call("get_contract_state_hash")), "snapshot/import restores exact host hash")
 	runtime.call("clear")
-	host.free()
-	guest.free()
-	local.free()
+	for ops: Node in [host, guest, local]:
+		# Release the isolated fixture's state/system reference cycle.
+		(ops.get("state") as GameState).unit_system.state = null
+		ops.free()
 
 func _test_fixed_tick_and_render_rate_determinism() -> void:
 	var state_a := _state()
@@ -80,6 +81,8 @@ func _test_fixed_tick_and_render_rate_determinism() -> void:
 	_expect(BuffSystem.tick(state_a).is_empty(), "effect remains active on the tick immediately before expiry")
 	state_a.tick = expires
 	_expect(BuffSystem.tick(state_a).size() == 1 and BuffSystem.active_effect(state_a, 1, "UNIT_SPEED").is_empty(), "effect expires exactly on its fixed-tick boundary")
+	units_a.state = null
+	units_b.state = null
 
 func _test_target_loss_matrix_and_lane_reconstruction() -> void:
 	var hive_targets: Array[String] = [
@@ -133,6 +136,7 @@ func _test_target_loss_matrix_and_lane_reconstruction() -> void:
 	rebuild_units._update_units(0.1)
 	var rebuilt: Dictionary = rebuild_units.units[0] as Dictionary
 	_expect(rebuild_units.units.size() == 1 and int(rebuilt.get("treacherous_origin_hive_id", -1)) == int(committed_before.get("treacherous_origin_hive_id", -1)) and float(rebuilt.get("t", 0.0)) > t_before, "lane reconstruction neither loses nor duplicates betrayal state")
+	rebuild_units.state = null
 
 func _test_bounded_histories_and_async_uses() -> void:
 	var queue_state := _state()
@@ -157,6 +161,7 @@ func _test_bounded_histories_and_async_uses() -> void:
 	tx.call("release", "hardening", 1, "async-one", "fixture")
 	_expect(bool(tx.call("reserve", async_two, 1).get("ok", false)), "Async second use reserves")
 	_expect(str(tx.call("reserve", async_three, 1).get("reason", "")) == "invalid_source_use_ordinal", "Async third use is rejected")
+	queue_units.state = null
 
 func _test_source_fences() -> void:
 	var ui_source: String = FileAccess.get_file_as_string("res://scripts/ui/ui_buff_bar.gd")
@@ -175,6 +180,7 @@ func _ops_fixture() -> Node:
 	units.bind_state(state)
 	ops.set("state", state)
 	ops.set("current_map_id", "buff-hardening")
+	get_root().add_child(ops)
 	return ops
 
 func _state() -> GameState:

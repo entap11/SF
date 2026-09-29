@@ -160,6 +160,10 @@ run_stage() {
 
 echo "PLAYER_CONFIG_MATRIX_GATE_BEGIN gate=${GATE} seed=${SEED} seed_runs=${SEED_RUNS} soak=${RUN_SOAK}"
 
+run_stage wait_regression \
+  "${GODOT_BIN:-godot}" --headless --path "${ROOT_DIR}" \
+    --script res://tools/player_config_matrix_wait_regression.gd
+
 run_stage contract \
   "${MATRIX_RUNNER}" --tier "${GATE}" --seed "${SEED}"
 

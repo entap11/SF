@@ -1,179 +1,158 @@
 extends SceneTree
 
-const HiveRendererScript := preload("res://scripts/renderers/hive_renderer.gd")
-
-var _failed: bool = false
-var _transition_starts: int = 0
-var _reveal_starts: int = 0
+const Renderer := preload("res://scripts/renderers/hive_renderer.gd")
+const Timing := preload("res://scripts/hive/hive_transition_timing.gd")
+var _failed := false
+var _starts := 0
+var _reveals := 0
 
 func _init() -> void:
 	call_deferred("_run")
 
 func _run() -> void:
-	var renderer := HiveRendererScript.new()
-	get_root().add_child(renderer)
+	var renderer := Renderer.new()
+	root.add_child(renderer)
 	renderer.setup(null, null, null)
 	await process_frame
-
-	renderer.set_model(_model(101, 9, 1, 1))
-	await process_frame
-	_expect(int(renderer.get_growth_debug_snapshot().get("active_count", -1)) == 0, "initial canonical model must not animate")
+	renderer.set_model(_model(101, 9, 1))
 	var hive: Node = renderer.get_hive_node_by_id(1)
-	_expect(hive != null, "initial hive render node must exist")
-	var transition: Node = hive.get_node_or_null("Visual/FxLayer/HiveGrowthTransition")
-	_expect(transition != null, "growth transition component must exist")
-	if transition != null:
-		transition.connect("transition_started", Callable(self, "_on_transition_started"))
-		transition.connect("final_ring_reveal_started", Callable(self, "_on_final_ring_reveal_started"))
+	var transition: Node = hive.get_node("Visual/FxLayer/HiveGrowthTransition")
+	var visual: Node = hive.get_node("Visual")
+	var base: Sprite2D = hive.get_node("Visual/BaseSpriteLayer/BaseSprite")
+	transition.transition_started.connect(func(_a: int, _b: int): _starts += 1)
+	transition.reveal_started.connect(func(_a: int): _reveals += 1)
+	_expect(not transition.is_active(), "initial canonical sample must seed silently")
+	var model := _model(101, 10, 2)
+	var original := model.duplicate(true)
+	renderer.set_model(model)
+	transition.set_debug_elapsed(0.0)
+	_expect(model == original, "presentation must never mutate its canonical input")
+	_expect(_starts == 1 and transition.is_active(), "small to medium must start once")
+	_expect(not base.visible, "proxy must cover the final sprite during reveal")
+	_expect(base.texture != null and str(visual.get("_sprite_key")) == "hive.med.p1", "final canonical texture must already be installed")
+	_expect((visual.get("_lane_budget_pips") as Array).size() == 2, "lane indicators must immediately reflect canonical budget")
+	var material_ids: Array = transition.get_debug_snapshot().material_instance_ids
+	var children: int = transition.get_child_count()
+	var pip_nodes: Array = visual.get_node("LaneBudgetIndicators").get_children()
+	var port_nodes: Array = visual.get_node("LanePortLayer").get_children()
+	renderer.set_model(model)
+	renderer.set_model(_model(101, 11, 2))
+	_expect(_starts == 1, "duplicate samples and same-tier changes must not restart animation")
+	renderer.set_selected_hive(1, Color.WHITE)
+	transition.set_debug_elapsed(0.28)
+	var surface := transition.get_node("TransformSurface").material as ShaderMaterial
+	_expect(float(surface.get_shader_parameter("selected_hot")) == 1.0, "selection changes must reach the animated shell")
+	_expect(is_equal_approx(float(surface.get_shader_parameter("selected_metal_lift")), float(base.material.get_shader_parameter("selected_metal_lift"))),
+		"animated shell must preserve the live selection's metal lighting")
+	_expect(is_equal_approx(float(surface.get_shader_parameter("selected_hot_edge")), float(base.material.get_shader_parameter("selected_hot_edge"))),
+		"animated shell must preserve the live selection's edge lighting")
+	renderer.clear_selected_hive()
+	transition.set_debug_elapsed(0.29)
+	_expect(float(surface.get_shader_parameter("selected_hot")) == 0.0, "deselection must reach the animated shell")
+	_expect(_reveals == 1, "one reveal event per transition")
+	_expect(hive.growth_tier == 2, "presentation footprint must commit at reveal")
+	transition.set_debug_elapsed(0.8)
+	_expect(not transition.is_active() and base.visible, "completion restores final sprite")
 
-	renderer.set_model(_model(101, 10, 2, 2))
-	await process_frame
-	_expect(_transition_starts == 1, "9 to 10 must trigger exactly once")
-	_expect(int(renderer.get_growth_debug_snapshot().get("active_count", 0)) == 1, "9 to 10 transition must be active")
-	var ring_snapshot: Dictionary = transition.call("get_debug_snapshot") as Dictionary
-	_expect(int(ring_snapshot.get("ring_count", 0)) == 2, "small to medium must use exactly two rings")
-	_expect(
-		float(ring_snapshot.get("bright_outer_width_ratio", 0.0)) >= 1.08
-		and float(ring_snapshot.get("bright_outer_width_ratio", 0.0)) <= 1.12,
-		"bright ring core must clear the rendered hive by 8-12 percent"
-	)
-	_expect(float(ring_snapshot.get("core_line_width", 0.0)) >= 2.5, "explicit ring core must remain materially thick")
-	_expect(int(ring_snapshot.get("rear_z_index", 0)) < int(ring_snapshot.get("front_z_index", 0)), "rear arc must remain behind the front arc")
-	_expect(float(ring_snapshot.get("rear_intensity", 1.0)) < float(ring_snapshot.get("front_intensity", 0.0)), "rear arc must remain dimmer than the front arc")
-	_expect(float(ring_snapshot.get("final_ring_intensity_multiplier", 0.0)) > 1.0, "final ring must receive explicit emissive emphasis")
-	_expect(int(ring_snapshot.get("material_count", 0)) == 6, "three fixed ring slots must own six materials")
-	var material_instance_ids: Array = (ring_snapshot.get("material_instance_ids", []) as Array).duplicate()
-	_expect(int(hive.get("growth_tier")) == 1, "presentation tier must remain small before the final ring reveal")
-	var visual: Node = hive.get_node_or_null("Visual")
-	_expect(str(visual.get("_sprite_key")) == "hive.med.p1", "final medium sprite must be applied immediately under the effect")
-	var base_sprite: Sprite2D = hive.get_node_or_null("Visual/BaseSpriteLayer/BaseSprite") as Sprite2D
-	_expect(base_sprite != null and base_sprite.texture != null and base_sprite.visible, "final medium base sprite must remain visible during the effect")
-	_expect((visual.get("_lane_budget_pips") as Array).size() == 1, "new lane pip must remain staged before final-ring reveal")
-
-	renderer.set_model(_model(101, 10, 2, 2))
-	await process_frame
-	_expect(_transition_starts == 1, "duplicate canonical model must not retrigger")
-	renderer.set_model(_model(101, 11, 2, 2))
-	await process_frame
-	_expect(_transition_starts == 1, "non-threshold power increase must not trigger")
-	await create_timer(0.22).timeout
-	_expect(_reveal_starts == 1, "small to medium final ring must emit one reveal event")
-	_expect(int(hive.get("growth_tier")) == 2, "presentation tier must commit at final-ring reveal")
-	_expect((visual.get("_lane_budget_pips") as Array).size() == 2, "new lane pip must commit at final-ring reveal")
-	await create_timer(0.76).timeout
-	_expect(int(renderer.get_growth_debug_snapshot().get("active_count", 0)) == 0, "transition must finish cleanly")
-	_expect(base_sprite != null and base_sprite.texture != null and base_sprite.visible, "final medium base sprite must remain visible after the effect")
-
-	renderer.set_model(_model(101, 25, 3, 3))
-	await process_frame
-	_expect(_transition_starts == 2, "24/25 tier entry must trigger from the current medium tier")
-	_expect(int(transition.call("get_debug_snapshot").get("ring_count", 0)) == 3, "medium to large must use exactly three rings")
-	_expect(str(visual.get("_sprite_key")) == "hive.large.p1", "final large sprite must be applied immediately")
-	_expect(base_sprite != null and base_sprite.texture != null and base_sprite.visible, "final large base sprite must be visible")
-	await create_timer(0.76).timeout
-
-	renderer.set_model(_model(101, 9, 1, 1))
-	await process_frame
-	_expect(_transition_starts == 2, "downgrade must not animate")
-	renderer.set_model(_model(101, 25, 3, 3))
-	await process_frame
-	_expect(_transition_starts == 3, "tier-one to tier-three jump must produce one transition")
-	_expect(int(transition.call("get_debug_snapshot").get("ring_count", 0)) == 3, "small to large jump must use three rings, not five")
-	await create_timer(0.76).timeout
-	var component_children: int = transition.get_child_count()
-
-	renderer.set_model(_model(101, 9, 1, 1))
-	await process_frame
-	renderer.set_model(_model(101, 10, 2, 2))
-	await process_frame
-	await create_timer(0.76).timeout
-	_expect(transition.get_child_count() == component_children, "repeated transitions must keep a stable component node count")
-	var repeated_snapshot: Dictionary = transition.call("get_debug_snapshot") as Dictionary
-	_expect((repeated_snapshot.get("material_instance_ids", []) as Array) == material_instance_ids, "repeated transitions must retain the same ring materials")
-
-	renderer.setup(null, null, null)
-	renderer.set_model(_model(101, 25, 3, 3))
-	await process_frame
-	_expect(_transition_starts == 4, "renderer setup must reseed without replaying growth")
-	_expect(int(renderer.get_growth_debug_snapshot().get("active_count", 0)) == 0, "renderer setup must cancel active presentation")
-
-	renderer.set_model({"hives": [{"id": 1, "pwr": 5, "lane_budget_max": 1}]})
-	await process_frame
-	renderer.set_model(_model(202, 25, 3, 3))
-	await process_frame
-	_expect(_transition_starts == 4, "noncanonical map model followed by canonical initialization must not animate")
-
+	# Both directions, tier jumps and reversals use the canonical edges.
+	for edge in [[25,3],[24,2],[9,1],[25,3],[9,1],[10,2]]:
+		var previous_starts := _starts
+		renderer.set_model(_model(101, edge[0], edge[1]))
+		_expect(_starts == previous_starts + 1, "each tier edge must produce one transform")
+		transition.set_debug_elapsed(0.22)
+		_expect(visual.get_node("LaneBudgetIndicators").get_children() == pip_nodes, "budget indicators must be reused across tier edges")
+		_expect(visual.get_node("LanePortLayer").get_children() == port_nodes, "lane ports must be reused across tier edges")
+		_expect(transition.get_debug_snapshot().material_instance_ids == material_ids, "materials must be reused")
+		_expect(transition.get_child_count() == children, "node count must stay bounded")
+	transition.set_debug_elapsed(1.0)
+	var before := _starts
+	renderer.set_model(_model(101, 25, 3, 2))
+	_expect(_starts == before and not transition.is_active() and base.visible, "ownership change must cancel without a false tier celebration")
+	renderer.set_model(_model(101, 24, 2, 2))
+	_expect(transition.is_active(), "subsequent same-owner edge resumes presentation")
 	renderer.animations_enabled = false
-	renderer.set_model(_model(202, 9, 1, 1))
-	await process_frame
-	renderer.set_model(_model(202, 10, 2, 2))
-	await process_frame
-	_expect(_transition_starts == 4, "disabled animations must suppress a live growth edge")
-	_expect(str(visual.get("_sprite_key")) == "hive.med.p1", "disabled animations must still apply the final canonical sprite")
-	_expect(int(renderer.get_growth_debug_snapshot().get("active_count", 0)) == 0, "disabled animations must leave no active presentation")
-
+	renderer.set_model(_model(101, 24, 2, 2))
+	_expect(not transition.is_active() and base.visible, "disabling motion mid-transition restores canonical sprite")
 	renderer.animations_enabled = true
-	renderer.set_model(_model(202, 9, 1, 1))
-	await process_frame
-	renderer.set_model(_model(202, 10, 2, 2))
-	await process_frame
-	_expect(_transition_starts == 5, "new live edge after re-enabling animations must animate")
+	renderer.set_model(_model(101, 25, 3, 2))
 	renderer.call("_on_app_backgrounded", "test", 0, 0)
+	_expect(not transition.is_active() and base.visible, "background cancellation restores canonical sprite")
+	renderer.set_model(_model(101, 24, 2, 2))
+	renderer.set_model(_model(202, 9, 1))
+	_expect(not transition.is_active(), "state identity change reseeds silently")
+	renderer.set_model(_model(202, 10, 2))
+	var viewer_change := _model(202, 10, 2)
+	viewer_change.viewer_owner_id = 2
+	renderer.set_model(viewer_change)
+	_expect(not transition.is_active(), "viewer identity change cancels")
+
+	# A live switch to the reduced preference cancels an in-flight full sweep.
+	viewer_change.hives[0].pwr = 25
+	viewer_change.hives[0].growth_tier = 3
+	viewer_change.hives[0].lane_budget_max = 3
+	renderer.set_model(viewer_change)
+	var profile := root.get_node("ProfileManager")
+	var was_enabled: bool = profile.is_gpu_vfx_enabled()
+	profile.set_gpu_vfx_enabled(false)
+	renderer.set_model(viewer_change)
+	_expect(not transition.is_active() and base.visible, "reduced preference interrupts a full sweep")
+	profile.set_gpu_vfx_enabled(was_enabled)
+
+	# Reduced mode has a short dissolve with no travel/scale/halo.
+	transition.capture_old_sprite(base, visual.get("_current_size"))
+	transition.play(visual.get("_current_size"), Vector2.ZERO, Color.GOLD, 1, 2, {}, "reduced")
+	transition.set_debug_elapsed(0.065)
+	_expect(transition.is_active() and transition.get_debug_snapshot().visible_ring_count == 0, "reduced motion has no sweep")
+	transition.set_debug_elapsed(0.14)
+	_expect(not transition.is_active() and base.visible, "reduced dissolve completes cleanly")
+	for tiers in [[1,2],[2,3],[3,2],[2,1]]:
+		var elapsed := 0.0
+		for i in range(15):
+			elapsed += 1.0 / 60.0
+		var a := Timing.sample(elapsed, tiers[0], tiers[1])
+		var b := Timing.sample(0.25, tiers[0], tiers[1])
+		_expect(is_equal_approx(a.reveal, b.reveal) and is_equal_approx(a.body_scale, b.body_scale), "presentation sampling must be independent of frame partition")
+		var low := Timing.sample(0.065, tiers[0], tiers[1], true)
+		_expect(low.body_scale == 1.0 and low.band_energy == 0.0, "low motion never moves or flashes")
+	# A simultaneous storm keeps canonical values current with bounded full VFX.
+	var storm := _model(304, 9, 1)
+	for id in range(2, 13):
+		var item: Dictionary = storm.hives[0].duplicate(true)
+		item.id = id
+		item.x = float(id)
+		storm.hives.append(item)
+	renderer.set_model(storm)
+	for item: Dictionary in storm.hives:
+		item.pwr = 25
+		item.growth_tier = 3
+		item.lane_budget_max = 3
+	storm.hives.reverse()
+	renderer.set_model(storm)
+	var full_count := 0
+	for id in range(1, 13):
+		var node: Node = renderer.get_hive_node_by_id(id)
+		var state: Dictionary = node.get_growth_transition_debug_snapshot()
+		full_count += int(state.mode == "full")
+		_expect(state.mode == ("full" if id <= Renderer.MAX_FULL_HIVE_TRANSFORMS else "reduced"), "storm priority must be stable regardless of model order")
+		_expect(node.power == 25, "effect budgeting must not defer canonical power")
+	_expect(full_count == Renderer.MAX_FULL_HIVE_TRANSFORMS, "storm must respect full-effect budget")
+
+	var empty := _model(202, 10, 2)
+	empty.hives = []
+	renderer.set_model(empty)
 	await process_frame
-	_expect(int(renderer.get_growth_debug_snapshot().get("active_count", 0)) == 0, "app backgrounding must cancel presentation immediately")
-	_expect(base_sprite != null and base_sprite.texture != null and base_sprite.visible, "background cancellation must leave the final canonical sprite visible")
+	_expect(renderer.get_hive_ids().is_empty(), "removal releases render nodes")
+	if not _failed:
+		print("HIVE_GROWTH_TRANSITION_SMOKE: PASS")
+	quit(1 if _failed else 0)
 
-	renderer.set_model(_model(202, 25, 3, 3))
-	await process_frame
-	_expect(_transition_starts == 6, "subsequent live growth edge must animate after lifecycle cancellation")
-	renderer.set_model(_empty_model(202))
-	await process_frame
-	await process_frame
-	_expect(renderer.get_hive_ids().is_empty(), "removed hive must release its render node")
-	_expect(int(renderer.get_growth_debug_snapshot().get("active_count", 0)) == 0, "hive removal must cancel presentation state")
-
-	if _failed:
-		quit(1)
-		return
-	print("HIVE_GROWTH_TRANSITION_SMOKE: PASS")
-	quit(0)
-
-func _model(iid: int, power: int, tier: int, lane_budget_max: int) -> Dictionary:
-	return {
-		"iid": iid,
-		"cell_size": 64,
-		"sim_running": true,
-		"hives": [{
-			"id": 1,
-			"x": 4.0,
-			"y": 5.0,
-			"owner_id": 1,
-			"pwr": power,
-			"growth_tier": tier,
-			"lane_budget_used": 0,
-			"lane_budget_max": lane_budget_max,
-			"kind": "Hive"
-		}],
-		"lanes": []
-	}
-
-func _empty_model(iid: int) -> Dictionary:
-	return {
-		"iid": iid,
-		"cell_size": 64,
-		"sim_running": true,
-		"hives": [],
-		"lanes": []
-	}
-
-func _on_transition_started(_old_tier: int, _new_tier: int) -> void:
-	_transition_starts += 1
-
-func _on_final_ring_reveal_started(_new_tier: int) -> void:
-	_reveal_starts += 1
+func _model(iid: int, power: int, tier: int, owner: int = 1) -> Dictionary:
+	return {"iid": iid, "cell_size": 64, "sim_running": true, "viewer_owner_id": 1,
+		"hives": [{"id":1, "x":4.0, "y":5.0, "owner_id":owner, "pwr":power,
+		"growth_tier":tier, "lane_budget_used":0, "lane_budget_max":tier,
+		"hostile_capture_pressure":false, "kind":"Hive"}], "lanes":[]}
 
 func _expect(condition: bool, message: String) -> void:
-	if condition:
-		return
-	_failed = true
-	push_error("HIVE_GROWTH_TRANSITION_SMOKE: %s" % message)
+	if not condition:
+		_failed = true
+		push_error("HIVE_GROWTH_TRANSITION_SMOKE: " + message)

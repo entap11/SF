@@ -99,7 +99,7 @@ Detection:
 
 ### Step 5: Launch Finishing Swarm (Required action)
 Instruction:
-- "Double-tap the enemy side of your active attack lane to launch a swarm."
+- "Tap your source hive, then tap the enemy hive again over the active lane to launch a swarm."
 
 Advance condition (authoritative):
 - A local swarm request or packet targets the final low-power enemy hive.

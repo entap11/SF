@@ -357,6 +357,7 @@ export class RankStore {
         friends,
         apex_active
       FROM rank_players
+      WHERE account_status = 'active'
     `);
     for (const row of players.rows) {
       state.players_by_id[row.id] = normalizePlayerRecord(row.id, {
@@ -630,6 +631,7 @@ export class RankStore {
         `
           SELECT tier_id, color_id, COUNT(*)::text AS player_count
           FROM rank_players
+          WHERE account_status = 'active'
           GROUP BY tier_id, color_id
         `
       );
@@ -788,7 +790,7 @@ export class RankStore {
   async readAuditTrail(limit: number, playerId = "", eventType = ""): Promise<RankAuditEvent[]> {
     return this.withClient(async (client) => {
       const safeLimit = Math.max(1, Math.min(200, Math.trunc(limit)));
-      const clauses: string[] = [];
+      const clauses: string[] = ["application_id = 'swarmfront'"];
       const values: Array<string | number> = [];
       let idx = 1;
       if (playerId.trim()) {

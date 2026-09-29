@@ -77,6 +77,7 @@ var _last_tick_phase_costs: Dictionary = {}
 var _last_tick_hotspot_phase: String = ""
 var _last_tick_hotspot_ms: float = 0.0
 var _startup_hitch_diagnostic_node: Node = null
+var scene_structure_binding_enabled: bool = true
 
 func _ready() -> void:
 	set_process(true)
@@ -307,6 +308,8 @@ func _on_state_changed(new_state: GameState) -> void:
 		_start_if_ready("bind_state_autostart")
 
 func _schedule_bind_structures(reason: String) -> void:
+	if not scene_structure_binding_enabled:
+		return
 	if _bind_structures_scheduled:
 		return
 	_bind_structures_scheduled = true
@@ -393,6 +396,8 @@ func bind_state(new_state: GameState) -> void:
 	_on_state_changed(new_state)
 
 func _bind_world_towers_deferred(expected_iid: int) -> void:
+	if not scene_structure_binding_enabled:
+		return
 	SFLog.info("TOWER_WORLD_BIND_DEFERRED_START", {"iid": int(bound_iid)})
 	await get_tree().process_frame
 	await get_tree().process_frame
@@ -462,6 +467,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		SFLog.info("SIM_START_HOTKEY", {})
 		start_sim()
 
+# Headless evaluations use the exact production tick; never rescale bot timing.
+func step_canonical() -> void:
+	_tick(TICK_DT)
+
 func _tick(dt: float) -> void:
 	if state_ref == null:
 		return
@@ -501,7 +510,7 @@ func _tick(dt: float) -> void:
 		_finalize_tick_profile(tick_t0_us)
 		return
 	_tick_systems(dt)
-	_update_match_stats(now_ms)
+	_update_match_stats(int(state_ref._sim_time_us / 1000))
 	_check_match_win(now_ms)
 	_finalize_tick_profile(tick_t0_us)
 
@@ -764,7 +773,10 @@ func _check_match_win(now_ms: int) -> void:
 				"delta": delta
 			})
 		OpsState.ot_checked = true
-	var deadline_elapsed: bool = bool(OpsState.match_clock_started) and int(OpsState.match_deadline_ms) > 0 and now_ms >= int(OpsState.match_deadline_ms)
+	# OpsState's deadline belongs to wall time. Deterministic stepping uses the
+	# canonical remaining duration; comparing these clock domains ends long
+	# headless/replay matches early and makes results depend on process uptime.
+	var deadline_elapsed: bool = not _deterministic_clock_enabled and bool(OpsState.match_clock_started) and int(OpsState.match_deadline_ms) > 0 and now_ms >= int(OpsState.match_deadline_ms)
 	if OpsState.match_clock_started and (remaining_ms <= 0 or deadline_elapsed):
 		SFLog.info("MATCH_TIMER_EXPIRED", {
 			"remaining_ms": remaining_ms,

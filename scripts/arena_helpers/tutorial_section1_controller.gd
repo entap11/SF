@@ -559,7 +559,7 @@ func _body_text_for_step(step_name: String) -> String:
 		STEP_4_BUFF:
 			return "OK, next, you'll want to know how to gain an edge using your buffs.\n\nSee that glowing buff at the bottom of your screen? Tap and drag that buff anywhere on the screen.\n\nIf it's a buff that affects a single hive or lane, drop it on the lane or hive you want to get the advantage. Otherwise, anywhere on the screen is fine."
 		STEP_4_SWARM_FINISH:
-			return "OK, now there is one more thing you need to know.\n\nIf you want to bypass the units defending a hive, you can, by initiating a swarm.\n\nDouble-tap the lane your hive is using to attack the enemy. See? Slides right by oncoming units, but be careful, because there is a cost to that power."
+			return "OK, now there is one more thing you need to know.\n\nIf you want to bypass the units defending a hive, you can, by initiating a swarm.\n\nTap your source hive, then tap the enemy hive again over the existing lane. See? Slides right by oncoming units, but be careful, because there is a cost to that power."
 		_:
 			return ""
 

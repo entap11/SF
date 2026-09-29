@@ -62,20 +62,14 @@ func _run() -> void:
 	var menu: Node = scene.instantiate()
 	root.add_child(menu)
 	await process_frame
-	if not menu.has_method("_ensure_profile_registered_for_rank"):
-		_fail("registration hook missing")
-		return
-	menu.call("_ensure_profile_registered_for_rank")
+	menu.call("_bind_onboarding_gate")
 	await process_frame
-	if _fake_rank_state.calls.size() < 1:
-		_fail("rank registration was not called")
+	if _fake_rank_state.calls.size() != 0:
+		_fail("opening the menu must not register through the retired Rank endpoint")
 		return
-	var call: Dictionary = _fake_rank_state.calls[0]
-	if not str(call.get("player_id", "")).strip_edges().is_empty():
-		_fail("beta registration should not send a client-generated player id")
-		return
-	if str(call.get("call_sign", "")).strip_edges().is_empty():
-		_fail("registered call sign is empty")
+	var overlay: Control = menu.get_node("ProfileFirstRunOverlay")
+	if not overlay.visible:
+		_fail("a player without backend identity must remain in onboarding")
 		return
 	print("ONBOARDING_RANK_REGISTRATION_SMOKE: PASS")
 	_cleanup()

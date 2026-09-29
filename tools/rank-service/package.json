@@ -12,12 +12,15 @@
     "smoke:player-token": "tsx src/identity/playerTokenSmoke.ts",
     "smoke:session": "tsx src/identity/sessionSmoke.ts",
     "smoke:session:embedded": "tsx src/identity/embeddedSessionSmoke.ts",
+    "smoke:account-deletion": "DATABASE_URL=postgres://embedded:embedded@127.0.0.1:1/embedded tsx src/identity/accountDeletionSmoke.ts",
+    "account-deletions": "tsx src/cli/account-deletions.ts",
     "smoke:verified-settlement": "DATABASE_URL=postgres://embedded:embedded@127.0.0.1:1/embedded RANK_ECONOMY_MUTATIONS_ENABLED=true RANK_VERIFIED_MATCH_MUTATIONS_ENABLED=true tsx src/verifiedSettlementEmbeddedSmoke.ts",
     "smoke:platform-economy": "DATABASE_URL=postgres://embedded:embedded@127.0.0.1:1/embedded tsx src/platformEconomyEmbeddedSmoke.ts",
     "smoke:quarantine": "DATABASE_URL=postgres://quarantine:quarantine@127.0.0.1:1/quarantine tsx src/economyQuarantineSmoke.ts",
     "simulate:beta": "DATABASE_URL=postgres://sim:sim@127.0.0.1:5432/sim tsx src/cli/beta-sim.ts",
     "reset:beta-economy": "tsx src/cli/beta-economy-reset.ts",
-    "canary:economy": "tsx src/cli/economy-live-canary.ts"
+    "canary:economy": "tsx src/cli/economy-live-canary.ts",
+    "smoke:beta-capture": "DATABASE_URL=postgres://embedded:embedded@127.0.0.1:1/embedded tsx src/betaCaptureSmoke.ts"
   },
   "dependencies": {
     "dotenv": "^16.5.0",
@@ -31,5 +34,9 @@
     "@types/pg": "^8.11.11",
     "tsx": "^4.19.3",
     "typescript": "^5.8.2"
+  },
+  "overrides": {
+    "esbuild": "0.28.2",
+    "qs": "6.16.0"
   }
 }

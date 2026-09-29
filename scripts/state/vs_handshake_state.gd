@@ -25,10 +25,12 @@ const DEFAULT_BACKEND_TIMEOUT_SEC: float = 6.0
 const MAX_SYNC_BACKEND_TIMEOUT_SEC: float = 6.0
 const AUTH_COMMAND_LEAD_TICKS: int = 6
 const TRANSPORT_ERROR_BACKOFF_MS: int = 60000
+const REMATCH_TRANSPORT_ERROR_BACKOFF_MS: int = 750
 const DIAGNOSTIC_LOG_PATH: String = "user://vs_handshake_diagnostics.jsonl"
 const DIAGNOSTIC_MAX_PAYLOAD_CHARS: int = 1200
 const SESSION_CONTRACT_VERSION: int = 2
 const PUBLIC_MATCH_PROTOCOL_VERSION: int = 2
+const REMATCH_VOTE_WINDOW_MS: int = 5000
 const SETTINGS_PUBLIC_CLIENT_BUILD: String = "swarmfront/vs/public_client_build"
 const MAX_SYNC_PLAYERS: int = 4
 const TIER_ORDER: Array[String] = [
@@ -57,6 +59,7 @@ var _intent_streams: Dictionary = {}
 var _presence_by_uid: Dictionary = {}
 var _friend_invites: Dictionary = {}
 var _rematch_sessions_by_parent_key: Dictionary = {}
+var _rematch_requests: Dictionary = {}
 var _transport_http: VsHandshakeTransportHttp = null
 var _transport_mode: String = "local"
 var _transport_error_logged: bool = false
@@ -150,6 +153,7 @@ func clear() -> void:
 	_presence_by_uid.clear()
 	_friend_invites.clear()
 	_rematch_sessions_by_parent_key.clear()
+	_rematch_requests.clear()
 	_last_transport_error = {}
 	_transport_backoff_until_msec = 0
 	_transport_error_logged = false
@@ -680,7 +684,9 @@ func _call_transport(action: String, payload: Dictionary) -> Dictionary:
 		return {"handled": true, "result": result}
 	if bool(result.get("transport_error", false)):
 		_last_transport_error = result.duplicate(true)
-		_transport_backoff_until_msec = Time.get_ticks_msec() + TRANSPORT_ERROR_BACKOFF_MS
+		var backoff_ms: int = REMATCH_TRANSPORT_ERROR_BACKOFF_MS \
+			if action == "request_fresh_rematch" else TRANSPORT_ERROR_BACKOFF_MS
+		_transport_backoff_until_msec = Time.get_ticks_msec() + backoff_ms
 		if not _transport_error_logged:
 			_transport_error_logged = true
 			SFLog.allow_tag("VS_TRANSPORT_FALLBACK")
@@ -1405,6 +1411,183 @@ func get_money_rematch_funding_status(session_id: String, owner_id: int) -> Dict
 		"missing_cents": maxi(0, wager_cents - balance_cents)
 	}
 
+func request_fresh_rematch(session_id: String, uid: String) -> Dictionary:
+	var transport := _call_transport("request_fresh_rematch", {
+		"session_id": session_id,
+		"uid": uid
+	})
+	if bool(transport.get("handled", false)):
+		return transport.get("result", {}) as Dictionary
+	_prune()
+	var sid: String = session_id.strip_edges()
+	var player_uid: String = uid.strip_edges()
+	if sid.is_empty() or player_uid.is_empty():
+		return {"ok": false, "err": "invalid_args", "code": "invalid_args"}
+	if not _sessions.has(sid):
+		return {"ok": false, "err": "session_not_found", "code": "session_not_found"}
+	var parent_session: Dictionary = _sessions.get(sid, {}) as Dictionary
+	if str(parent_session.get("status", "")) != "started":
+		return {"ok": false, "err": "session_not_started", "code": "session_not_started"}
+	var parent_roster: Array = _session_roster(parent_session)
+	if _session_roster_index_for_uid(parent_roster, player_uid) < 0:
+		return {"ok": false, "err": "player_not_in_session", "code": "player_not_in_session"}
+	var now_ms: int = int(round(Time.get_unix_time_from_system() * 1000.0))
+	var request: Dictionary = _rematch_requests.get(sid, {}) as Dictionary
+	var child_session_id: String = str(request.get("child_session_id", "")).strip_edges()
+	if not child_session_id.is_empty() and _sessions.has(child_session_id):
+		return _fresh_rematch_ready_result(sid, _sessions.get(child_session_id, {}) as Dictionary, true)
+	if request.is_empty():
+		request = {
+			"parent_session_id": sid,
+			"deadline_unix_ms": now_ms + REMATCH_VOTE_WINDOW_MS,
+			"votes": {},
+			"child_session_id": ""
+		}
+	elif now_ms > int(request.get("deadline_unix_ms", 0)):
+		return {
+			"ok": false,
+			"err": "rematch_expired",
+			"code": "rematch_expired",
+			"status": "expired",
+			"parent_session_id": sid
+		}
+	var votes: Dictionary = request.get("votes", {}) as Dictionary
+	votes[player_uid] = true
+	request["votes"] = votes
+	_rematch_requests[sid] = request
+	var required_voters: Array[String] = []
+	for player_any in parent_roster:
+		if typeof(player_any) != TYPE_DICTIONARY:
+			continue
+		var player: Dictionary = player_any as Dictionary
+		var roster_uid: String = str(player.get("uid", "")).strip_edges()
+		if roster_uid.is_empty() or bool(player.get("is_cpu", false)) or roster_uid.begins_with("bot_"):
+			continue
+		required_voters.append(roster_uid)
+	if required_voters.is_empty():
+		for player_any in parent_roster:
+			if typeof(player_any) == TYPE_DICTIONARY:
+				required_voters.append(str((player_any as Dictionary).get("uid", "")))
+	var all_voted: bool = true
+	for required_uid in required_voters:
+		if not votes.has(required_uid):
+			all_voted = false
+			break
+	if not all_voted:
+		return {
+			"ok": true,
+			"status": "pending",
+			"parent_session_id": sid,
+			"votes": votes.keys(),
+			"votes_received": votes.size(),
+			"votes_required": required_voters.size(),
+			"deadline_unix_ms": int(request.get("deadline_unix_ms", 0))
+		}
+	var create_result: Dictionary = _create_fresh_rematch_session(parent_session)
+	if not bool(create_result.get("ok", false)):
+		return create_result
+	var child_session: Dictionary = create_result.get("session", {}) as Dictionary
+	child_session_id = str(child_session.get("id", "")).strip_edges()
+	request["child_session_id"] = child_session_id
+	_rematch_requests[sid] = request
+	return _fresh_rematch_ready_result(sid, child_session, false)
+
+func resolve_runtime_setup_for_session(session: Dictionary) -> Dictionary:
+	if session.is_empty():
+		return {"ok": false, "err": "session_missing"}
+	var session_id: String = str(session.get("id", "")).strip_edges()
+	var context: Dictionary = (session.get("context", {}) as Dictionary).duplicate(true)
+	if session_id.is_empty() or context.is_empty():
+		return {"ok": false, "err": "session_contract_missing"}
+	var requested_count: int = maxi(1, int(context.get("map_count", 1)))
+	var stage_maps: Array[String] = _stage_map_paths_from_context_stage_paths(context, requested_count)
+	if stage_maps.size() < requested_count:
+		var map_rng := RandomNumberGenerator.new()
+		map_rng.seed = _stable_session_setup_seed(session_id, str(context.get("mode", "")), "map")
+		stage_maps = _select_stage_map_paths_for_context_with_rng(context, map_rng, stage_maps)
+	if stage_maps.is_empty():
+		return {"ok": false, "err": "no_valid_stage_maps"}
+	var randomizer: Dictionary = {}
+	var randomizer_any: Variant = context.get(MatchSetupRandomizer.CONTEXT_KEY, {})
+	if typeof(randomizer_any) == TYPE_DICTIONARY and not (randomizer_any as Dictionary).is_empty():
+		randomizer = (randomizer_any as Dictionary).duplicate(true)
+	else:
+		var setup_rng := RandomNumberGenerator.new()
+		setup_rng.seed = _stable_session_setup_seed(session_id, str(context.get("mode", "")), "randomizer")
+		randomizer = MatchSetupRandomizer.roll(setup_rng)
+	return {
+		"ok": true,
+		"session_id": session_id,
+		"stage_map_paths": stage_maps,
+		"match_randomizer": randomizer
+	}
+
+func _create_fresh_rematch_session(parent_session: Dictionary) -> Dictionary:
+	var sid: String = str(parent_session.get("id", "")).strip_edges()
+	var parent_context: Dictionary = parent_session.get("context", {}) as Dictionary
+	var next_rematch_index: int = maxi(1, int(parent_context.get("rematch_index", 0)) + 1)
+	var parent_key: String = "%s:%d" % [sid, next_rematch_index]
+	var existing_session_id: String = str(_rematch_sessions_by_parent_key.get(parent_key, "")).strip_edges()
+	if not existing_session_id.is_empty() and _sessions.has(existing_session_id):
+		return {"ok": true, "session": _dup_session(_sessions.get(existing_session_id, {}) as Dictionary), "cached": true}
+	var roster: Array = _session_roster(parent_session)
+	if roster.size() < _session_required_players(parent_session):
+		return {"ok": false, "err": "not_enough_players", "code": "not_enough_players"}
+	var host: Dictionary = (roster[0] as Dictionary).duplicate(true)
+	var rematch_context: Dictionary = _fresh_rematch_context(parent_session, next_rematch_index)
+	var rematch_session: Dictionary = _new_session(host, rematch_context, "rematch")
+	var ready_roster: Array = []
+	for player_any in roster:
+		if typeof(player_any) != TYPE_DICTIONARY:
+			continue
+		var player: Dictionary = (player_any as Dictionary).duplicate(true)
+		player["ready"] = true
+		ready_roster.append(player)
+	_set_session_roster(rematch_session, ready_roster)
+	var start_result: Dictionary = _mark_session_started(rematch_session)
+	if not bool(start_result.get("ok", false)):
+		return start_result
+	var rematch_session_id: String = str(rematch_session.get("id", ""))
+	_sessions[rematch_session_id] = rematch_session
+	_invite_to_session[str(rematch_session.get("invite_code", ""))] = rematch_session_id
+	_rematch_sessions_by_parent_key[parent_key] = rematch_session_id
+	var updated_parent: Dictionary = parent_session.duplicate(true)
+	var updated_context: Dictionary = (updated_parent.get("context", {}) as Dictionary).duplicate(true)
+	updated_context["next_rematch_session_id"] = rematch_session_id
+	updated_parent["context"] = updated_context
+	_sessions[sid] = updated_parent
+	_emit_session_changed(rematch_session_id)
+	return {"ok": true, "session": _dup_session(rematch_session), "cached": false}
+
+func _fresh_rematch_context(parent_session: Dictionary, rematch_index: int) -> Dictionary:
+	var parent_id: String = str(parent_session.get("id", "")).strip_edges()
+	var parent_context: Dictionary = parent_session.get("context", {}) as Dictionary
+	var context: Dictionary = parent_context.duplicate(true)
+	for key in [
+		"map_ids", "stage_map_paths", MatchSetupRandomizer.CONTEXT_KEY,
+		"ledger_status", "pot_cents", "escrow_cents", "winner_owner_id", "winner_uid",
+		"winner_payout_cents", "house_rake_cents", "settle_transaction_ids", "settle_reason",
+		"refund_reason", "refund_transaction_ids", "next_rematch_session_id",
+		"crucible_match_id", "crucible_ledger_status", "crucible_escrow_id",
+		"crucible_stake_each", "crucible_pot", "crucible_burn", "crucible_winner_payout"
+	]:
+		context.erase(key)
+	context["rematch_parent_session_id"] = parent_id
+	context["rematch_root_session_id"] = str(parent_context.get("rematch_root_session_id", parent_id))
+	context["rematch_index"] = rematch_index
+	return context
+
+func _fresh_rematch_ready_result(parent_session_id: String, child_session: Dictionary, cached: bool) -> Dictionary:
+	return {
+		"ok": true,
+		"status": "ready",
+		"type": "fresh_rematch_ready",
+		"parent_session_id": parent_session_id,
+		"session_id": str(child_session.get("id", "")),
+		"session": _dup_session(child_session),
+		"cached": cached
+	}
+
 func prepare_money_rematch(session_id: String) -> Dictionary:
 	var transport := _call_transport("prepare_money_rematch", {"session_id": session_id})
 	if bool(transport.get("handled", false)):
@@ -2045,19 +2228,34 @@ func _context_has_stage_maps(context: Dictionary) -> bool:
 	return not _stage_map_paths_from_context_stage_paths(context, 1).is_empty()
 
 func _select_stage_map_paths_for_context(context: Dictionary) -> Array[String]:
+	return _select_stage_map_paths_for_context_with_rng(context, _rng)
+
+func _select_stage_map_paths_for_context_with_rng(context: Dictionary, rng: RandomNumberGenerator, existing: Array[String] = []) -> Array[String]:
 	var requested_count: int = maxi(1, int(context.get("map_count", 1)))
-	var picked: Array[String] = _stage_map_paths_from_map_ids(context, requested_count)
+	var picked: Array[String] = existing.duplicate()
+	for map_path in _stage_map_paths_from_map_ids(context, requested_count):
+		if not picked.has(map_path):
+			picked.append(map_path)
 	if picked.size() >= requested_count:
 		return picked
 	var mode: String = str(context.get("mode", "")).strip_edges().to_upper()
 	var pool: Array[String] = _candidate_stage_map_paths_for_mode(mode)
+	for map_path in picked:
+		pool.erase(map_path)
 	while picked.size() < requested_count and not pool.is_empty():
-		var idx: int = _rng.randi_range(0, pool.size() - 1)
+		var idx: int = rng.randi_range(0, pool.size() - 1)
 		var path: String = str(pool[idx])
 		if not picked.has(path):
 			picked.append(path)
 		pool.remove_at(idx)
 	return picked
+
+func _stable_session_setup_seed(session_id: String, mode: String, scope: String) -> int:
+	var source: String = "%s:%s:%s" % [session_id.strip_edges(), mode.strip_edges().to_upper(), scope.strip_edges().to_lower()]
+	var value: int = 17
+	for i in range(source.length()):
+		value = int((value * 31 + source.unicode_at(i)) % 2147483647)
+	return maxi(1, value)
 
 func _stage_map_paths_from_map_ids(context: Dictionary, requested_count: int) -> Array[String]:
 	var picked: Array[String] = []
@@ -2583,6 +2781,7 @@ func _should_record_diagnostic(action: String) -> bool:
 		"set_ready",
 		"can_start",
 		"start_session",
+		"request_fresh_rematch",
 		"create_friend_invite",
 		"poll_friend_invites",
 		"respond_friend_invite",

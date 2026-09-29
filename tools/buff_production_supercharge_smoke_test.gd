@@ -3,11 +3,16 @@ extends SceneTree
 const BuffSystem := preload("res://scripts/sim/authoritative_buff_system.gd")
 
 var _failed: bool = false
+var _fixture_systems: Array[RefCounted] = []
 
 func _init() -> void:
 	_test_production_scopes_and_progress()
 	_test_supercharge_queue_and_release()
 	_test_supercharge_source_loss()
+	for system: RefCounted in _fixture_systems:
+		# Break fixture GameState <-> UnitSystem reference cycles.
+		system.set("state", null)
+	_fixture_systems.clear()
 	if _failed:
 		quit(1)
 		return
@@ -44,6 +49,7 @@ func _test_production_scopes_and_progress() -> void:
 func _test_supercharge_queue_and_release() -> void:
 	var state := _state()
 	var unit_system := UnitSystem.new()
+	_fixture_systems.append(unit_system)
 	unit_system.bind_state(state)
 	var activated: Dictionary = BuffSystem.activate(state, _command("super", "buff_supercharge_queue_classic", "lane", 1))
 	_expect(bool(activated.get("ok", false)), "Supercharge activates on an eligible lane")
@@ -71,6 +77,7 @@ func _test_supercharge_queue_and_release() -> void:
 func _test_supercharge_source_loss() -> void:
 	var state := _state()
 	var unit_system := UnitSystem.new()
+	_fixture_systems.append(unit_system)
 	unit_system.bind_state(state)
 	var activated: Dictionary = BuffSystem.activate(state, _command("lost", "buff_supercharge_queue_classic", "lane", 1))
 	_expect(bool(activated.get("ok", false)), "source-loss Supercharge fixture activates")

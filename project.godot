@@ -11,13 +11,17 @@ config_version=5
 [application]
 
 config/name="Swarmfront"
+config/version.beta_capture="2026092804"
 run/main_scene="res://scenes/Shell.tscn"
-config/features=PackedStringArray("4.2")
+run/main_scene.store_release="res://scenes/MainMenu.tscn"
+run/main_scene.bot_evaluation="res://scenes/BotEvaluation.tscn"
+config/features=PackedStringArray("4.7")
 config/icon="res://assets/branding/swarmfront_logo_1024.png"
 
 [autoload]
 
 MainMenuLoadingCoordinator="*res://scenes/ui/MainMenuLoadingCover.tscn"
+AccountDeletionRuntime="*res://scripts/state/account_deletion_runtime.gd"
 OpsState="*res://scripts/ops/ops_state.gd"
 ContestState="*res://scripts/state/contest_state.gd"
 ProfileManager="*res://scripts/profile/profile_manager.gd"
@@ -35,6 +39,9 @@ OpsConfig="*res://scripts/state/ops_config.gd"
 AnalyticsClient="*res://scripts/state/analytics_client.gd"
 AdManager="*res://scripts/state/ad_manager.gd"
 JukeboxRuntime="*res://scripts/state/jukebox_runtime.gd"
+CampaignRuntime="*res://scripts/state/campaign_runtime.gd"
+BotEvaluationSession="*res://scripts/state/bot_evaluation_session.gd"
+BetaMatchCapture="*res://scripts/state/beta_match_capture.gd"
 AppLifecycle="*res://scripts/state/app_lifecycle_state.gd"
 VsHandshake="*res://scripts/state/vs_handshake_state.gd"
 PlayerIdentityRuntime="*res://scripts/state/player_identity_runtime.gd"
@@ -51,6 +58,10 @@ window/stretch/aspect="keep_width"
 window/handheld/orientation=1
 window/size/window_width=1080
 window/size/window_height=1920
+
+[editor_plugins]
+
+enabled=PackedStringArray("res://addons/swarmfront_secure_credentials/plugin.cfg")
 
 [gui]
 
@@ -74,10 +85,10 @@ analytics/backend_url=""
 analytics/enabled=false
 ads/fake_ads=false
 ads/show_placeholders=false
-ads/dev_biodynamic_test_ads=true
+ads/dev_biodynamic_test_ads=false
 ads/dev_biodynamic_image_path="res://assets/ads/test_creatives/biodynamic_laser_cleaning_banner.png"
 ads/dev_biodynamic_destination_url="https://www.biodynamicusa.com"
-ads/dev_biodynamic_open_url_on_tap=true
+ads/dev_biodynamic_open_url_on_tap=false
 vs/backend_url="https://swarmfront-cert-vs.onrender.com/v1"
 vs/backend_token=""
 vs/backend_timeout_sec=6.0
@@ -85,5 +96,6 @@ vs/crash_on_contract_violation=false
 arena/premium_polish_enabled=false
 arena/tower_visual_scale=1.0
 arena/polish_comparison_mode="settings"
-arena/lane_visual_hierarchy_enabled=false
+arena/lane_visual_hierarchy_enabled=true
+arena/combat_readability_enabled=true
 arena/dynamic_hive_shadows_enabled=true

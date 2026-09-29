@@ -128,6 +128,9 @@ var edge_cache: Dictionary = {}
 var edge_cache_version: int = -1
 var blocked_wall_pairs: Array = []
 var bot_profiles: Dictionary = {}
+# Simulation-owned cognition/scheduling, separate from immutable profile configuration.
+var bot_runtime_by_seat: Dictionary = {}
+var bot_match_seed: int = 1
 var _remote_replication_apply_depth: int = 0
 var victory_mode: String = VICTORY_MODE_CONQUEST
 var victory_rules: Dictionary = {}
@@ -359,6 +362,10 @@ func get_contract_state_hash() -> String:
 	return _build_contract_state_signature().sha256_text()
 
 func apply_authoritative_buff_command(command: Dictionary) -> Dictionary:
+	if bot_evaluation_active():
+		return {"ok": false, "status": "deterministic_no_op", "reason": "evaluation_fixed_loadout"}
+	if get_tree() != null and get_tree().has_meta("campaign_level_id"):
+		return {"ok": false, "status": "deterministic_no_op", "reason": "campaign_fixed_loadout"}
 	if state == null:
 		return {"ok": false, "status": "deterministic_no_op", "reason": "missing_game_state"}
 	var result_holder: Dictionary = {"outcome": {}}
@@ -422,6 +429,9 @@ func get_authority_snapshot() -> Dictionary:
 		"stats_by_team": stats_by_team.duplicate(true),
 		"team_mode_override": team_mode_override,
 		"match_roster": match_roster.duplicate(true),
+		"bot_profiles": bot_profiles.duplicate(true),
+		"bot_runtime_by_seat": bot_runtime_by_seat.duplicate(true),
+		"bot_match_seed": bot_match_seed,
 		"lane_front_by_lane_id": lane_front_by_lane_id.duplicate(true),
 		"state": {
 			"buff_match_id": st.buff_match_id,
@@ -439,6 +449,8 @@ func get_authority_snapshot() -> Dictionary:
 			"spawns": st.spawns.duplicate(true),
 			"swarm_requests": st.swarm_requests.duplicate(true),
 			"swarm_packets": st.swarm_packets.duplicate(true),
+			"swarm_overflow_batches": st.swarm_overflow_batches.duplicate(true),
+			"swarm_overflow_next_emit_us_by_hive": st.swarm_overflow_next_emit_us_by_hive.duplicate(true),
 			"swarm_cooldown_until_us": st.swarm_cooldown_until_us.duplicate(true),
 			"lane_retract_requests": st.lane_retract_requests.duplicate(true),
 			"towers": st.towers.duplicate(true),
@@ -499,6 +511,10 @@ func restore_authority_snapshot(snapshot: Dictionary) -> bool:
 	stats_by_team = (snapshot.get("stats_by_team", {}) as Dictionary).duplicate(true) if typeof(snapshot.get("stats_by_team", {})) == TYPE_DICTIONARY else {}
 	team_mode_override = str(snapshot.get("team_mode_override", team_mode_override))
 	match_roster = (snapshot.get("match_roster", []) as Array).duplicate(true) if typeof(snapshot.get("match_roster", [])) == TYPE_ARRAY else []
+	bot_profiles = _restore_bot_seat_dictionary(snapshot.get("bot_profiles", {}))
+	bot_runtime_by_seat = _restore_bot_seat_dictionary(snapshot.get("bot_runtime_by_seat", {}))
+	bot_match_seed = int(snapshot.get("bot_match_seed", 1))
+	_invalidate_intent_telemetry_cache()
 	lane_front_by_lane_id = (snapshot.get("lane_front_by_lane_id", {}) as Dictionary).duplicate(true) if typeof(snapshot.get("lane_front_by_lane_id", {})) == TYPE_DICTIONARY else {}
 	st.hives = _authority_restore_hives(state_snapshot.get("hives", []))
 	st.lanes = _authority_restore_lanes(state_snapshot.get("lanes", []))
@@ -507,6 +523,17 @@ func restore_authority_snapshot(snapshot: Dictionary) -> bool:
 	st.spawns = (state_snapshot.get("spawns", []) as Array).duplicate(true) if typeof(state_snapshot.get("spawns", [])) == TYPE_ARRAY else []
 	st.swarm_requests = (state_snapshot.get("swarm_requests", []) as Array).duplicate(true) if typeof(state_snapshot.get("swarm_requests", [])) == TYPE_ARRAY else []
 	st.swarm_packets = (state_snapshot.get("swarm_packets", []) as Array).duplicate(true) if typeof(state_snapshot.get("swarm_packets", [])) == TYPE_ARRAY else []
+	st.swarm_overflow_batches.clear()
+	var overflow_batches_any: Variant = state_snapshot.get("swarm_overflow_batches", [])
+	if typeof(overflow_batches_any) == TYPE_ARRAY:
+		for batch_any in overflow_batches_any as Array:
+			if typeof(batch_any) == TYPE_DICTIONARY:
+				st.swarm_overflow_batches.append((batch_any as Dictionary).duplicate(true))
+	st.swarm_overflow_next_emit_us_by_hive.clear()
+	var overflow_timing_any: Variant = state_snapshot.get("swarm_overflow_next_emit_us_by_hive", {})
+	if typeof(overflow_timing_any) == TYPE_DICTIONARY:
+		for hive_id_any in overflow_timing_any:
+			st.swarm_overflow_next_emit_us_by_hive[int(hive_id_any)] = int(overflow_timing_any[hive_id_any])
 	st.swarm_cooldown_until_us = (state_snapshot.get("swarm_cooldown_until_us", {}) as Dictionary).duplicate(true) if typeof(state_snapshot.get("swarm_cooldown_until_us", {})) == TYPE_DICTIONARY else {}
 	st.lane_retract_requests = (state_snapshot.get("lane_retract_requests", []) as Array).duplicate(true) if typeof(state_snapshot.get("lane_retract_requests", [])) == TYPE_ARRAY else []
 	st.towers = (state_snapshot.get("towers", []) as Array).duplicate(true) if typeof(state_snapshot.get("towers", [])) == TYPE_ARRAY else []
@@ -892,6 +919,14 @@ func _build_contract_state_signature() -> String:
 	for row_any in lane_rows:
 		var row: Array = row_any as Array
 		parts.append(str(row[1]))
+	for batch in st.swarm_overflow_batches:
+		parts.append("so:%d:%d:%d:%d:%d" % [int(batch.get("hive_id", -1)),
+			int(batch.get("owner_id", 0)), int(batch.get("count", 0)),
+			int(batch.get("expires_us", 0)), int(batch.get("swarm_id", -1))])
+	var overflow_hive_ids: Array = st.swarm_overflow_next_emit_us_by_hive.keys()
+	overflow_hive_ids.sort()
+	for hive_id in overflow_hive_ids:
+		parts.append("so_emit:%d:%d" % [int(hive_id), int(st.swarm_overflow_next_emit_us_by_hive[hive_id])])
 	var unit_rows: Array = []
 	var unit_system: Object = st.unit_system
 	var units_any: Variant = unit_system.get("units") if unit_system != null else []
@@ -1231,6 +1266,8 @@ func reset_match_state() -> void:
 	lane_front_by_lane_id.clear()
 	match_roster.clear()
 	bot_profiles.clear()
+	bot_runtime_by_seat.clear()
+	bot_match_seed = 1
 	_hud_snapshot = {}
 	reset_runtime_telemetry()
 	victory_mode = VICTORY_MODE_CONQUEST
@@ -1315,11 +1352,22 @@ func _default_bot_style_for_seat(seat: int) -> String:
 		_:
 			return BOT_STYLE_BALANCER
 
+func _restore_bot_seat_dictionary(value: Variant) -> Dictionary:
+	var restored: Dictionary = {}
+	if typeof(value) != TYPE_DICTIONARY:
+		return restored
+	for key in value:
+		var seat := int(key)
+		if seat >= 1 and seat <= 4 and typeof(value[key]) == TYPE_DICTIONARY:
+			restored[seat] = value[key].duplicate(true)
+	return restored
+
 func _base_bot_profile_for_seat(seat: int) -> Dictionary:
 	return {
 		"seat": seat,
 		"enabled": true,
-		"policy": "baseline_v2",
+		"policy": "baseline_v3",
+		"profile_version": 3,
 		"style": BOT_STYLE_BALANCER,
 		"persona": BOT_STYLE_BALANCER,
 		"tier": BOT_TIER_MEDIUM,
@@ -1826,12 +1874,25 @@ func _build_bot_profile_for_seat(seat: int, style: String, tier: String) -> Dict
 	for key_any in style_patch.keys():
 		profile[key_any] = style_patch.get(key_any)
 	_apply_bot_tier(profile, normalized_tier)
+	if normalized_tier == BOT_TIER_MEDIUM and normalized_style in [BOT_STYLE_RAIDER, BOT_STYLE_GREEDY]:
+		profile["neutral_uses_base_attack_power"] = true
 	profile["seat"] = seat
 	profile["style"] = normalized_style
 	profile["persona"] = normalized_style
 	profile["tier"] = normalized_tier
 	profile["opening_delay_ms"] = int(profile.get("opening_delay_ms", 1600)) + BOT_REACTION_DELAY_EXTRA_MS
 	profile["think_interval_ms"] = int(profile.get("think_interval_ms", 900)) + BOT_REACTION_DELAY_EXTRA_MS
+	if normalized_style == BOT_STYLE_BALANCER and normalized_tier == BOT_TIER_MEDIUM:
+		# First behavior pilot; BotSystem restricts it to two-seat conquest matches.
+		profile["human_policy"] = "human_balancer_v3"
+		profile["human_behavior_enabled"] = false
+		profile["human_review_uncontested_expansion"] = true
+		profile["human_watch_limit"] = 3
+		profile["human_timing"] = {"notice_delay_ms": 450,
+			"notice_jitter_ms": 200, "motor_delay_ms": 200, "motor_jitter_ms": 100,
+			"think_interval_ms": 1100, "think_jitter_ms": 350,
+			"global_intent_cooldown_ms": 450, "post_intent_delay_ms": 0,
+			"plan_stall_ms": 8000, "plan_retry_ms": 8000}
 	return profile
 
 func _default_bot_profile_for_seat(seat: int) -> Dictionary:
@@ -1852,6 +1913,8 @@ func _merge_bot_profile(seat: int, patch: Dictionary) -> Dictionary:
 		for key_any in patch.keys():
 			merged[key_any] = patch.get(key_any)
 	merged["seat"] = seat
+	if bot_evaluation_active() and seat == 2:
+		merged["human_behavior_enabled"] = str(merged.get("style", "")) == "balancer" and str(merged.get("tier", "")) == "medium"
 	merged["style"] = _normalize_bot_style(str(merged.get("style", merged.get("persona", requested_style))))
 	merged["persona"] = str(merged.get("style", requested_style))
 	merged["tier"] = _normalize_bot_tier(str(merged.get("tier", requested_tier)))
@@ -3177,7 +3240,12 @@ func add_units_killed(killer_id: int, count: int) -> void:
 	if killer_id <= 0 or count <= 0:
 		return
 	var team_id: int = get_team_for_seat(killer_id)
+	add_team_units_killed(team_id, count)
+
+func add_team_units_killed(team_id: int, count: int) -> void:
 	if team_id <= 0:
+		return
+	if count <= 0:
 		return
 	var stats := _ensure_team_stats(team_id)
 	stats["units_killed"] = int(stats.get("units_killed", 0)) + count
@@ -3538,6 +3606,14 @@ func _ensure_runtime_lane(st: GameState, src_hive_id: int, dst_hive_id: int, int
 	return created_index
 
 func apply_lane_intent(src_hive_id: int, dst_hive_id: int, intent: String) -> Dictionary:
+	if bot_evaluation_active() and state != null:
+		var source: HiveData = state.find_hive_by_id(src_hive_id)
+		if source != null and int(source.owner_id) == 1:
+			var observation = preload("res://scripts/bot/bot_observation.gd")
+			_record_match_action_event(1, "human_evaluation_intent", {
+				"src": src_hive_id, "dst": dst_hive_id, "intent": intent,
+				"observation": observation.capture(state, 1, get_team_by_seat_snapshot(), int(state._sim_time_us / 1000))
+			})
 	var intent_total_start_usec := Time.get_ticks_usec()
 	var result := {
 		"ok": false,
@@ -4332,6 +4408,7 @@ func reset_state_from_map(map_dict: Dictionary) -> GameState:
 		return state
 	_state_serial += 1
 	reset_match_state()
+	bot_match_seed = int(map_dict.get("bot_seed", map_dict.get("seed", 1)))
 	edge_cache = {}
 	edge_cache_version = -1
 	blocked_wall_pairs = []
@@ -4362,6 +4439,12 @@ func reset_state_from_map(map_dict: Dictionary) -> GameState:
 
 	var map_id := str(map_dict.get("map_id", map_dict.get("_id", map_dict.get("id", "UNKNOWN"))))
 	current_map_id = map_id
+	_apply_campaign_setup()
+	if bot_evaluation_active():
+		var evaluation: Dictionary = get_tree().get_meta("bot_evaluation_session")
+		bot_match_seed = int(evaluation["seed"])
+		set_team_mode_override("")
+		set_bot_profile(2, {"style": str(evaluation["style"]), "tier": "medium"})
 	_invalidate_intent_telemetry_cache(true)
 	SFLog.info("OPS_STATE_CHANGED", {
 		"iid": int(new_state.get_instance_id()),
@@ -4370,6 +4453,22 @@ func reset_state_from_map(map_dict: Dictionary) -> GameState:
 
 	call_deferred("_emit_state_changed", new_state)
 	return new_state
+
+func bot_evaluation_active() -> bool:
+	return get_tree() != null and get_tree().has_meta("bot_evaluation_session") and current_map_id == "MAP_simple_syrup__1p" and (OS.has_feature("bot_evaluation") or (OS.is_debug_build() and OS.get_cmdline_user_args().has("--bot-evaluation")))
+
+func _apply_campaign_setup() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null or not tree.has_meta("campaign_level_id"):
+		return
+	var catalog = preload("res://scripts/state/campaign_catalog.gd")
+	var level: Dictionary = catalog.find(str(tree.get_meta("campaign_level_id", "")))
+	if level.is_empty():
+		return
+	bot_match_seed = int(level.seed)
+	set_team_mode_override("")
+	for seat in [2, 3, 4]:
+		set_bot_profile(seat, {"style": str(level.bot), "tier": str(level.difficulty)})
 
 func _emit_state_changed(new_state: GameState) -> void:
 	if new_state == null:

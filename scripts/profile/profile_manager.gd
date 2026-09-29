@@ -10,6 +10,7 @@ signal buff_loadout_changed(mode: String, loadout_ids: Array[String])
 
 const SFLog = preload("res://scripts/util/sf_log.gd")
 const BuffCatalog = preload("res://scripts/state/buff_catalog.gd")
+const BuffLoadoutPolicy = preload("res://scripts/state/buff_loadout_policy.gd")
 const EconomyEpochScript = preload("res://scripts/state/economy_epoch.gd")
 
 const PROFILE_PATH: String = "user://profile.cfg"
@@ -20,8 +21,6 @@ const PROFILE_KEY_SFX_ENABLED: String = "sfx_enabled"
 const PROFILE_KEY_HAPTICS_ENABLED: String = "haptics_enabled"
 const PROFILE_KEY_FLOOR_GRAPHICS_ENABLED: String = "floor_graphics_enabled"
 const PROFILE_KEY_PERFORMANCE_MODE: String = "performance_mode"
-const PROFILE_KEY_ADMIN_DASHBOARD_USERNAME: String = "admin_dashboard_username"
-const PROFILE_KEY_ADMIN_DASHBOARD_PASSWORD: String = "admin_dashboard_password"
 const PROFILE_KEY_UNLOCKED_ACHIEVEMENTS: String = "unlocked_achievements"
 const PROFILE_KEY_POWERBAR_THEME: String = "cosmetic_powerbar_theme"
 const PROFILE_KEY_GARAGE_SELECTIONS: String = "garage_selections"
@@ -40,7 +39,7 @@ const DISPLAY_NAME_MAX_LEN: int = 16
 const HANDLE_RENAME_COOLDOWN_SEC: int = 365 * 24 * 60 * 60
 const HANDLE_EXTRA_CHANGE_HONEY_COST: int = 25
 const HANDLE_POLICY_VERSION: int = 1
-const BUFF_LOADOUT_SIZE: int = 3
+const BUFF_LOADOUT_SIZE: int = BuffLoadoutPolicy.LOADOUT_SIZE
 const BUFF_MODE_VS: String = "vs"
 const BUFF_MODE_ASYNC: String = "async"
 const PERFORMANCE_MODE_QUALITY: String = "quality"
@@ -85,8 +84,6 @@ const TUTORIAL_CONTROLS_STATUS_IN_PROGRESS: String = "in_progress"
 const TUTORIAL_CONTROLS_STATUS_COMPLETED: String = "completed"
 const TUTORIAL_CONTROLS_STATUS_SKIPPED: String = "skipped"
 const DEFAULT_HONEY_BALANCE: int = EconomyEpochScript.STARTING_HONEY
-const DEFAULT_ADMIN_DASHBOARD_USERNAME: String = "Mattballou"
-const DEFAULT_ADMIN_DASHBOARD_PASSWORD: String = "$warmFr0nt"
 const POWERBAR_THEME_BASE: String = "base"
 const POWERBAR_THEME_UPGRADED: String = "upgraded"
 const POWERBAR_THEME_UPGRADED_DYNAMIC: String = "upgraded_dynamic"
@@ -149,8 +146,6 @@ var _sfx_enabled: bool = true
 var _haptics_enabled: bool = true
 var _floor_graphics_enabled: bool = true
 var _performance_mode: String = PERFORMANCE_MODE_QUALITY
-var _admin_dashboard_username: String = DEFAULT_ADMIN_DASHBOARD_USERNAME
-var _admin_dashboard_password: String = DEFAULT_ADMIN_DASHBOARD_PASSWORD
 func _ready() -> void:
 	ensure_loaded()
 
@@ -228,8 +223,6 @@ func ensure_loaded() -> void:
 		_haptics_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_HAPTICS_ENABLED, true))
 		_floor_graphics_enabled = bool(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_FLOOR_GRAPHICS_ENABLED, true))
 		_performance_mode = _sanitize_performance_mode(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_PERFORMANCE_MODE, PERFORMANCE_MODE_QUALITY)))
-		_admin_dashboard_username = _sanitize_admin_dashboard_username(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_ADMIN_DASHBOARD_USERNAME, DEFAULT_ADMIN_DASHBOARD_USERNAME)))
-		_admin_dashboard_password = _sanitize_admin_dashboard_password(str(cfg.get_value(PROFILE_SECTION, PROFILE_KEY_ADMIN_DASHBOARD_PASSWORD, DEFAULT_ADMIN_DASHBOARD_PASSWORD)))
 		var legacy_owned_default: Array[String] = []
 		if not cfg.has_section_key(PROFILE_SECTION, "owned_buff_ids"):
 			legacy_owned_default = _default_owned_ids()
@@ -283,8 +276,6 @@ func ensure_loaded() -> void:
 		_haptics_enabled = true
 		_floor_graphics_enabled = true
 		_performance_mode = PERFORMANCE_MODE_QUALITY
-		_admin_dashboard_username = DEFAULT_ADMIN_DASHBOARD_USERNAME
-		_admin_dashboard_password = DEFAULT_ADMIN_DASHBOARD_PASSWORD
 		_owned_buff_ids = _default_owned_ids()
 		_buff_loadout_ids = _sanitize_loadout_ids(_owned_buff_ids)
 		_buff_inventory_counts = _inventory_counts_from_ids(_owned_buff_ids)
@@ -324,13 +315,11 @@ func ensure_loaded() -> void:
 		if clean_mode != _performance_mode:
 			_performance_mode = clean_mode
 			updated = true
-		var clean_admin_username: String = _sanitize_admin_dashboard_username(_admin_dashboard_username)
-		if clean_admin_username != _admin_dashboard_username:
-			_admin_dashboard_username = clean_admin_username
-			updated = true
-		var clean_admin_password: String = _sanitize_admin_dashboard_password(_admin_dashboard_password)
-		if clean_admin_password != _admin_dashboard_password:
-			_admin_dashboard_password = clean_admin_password
+		# Rewrite legacy profiles once so previously persisted dashboard credentials
+		# are removed from user:// storage. Admin secrets belong in the browser or
+		# platform secret store, never in the game profile.
+		if cfg.has_section_key(PROFILE_SECTION, "admin_dashboard_username") \
+		or cfg.has_section_key(PROFILE_SECTION, "admin_dashboard_password"):
 			updated = true
 		var clean_tutorial_status: String = _sanitize_tutorial_section1_status(_tutorial_section1_status)
 		if clean_tutorial_status != _tutorial_section1_status:
@@ -1319,29 +1308,19 @@ func set_performance_mode(mode: String) -> void:
 	SFLog.info("PROFILE_PERFORMANCE_MODE", {"user_id": _user_id, "mode": _performance_mode})
 
 func get_admin_dashboard_username() -> String:
-	ensure_loaded()
-	return _admin_dashboard_username
+	return ""
 
-func set_admin_dashboard_username(username: String) -> void:
-	set_admin_dashboard_credentials(username, _admin_dashboard_password)
+func set_admin_dashboard_username(_username: String) -> void:
+	pass
 
 func get_admin_dashboard_password() -> String:
-	ensure_loaded()
-	return _admin_dashboard_password
+	return ""
 
-func set_admin_dashboard_password(password: String) -> void:
-	set_admin_dashboard_credentials(_admin_dashboard_username, password)
+func set_admin_dashboard_password(_password: String) -> void:
+	pass
 
-func set_admin_dashboard_credentials(username: String, password: String) -> void:
-	ensure_loaded()
-	var next_username: String = _sanitize_admin_dashboard_username(username)
-	var next_password: String = _sanitize_admin_dashboard_password(password)
-	if next_username == _admin_dashboard_username and next_password == _admin_dashboard_password:
-		return
-	_admin_dashboard_username = next_username
-	_admin_dashboard_password = next_password
-	_save_profile(_user_id, _display_name, _created_at_unix, _onboarding_complete)
-	SFLog.info("PROFILE_ADMIN_DASHBOARD_CREDENTIALS_SET", {"user_id": _user_id, "username": _admin_dashboard_username})
+func set_admin_dashboard_credentials(_username: String, _password: String) -> void:
+	pass
 
 func get_content_scale_factor() -> float:
 	ensure_loaded()
@@ -1646,8 +1625,6 @@ func _save_profile(user_id: String, display_name: String, created_at: int, onboa
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_HAPTICS_ENABLED, _haptics_enabled)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_FLOOR_GRAPHICS_ENABLED, _floor_graphics_enabled)
 	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_PERFORMANCE_MODE, _performance_mode)
-	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_ADMIN_DASHBOARD_USERNAME, _admin_dashboard_username)
-	cfg.set_value(PROFILE_SECTION, PROFILE_KEY_ADMIN_DASHBOARD_PASSWORD, _admin_dashboard_password)
 	cfg.set_value(PROFILE_SECTION, "owned_buff_ids", _owned_buff_ids)
 	cfg.set_value(PROFILE_SECTION, "buff_loadout_ids", _buff_loadout_ids)
 	cfg.set_value(PROFILE_SECTION, "owned_buff_ids_by_mode", _owned_buff_ids_by_mode)
@@ -1996,12 +1973,6 @@ func _sanitize_tutorial_controls_status(status: String) -> String:
 		return TUTORIAL_CONTROLS_STATUS_SKIPPED
 	return TUTORIAL_CONTROLS_STATUS_NOT_STARTED
 
-func _sanitize_admin_dashboard_username(username: String) -> String:
-	return username.strip_edges()
-
-func _sanitize_admin_dashboard_password(password: String) -> String:
-	return password
-
 func _sanitize_user_id(raw: String) -> String:
 	var cleaned: String = raw.strip_edges().to_lower()
 	return cleaned if _is_uuidv7(cleaned) else ""
@@ -2284,6 +2255,9 @@ func _sanitize_loadout_ids_for_mode(raw: Variant, mode: String, owned_ids: Array
 				out.append("")
 				continue
 			if (not allow_duplicates) and out.has(buff_id):
+				out.append("")
+				continue
+			if not BuffLoadoutPolicy.allows_catalog_id(out, buff_id):
 				out.append("")
 				continue
 			var available: int = _count_buff_in_list(owned_ids, buff_id)

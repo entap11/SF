@@ -33,6 +33,9 @@ var _overlay_mode: String = "rematch"
 var _stage_next_action: String = "next_round"
 var _stage_next_available: bool = false
 var _stage_status_text: String = ""
+var _campaign_retry: Button = null
+var _campaign_mode := false
+var _saved_ads_button: Button
 var _tutorial_followup_auto_at_ms: int = 0
 var _post_match_summary_panel: Control = null
 var _post_match_stats_panel: Control = null
@@ -44,6 +47,8 @@ var _buttons_row: HBoxContainer = null
 var _buttons_stack: VBoxContainer = null
 var _layout_refresh_queued: bool = false
 var _layout_viewport_size_override: Vector2 = Vector2.ZERO
+var _network_rematch_status: String = ""
+var _network_rematch_message: String = ""
 
 const PANEL_MAX_SIZE: Vector2 = Vector2(888.0, 1180.0)
 const PANEL_MARGIN_PX: float = 28.0
@@ -91,6 +96,7 @@ func show_outcome(
 	record_text: String = "",
 	h2h_text: String = ""
 ) -> void:
+	_reset_campaign_presentation()
 	_overlay_mode = OVERLAY_MODE_REMATCH
 	_stage_next_action = "next_round"
 	_stage_next_available = false
@@ -106,6 +112,8 @@ func show_outcome(
 	_ensure_outcome_layer()
 	local_player_id = maxi(1, player_id)
 	_action_taken = false
+	_network_rematch_status = ""
+	_network_rematch_message = ""
 	clear_post_match_summary()
 	visible = true
 	panel.visible = true
@@ -122,7 +130,78 @@ func show_outcome(
 	_log_show_state()
 	call_deferred("_log_layout_after_frame")
 
+func show_bot_evaluation_outcome(winner_id: int, session: Dictionary, saved: Dictionary) -> void:
+	show_outcome(winner_id, "capture_all", 1)
+	_overlay_mode = OVERLAY_MODE_STAGE_ROUND
+	var has_next := int(session.get("game", 0)) == 0
+	_stage_next_action = "evaluation_next" if has_next else "evaluation_done"
+	_stage_next_available = true
+	_stage_status_text = "Recording saved on this phone." if bool(saved.get("ok", false)) else "Recording save failed. Keep the app open."
+	title_label.text = "BOT PLAYTEST"
+	reason_label.text = "Simple Syrup · " + str(session.get("style", "")).capitalize() + " CPU"
+	rematch_button.text = "PLAY RAIDER" if has_next else "DONE"
+	rematch_button.disabled = false
+	exit_button.text = "DONE FOR NOW"
+	countdown_label.text = ""
+	status_label.text = _stage_status_text
+	_apply_readable_layout()
+
+func _reset_campaign_presentation() -> void:
+	_campaign_mode = false
+	if _campaign_retry != null:
+		_campaign_retry.visible = false
+
+func show_campaign_outcome(level: Dictionary, result: Dictionary, entry: String) -> void:
+	var catalog = preload("res://scripts/state/campaign_catalog.gd")
+	var saved: bool = bool(result.get("ok", false))
+	var has_next: bool = not str(result.get("next_id", "")).is_empty()
+	show_stage_round_outcome({"next_action": "campaign_next", "next_button_enabled": saved and has_next, "status_text": ""})
+	_campaign_mode = true
+	title_label.text = "LEVEL %d · %s" % [int(level.number), str(level.title)]
+	result_label.text = "VICTORY" if bool(result.get("won", false)) else "ATTEMPT COMPLETE"
+	reason_label.text = "%s · %s" % [str(level.bot).replace("_", " ").capitalize(), str(level.difficulty).capitalize()]
+	record_label.visible = true
+	record_label.text = "Stingers: %d / 3 · Personal best: %s" % [int(result.get("stingers", 0)), catalog.time_text(int(result.get("best_ms", 0)))]
+	if not bool(result.get("won", false)):
+		record_label.text = "No stingers or new personal best this time."
+	h2h_label.visible = false
+	stats_header.visible = false
+	stat_max_power.visible = false
+	stat_units_killed.visible = false
+	stat_units_landed.visible = false
+	countdown_label.visible = false
+	rematch_button.text = "NEXT LEVEL" if has_next else "END OF CAMPAIGN"
+	exit_button.text = "BACK TO CAMPAIGN" if entry == "campaign" else "BACK TO JUKEBOX"
+	_stage_status_text = "Next level unlocked. Retry for a better result whenever you like." if has_next else "You've reached the end. Return to any level to chase its stingers."
+	if bool(result.get("no_contest", false)):
+		result_label.text = "NO CONTEST"
+		_stage_status_text = "This attempt did not finish. Retry when you're ready."
+		rematch_button.text = "NEXT LEVEL LOCKED"
+	if not saved:
+		_stage_status_text = "Progress could not be saved. Retry saving before leaving."
+		_stage_next_action = "campaign_save"
+		_stage_next_available = true
+		rematch_button.disabled = false
+		rematch_button.text = "RETRY SAVE"
+	if _campaign_retry == null:
+		_campaign_retry = Button.new()
+		_campaign_retry.text = "RETRY LEVEL"
+		_campaign_retry.custom_minimum_size = Vector2(0, 96)
+		_campaign_retry.add_theme_font_size_override("font_size", 32)
+		_campaign_retry.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		rematch_button.get_parent().add_child(_campaign_retry)
+		_campaign_retry.pressed.connect(func() -> void:
+			if not _action_taken:
+				_action_taken = true
+				post_match_action.emit("campaign_retry")
+		)
+	_campaign_retry.visible = true
+	_campaign_retry.disabled = not saved
+	_update_status()
+	_apply_readable_layout()
+
 func show_stage_round_outcome(data: Dictionary) -> void:
+	_reset_campaign_presentation()
 	_overlay_mode = OVERLAY_MODE_STAGE_ROUND
 	_stage_next_action = str(data.get("next_action", "next_round"))
 	_stage_next_available = bool(data.get("next_button_enabled", data.get("next_round_available", false)))
@@ -157,6 +236,7 @@ func show_stage_round_outcome(data: Dictionary) -> void:
 	call_deferred("_log_layout_after_frame")
 
 func show_tutorial_complete(winner_id: int, reason: String, player_id: int) -> void:
+	_reset_campaign_presentation()
 	_overlay_mode = OVERLAY_MODE_TUTORIAL_COMPLETE
 	_stage_next_action = "main_menu"
 	_stage_next_available = false
@@ -189,6 +269,7 @@ func show_tutorial_complete(winner_id: int, reason: String, player_id: int) -> v
 	call_deferred("_log_layout_after_frame")
 
 func show_tutorial_controls_complete(winner_id: int, reason: String, player_id: int) -> void:
+	_reset_campaign_presentation()
 	_overlay_mode = OVERLAY_MODE_TUTORIAL_CONTROLS_COMPLETE
 	_stage_next_action = "tutorial_controls_followup"
 	_stage_next_available = true
@@ -221,6 +302,7 @@ func show_tutorial_controls_complete(winner_id: int, reason: String, player_id: 
 	call_deferred("_log_layout_after_frame")
 
 func show_tutorial_welcome_pack(winner_id: int, reason: String, player_id: int, buff_type_count: int, quantity_each: int = 2) -> void:
+	_reset_campaign_presentation()
 	_overlay_mode = OVERLAY_MODE_TUTORIAL_WELCOME_PACK
 	_stage_next_action = "tutorial_welcome_pack_open"
 	_stage_next_available = true
@@ -250,8 +332,15 @@ func show_tutorial_welcome_pack(winner_id: int, reason: String, player_id: int, 
 func hide_overlay() -> void:
 	clear_post_match_summary()
 	_tutorial_followup_auto_at_ms = 0
+	_network_rematch_status = ""
+	_network_rematch_message = ""
 	visible = false
 	set_process(false)
+
+func set_network_rematch_status(status: String, message: String = "") -> void:
+	_network_rematch_status = status.strip_edges().to_lower()
+	_network_rematch_message = message.strip_edges()
+	_update_status()
 
 func _ensure_post_match_layout_structure() -> void:
 	if vbox == null:
@@ -280,7 +369,13 @@ func _ensure_post_match_layout_structure() -> void:
 		_details_vbox.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		_details_vbox.add_theme_constant_override("separation", 15)
 		_details_scroll.add_child(_details_vbox)
+	# Campaign mastery is part of the result, always above the actions.
+	if _campaign_mode and record_label != null and record_label.get_parent() != vbox:
+		record_label.reparent(vbox)
+		vbox.move_child(record_label, reason_label.get_index() + 1)
 	for detail_node in [record_label, h2h_label, stats_header, stat_max_power, stat_units_killed, stat_units_landed, countdown_label]:
+		if _campaign_mode and detail_node == record_label:
+			continue
 		if detail_node != null and detail_node.get_parent() != _details_vbox:
 			detail_node.reparent(_details_vbox)
 	if _buttons_stack == null or not is_instance_valid(_buttons_stack):
@@ -301,7 +396,7 @@ func _set_actions_stacked(stacked: bool) -> void:
 	if _buttons_row == null or _buttons_stack == null:
 		return
 	var target: Container = _buttons_stack if stacked else _buttons_row
-	for button in [rematch_button, exit_button]:
+	for button in [rematch_button, _campaign_retry, exit_button]:
 		if button != null and button.get_parent() != target:
 			button.reparent(target)
 	_buttons_row.visible = not stacked
@@ -881,6 +976,21 @@ func _update_status() -> void:
 		status_label.text = "Ready for next round?"
 		return
 	var tree: SceneTree = get_tree()
+	if not _network_rematch_status.is_empty():
+		rematch_button.disabled = true
+		if not _network_rematch_message.is_empty():
+			status_label.text = _network_rematch_message
+			return
+		match _network_rematch_status:
+			"waiting":
+				status_label.text = "Waiting for opponent..."
+			"starting":
+				status_label.text = "Starting fresh rematch..."
+			"expired":
+				status_label.text = "Rematch expired."
+			_:
+				status_label.text = "Unable to start rematch."
+		return
 	if tree != null and bool(tree.get_meta("durable_contract", false)) \
 			and not bool(tree.get_meta("practice", tree.get_meta("vs_practice", false))):
 		var verification: Dictionary = tree.get_meta("vs_verification_status", {}) as Dictionary if typeof(tree.get_meta("vs_verification_status", {})) == TYPE_DICTIONARY else {}
@@ -1138,9 +1248,26 @@ func _force_fullscreen_anchors() -> void:
 	offset_right = 0.0
 	offset_bottom = 0.0
 
+func _ensure_saved_ads_action() -> void:
+	var manager: Node = get_node_or_null("/root/AdManager")
+	var ads: Array = manager.call("saved_match_ads") if manager != null else []
+	if _saved_ads_button == null and not ads.is_empty():
+		_saved_ads_button = Button.new()
+		_saved_ads_button.custom_minimum_size.y = 132
+		_saved_ads_button.add_theme_font_size_override("font_size", 44)
+		vbox.add_child(_saved_ads_button)
+		_saved_ads_button.pressed.connect(func():
+			var saved_panel: Control = preload("res://scripts/ui/saved_match_ads_panel.gd").new()
+			add_child(saved_panel)
+		)
+	if _saved_ads_button != null:
+		_saved_ads_button.visible = not ads.is_empty()
+		_saved_ads_button.text = "SAVED ADS · %d" % ads.size()
+
 func _apply_readable_layout(queue_second_pass: bool = true) -> void:
 	if panel == null or vbox == null:
 		return
+	_ensure_saved_ads_action()
 	_ensure_post_match_layout_structure()
 	var viewport_size: Vector2 = PANEL_MAX_SIZE + Vector2(PANEL_MARGIN_PX * 2.0, PANEL_MARGIN_PX * 2.0)
 	var viewport := get_viewport()
@@ -1152,7 +1279,7 @@ func _apply_readable_layout(queue_second_pass: bool = true) -> void:
 	var available_panel_height: float = maxf(320.0, viewport_size.y - PANEL_MARGIN_PX * 2.0)
 	var panel_width: float = minf(PANEL_MAX_SIZE.x, available_panel_width)
 	var max_panel_height: float = minf(PANEL_MAX_SIZE.y, available_panel_height)
-	var stacked_actions: bool = panel_width < NARROW_ACTION_BREAKPOINT_PX
+	var stacked_actions: bool = panel_width < NARROW_ACTION_BREAKPOINT_PX or (_campaign_retry != null and _campaign_retry.visible)
 	var panel_padding: float = 24.0 if stacked_actions else PANEL_PAD_PX
 	var layout_separation: int = 8 if stacked_actions else 15
 	_set_actions_stacked(stacked_actions)
@@ -1206,6 +1333,14 @@ func _apply_readable_layout(queue_second_pass: bool = true) -> void:
 	_style_label(status_label, "body", FONT_MAIN, HORIZONTAL_ALIGNMENT_CENTER)
 	_style_button(rematch_button, stacked_actions)
 	_style_button(exit_button, stacked_actions)
+	if _campaign_retry != null:
+		_style_button(_campaign_retry, stacked_actions)
+		if _campaign_retry.visible:
+			for label in [reason_label, record_label, status_label]:
+				label.add_theme_font_size_override("font_size", 44)
+			for button in [rematch_button, _campaign_retry, exit_button]:
+				button.custom_minimum_size.y = 132.0
+				button.add_theme_font_size_override("font_size", 44)
 	var inner_width: float = maxf(200.0, panel_width - panel_padding * 2.0)
 	if _post_match_ad_surface != null:
 		_post_match_ad_surface.custom_minimum_size = Vector2(

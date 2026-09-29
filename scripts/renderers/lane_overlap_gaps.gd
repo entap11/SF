@@ -46,7 +46,7 @@ static func visible_intervals(
 			continue
 		if u <= endpoint_ignore_t or u >= 1.0 - endpoint_ignore_t:
 			continue
-		var other_width: float = float(other.get("width", lane_width_px))
+		var other_width: float = float(other.get("overlap_width", other.get("width", lane_width_px)))
 		var gap_t: float = ((maxf(lane_width_px, other_width) * 0.5) + gap_extra_px) / length_px
 		intervals = subtract_interval(intervals, t - gap_t, t + gap_t, min_t)
 		if intervals.is_empty():

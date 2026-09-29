@@ -1,15 +1,17 @@
 class_name HiveDistressLight
 extends Node2D
 
+const PRESSURE_SHADER := preload("res://shaders/hive_pressure.gdshader")
+
 const HiveDistressRules := preload("res://scripts/hive/hive_distress_rules.gd")
 
 const RECOVERY_FADE_SEC: float = 0.18
 const CAPTURE_SUPPRESS_SEC: float = 0.12
 const LOCAL_Z_INDEX: int = 1
 const MIN_FOOTPRINT: Vector2 = Vector2(40.0, 52.0)
-const PLUME_HEIGHT_SCALE: float = 0.82
-const PLUME_WIDTH_SCALE: float = 0.72
-const PARTICLE_REACH_SCALE: float = 0.78
+const MAX_EMBERS: int = 4
+
+var _pressure_material: ShaderMaterial
 
 var _configured: bool = false
 var _stable_seed: int = 1
@@ -48,9 +50,9 @@ func _ready() -> void:
 	# FxLayer is Z 18, so this resolves to Z 19: above the hive body while
 	# remaining behind the Z 20 power projection and Z 24 budget indicators.
 	z_index = LOCAL_Z_INDEX
-	var additive_material := CanvasItemMaterial.new()
-	additive_material.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
-	material = additive_material
+	_pressure_material = ShaderMaterial.new()
+	_pressure_material.shader = PRESSURE_SHADER
+	material = _pressure_material
 	set_process(false)
 	queue_redraw()
 
@@ -337,212 +339,45 @@ func _has_visible_energy() -> bool:
 	)
 
 func _draw() -> void:
-	if not _has_visible_energy():
+	if not _has_visible_energy() or _pressure_material == null:
 		return
-	var hot_color: Color = _owner_color.lerp(Color.WHITE, 0.55)
-	var core_color: Color = hot_color.lerp(Color.WHITE, 0.70)
-	if _critical_base_intensity > 0.001:
-		_draw_critical_base(hot_color)
+	var burst := 0.0
+	var progress := 0.0
 	if _burst_kind != HiveDistressRules.BURST_NONE:
-		_draw_burst(hot_color, core_color)
+		progress = clampf(_burst_elapsed / maxf(0.001, float(_burst_profile.get("duration_sec", 1.0))), 0.0, 1.0)
+		burst = smoothstep(0.0, 0.075, progress) * (1.0 - smoothstep(0.12, 1.0, progress))
+		burst *= 1.0 if _burst_kind == HiveDistressRules.BURST_MAJOR_RUPTURE else 0.64
+	var surge := 0.0
 	if _surge_elapsed >= 0.0 and _surge_duration > 0.0:
-		_draw_critical_surge(hot_color, core_color)
-
-func _draw_critical_base(hot_color: Color) -> void:
-	var intensity: float = _critical_base_intensity
-	var instability: float = 0.5
-	if _motion_mode != "none" and not _lifecycle_suspended:
-		instability = _smooth_noise(41, 6.2)
-	var vent_height: float = (
-		_current_size.y
-		* lerpf(0.18, 0.42, instability)
-		* PLUME_HEIGHT_SCALE
-	)
-	var vent_color: Color = hot_color
-	vent_color.a = intensity * 0.24
-	_draw_plume(
-		vent_height,
-		_current_size.x * 0.10 * PLUME_WIDTH_SCALE,
-		vent_color,
-		53,
-		2
-	)
-
-func _draw_burst(hot_color: Color, core_color: Color) -> void:
-	var duration: float = maxf(0.001, float(_burst_profile.get("duration_sec", 0.001)))
-	var progress: float = clampf(_burst_elapsed / duration, 0.0, 1.0)
-	var energy: float = 1.0 - smoothstep(0.12, 1.0, progress)
-	var envelope: float = sin(progress * PI)
-	var source_height: float = maxf(MIN_FOOTPRINT.y, _pre_transition_size.y)
-	var source_width: float = maxf(MIN_FOOTPRINT.x, _pre_transition_size.x)
-	var peak_height: float = source_height * float(_burst_profile.get("height_scale", 1.0))
-	var major: bool = _burst_kind == HiveDistressRules.BURST_MAJOR_RUPTURE
-
-	var plume_color: Color = hot_color
-	plume_color.a = (0.17 if major else 0.11) + ((0.40 if major else 0.31) * energy)
-	var layer_count: int = int(_burst_profile.get("plume_layers", 2))
-	if _motion_mode != "full":
-		layer_count = mini(2, layer_count)
-	_draw_plume(
-		peak_height * maxf(0.22, envelope) * PLUME_HEIGHT_SCALE,
-		source_width * lerpf(0.18, 0.34, energy) * PLUME_WIDTH_SCALE,
-		plume_color,
-		101 + _burst_serial * 7,
-		layer_count
-	)
-
-	if _motion_mode == "none":
-		return
-	var spark_count: int = int(_burst_profile.get("spark_count", 0))
-	var fragment_count: int = int(_burst_profile.get("fragment_count", 0))
-	if _motion_mode == "reduced":
-		spark_count = mini(4, spark_count)
-		fragment_count = mini(1, fragment_count)
-	_draw_radial_sparks(
-		spark_count,
-		progress,
-		source_width * PARTICLE_REACH_SCALE,
-		source_height * PARTICLE_REACH_SCALE,
-		hot_color,
-		1201 + _burst_serial * 31
-	)
-	_draw_fragments(
-		fragment_count,
-		progress,
-		source_width * PARTICLE_REACH_SCALE,
-		source_height * PARTICLE_REACH_SCALE,
-		core_color,
-		1601 + _burst_serial * 37
-	)
-
-func _draw_critical_surge(hot_color: Color, core_color: Color) -> void:
-	var progress: float = clampf(_surge_elapsed / maxf(0.001, _surge_duration), 0.0, 1.0)
-	var envelope: float = sin(progress * PI)
-	var energy: float = (1.0 - smoothstep(0.18, 1.0, progress)) * _surge_strength
-	var plume_color: Color = hot_color
-	plume_color.a = 0.16 + (0.42 * energy)
-	_draw_plume(
-		(
-			_current_size.y
-			* HiveDistressRules.CRITICAL_SURGE_HEIGHT_SCALE
-			* maxf(0.16, envelope)
-			* _surge_strength
-			* PLUME_HEIGHT_SCALE
-		),
-		_current_size.x * lerpf(0.15, 0.34, energy) * PLUME_WIDTH_SCALE,
-		plume_color,
-		2003 + _pulse_index * 43,
-		3
-	)
-	if _motion_mode != "full":
-		return
-	_draw_radial_sparks(
-		HiveDistressRules.CRITICAL_MAX_SPARKS,
-		progress,
-		_current_size.x * PARTICLE_REACH_SCALE,
-		_current_size.y * PARTICLE_REACH_SCALE,
-		hot_color,
-		2309 + _pulse_index * 47
-	)
-	_draw_fragments(
-		HiveDistressRules.CRITICAL_MAX_FRAGMENTS,
-		progress,
-		_current_size.x * PARTICLE_REACH_SCALE,
-		_current_size.y * PARTICLE_REACH_SCALE,
-		core_color,
-		2707 + _pulse_index * 53
-	)
-
-func _draw_plume(
-	height: float,
-	half_width: float,
-	color: Color,
-	channel: int,
-	layer_count: int
-) -> void:
-	for layer_index in range(maxi(1, layer_count)):
-		var layer_t: float = float(layer_index) / float(maxi(1, layer_count - 1))
-		var layer_height: float = height * lerpf(1.0, 0.55, layer_t)
-		var layer_width: float = half_width * lerpf(1.20, 0.34, layer_t)
-		var layer_color: Color = color.lerp(Color.WHITE, layer_t * 0.62)
-		layer_color.a *= lerpf(0.48, 1.0, layer_t)
-		_draw_plume_layer(layer_height, layer_width, layer_color, channel + layer_index * 19)
-
-func _draw_plume_layer(height: float, half_width: float, color: Color, channel: int) -> void:
-	const SEGMENT_COUNT: int = 5
-	var bend: float = lerpf(-height * 0.09, height * 0.09, _smooth_noise(channel, 3.9))
-	for segment_index in range(SEGMENT_COUNT):
-		var lower_t: float = float(segment_index) / float(SEGMENT_COUNT)
-		var upper_t: float = float(segment_index + 1) / float(SEGMENT_COUNT)
-		var lower_width: float = maxf(0.6, half_width * lerpf(1.0, 0.18, lower_t))
-		var upper_width: float = maxf(0.4, half_width * lerpf(1.0, 0.18, upper_t))
-		var lower_x: float = bend * lower_t + lerpf(-2.0, 2.0, _smooth_noise(channel + segment_index * 7, 4.6))
-		var upper_x: float = bend * upper_t + lerpf(-2.0, 2.0, _smooth_noise(channel + segment_index * 11, 5.1))
-		var segment_color: Color = color
-		segment_color.a *= lerpf(1.0, 0.26, upper_t)
-		var points := PackedVector2Array([
-			Vector2(lower_x - lower_width, -height * lower_t),
-			Vector2(upper_x - upper_width, -height * upper_t),
-			Vector2(upper_x + upper_width, -height * upper_t),
-			Vector2(lower_x + lower_width, -height * lower_t)
-		])
-		draw_colored_polygon(points, segment_color)
-
-func _draw_radial_sparks(
-	count: int,
-	progress: float,
-	width: float,
-	height: float,
-	color: Color,
-	channel: int
-) -> void:
-	for spark_index in range(maxi(0, count)):
-		var angle: float = lerpf(-PI * 0.92, -PI * 0.08, _hash01(channel + spark_index * 97))
-		var travel: float = lerpf(0.44, 1.10, _hash01(channel + spark_index * 131))
-		var distance := Vector2(width * travel, height * travel * 0.72) * progress
-		var pos := Vector2(cos(angle) * distance.x, sin(angle) * distance.y)
-		pos.y += height * 0.14 * progress * progress
-		var spark_color: Color = color.lerp(Color.WHITE, 0.35)
-		spark_color.a = (1.0 - progress) * lerpf(0.48, 0.90, _hash01(channel + spark_index * 173))
-		var radius: float = lerpf(1.2, 2.6, _hash01(channel + spark_index * 211))
-		draw_circle(pos, radius, spark_color)
-
-func _draw_fragments(
-	count: int,
-	progress: float,
-	width: float,
-	height: float,
-	color: Color,
-	channel: int
-) -> void:
-	for fragment_index in range(maxi(0, count)):
-		var direction: float = lerpf(-PI * 0.88, -PI * 0.12, _hash01(channel + fragment_index * 83))
-		var distance: float = width * lerpf(0.42, 1.18, _hash01(channel + fragment_index * 127)) * progress
-		var pos := Vector2(cos(direction), sin(direction) * 0.72) * distance
-		pos.y += height * 0.24 * progress * progress
-		var size: float = lerpf(2.4, 5.2, _hash01(channel + fragment_index * 179))
-		var fragment_color: Color = color
-		fragment_color.a = (1.0 - progress) * 0.82
-		var points := PackedVector2Array([
-			pos + Vector2(0.0, -size),
-			pos + Vector2(size * 0.72, size * 0.52),
-			pos + Vector2(-size * 0.62, size * 0.42)
-		])
-		draw_colored_polygon(points, fragment_color)
+		surge = sin(clampf(_surge_elapsed / _surge_duration, 0.0, 1.0) * PI) * _surge_strength
+	var moving := _motion_mode == "full"
+	# A clear two-beat warning rhythm; reduced/static paths keep steady illumination.
+	# This is sampled from the existing presentation clock, never the simulation RNG.
+	var pulse := 0.0
+	if moving and _critical_active:
+		var wave := 0.5 + 0.5 * cos(_presentation_t * TAU * 2.0)
+		pulse = wave * wave * wave
+	var onset := 0.0
+	if moving and _burst_kind != HiveDistressRules.BURST_NONE:
+		onset = smoothstep(0.0, 0.035, progress) * (1.0 - smoothstep(0.08, 0.26, progress))
+	var size := _current_size
+	_pressure_material.set_shader_parameter("owner_color", _owner_color)
+	_pressure_material.set_shader_parameter("energy", _critical_base_intensity * (0.92 + pulse * 1.70) + burst * 1.28 + surge * 0.70 + onset * 0.48)
+	_pressure_material.set_shader_parameter("burst", burst)
+	_pressure_material.set_shader_parameter("pulse", pulse)
+	_pressure_material.set_shader_parameter("progress", progress)
+	_pressure_material.set_shader_parameter("phase", _presentation_t if moving else 0.0)
+	_pressure_material.set_shader_parameter("seed", float(_stable_seed % 23) * 0.43)
+	_pressure_material.set_shader_parameter("motion", 1.0 if moving else 0.0)
+	_pressure_material.set_shader_parameter("footprint", size)
+	# A single bounded surface, with no particle/node allocation or screen reads.
+	draw_rect(Rect2(-size.x * 0.48, -size.y * 0.28, size.x * 0.96, size.y * 0.60), Color.WHITE)
 
 func _sanitize_footprint(raw: Vector2) -> Vector2:
 	return Vector2(
 		maxf(MIN_FOOTPRINT.x, absf(raw.x)),
 		maxf(MIN_FOOTPRINT.y, absf(raw.y))
 	)
-
-func _smooth_noise(channel: int, rate: float) -> float:
-	var sample_pos: float = _presentation_t * rate
-	var sample_index: int = int(floor(sample_pos))
-	var mix_t: float = smoothstep(0.0, 1.0, sample_pos - float(sample_index))
-	var a: float = _hash01(_stable_seed * 4099 + channel * 257 + sample_index)
-	var b: float = _hash01(_stable_seed * 4099 + channel * 257 + sample_index + 1)
-	return lerpf(a, b, mix_t)
 
 func _sequence_hash(channel: int) -> float:
 	return _hash01(
@@ -618,8 +453,8 @@ func get_debug_snapshot() -> Dictionary:
 		"surge_active": _surge_elapsed >= 0.0,
 		"burst_elapsed": _burst_elapsed,
 		"burst_duration": float(_burst_profile.get("duration_sec", 0.0)),
-		"max_sparks": HiveDistressRules.MAJOR_SPARK_COUNT,
-		"max_fragments": HiveDistressRules.MAJOR_FRAGMENT_COUNT,
+		"max_sparks": MAX_EMBERS,
+		"max_fragments": 0,
 		"max_active_pulses": HiveDistressRules.CRITICAL_MAX_ACTIVE_PULSES,
 		"material_instance_id": material.get_instance_id() if material != null else 0,
 		"child_count": get_child_count()

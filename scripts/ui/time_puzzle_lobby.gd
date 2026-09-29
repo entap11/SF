@@ -1,6 +1,9 @@
 extends Control
 class_name TimePuzzleLobby
 
+const Journey = preload("res://scripts/ui/menu_journey_frame.gd")
+var _journey: PanelContainer
+
 const UITypography = preload("res://scripts/ui/ui_typography.gd")
 
 signal closed
@@ -38,6 +41,7 @@ func _ready() -> void:
 	_build_scope_tabs()
 	_set_scope(_current_scope)
 	back_button.pressed.connect(_on_back_pressed)
+	_build_readable_lobby()
 	if get_viewport() != null and not get_viewport().size_changed.is_connected(_apply_layout):
 		get_viewport().size_changed.connect(_apply_layout)
 
@@ -175,7 +179,7 @@ func _free_contests_for_scope(scope: String) -> Array[ContestDef]:
 	return out
 
 func _add_contest_card(contest: ContestDef) -> void:
-	var card: Panel = Panel.new()
+	var card := PanelContainer.new()
 	card.custom_minimum_size = Vector2(0.0, 360.0)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_style_panel(card, Color(0.075, 0.08, 0.105, 0.96), Color(0.54, 0.45, 0.23), 8.0)
@@ -214,7 +218,7 @@ func _add_contest_card(contest: ContestDef) -> void:
 	contest_list.add_child(card)
 
 func _add_map_count_action_row(box: VBoxContainer, contest: ContestDef, map_count: int) -> void:
-	var action_row: HBoxContainer = HBoxContainer.new()
+	var action_row := VBoxContainer.new()
 	action_row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	action_row.add_theme_constant_override("separation", 12)
 	box.add_child(action_row)
@@ -288,7 +292,7 @@ func _contest_label(contest: ContestDef) -> String:
 	return contest.name.replace("Time Puzzle", "Stage Race")
 
 func _add_empty_state(message: String, allow_fallback_start: bool) -> void:
-	var card: Panel = Panel.new()
+	var card := PanelContainer.new()
 	card.custom_minimum_size = Vector2(0.0, 300.0)
 	card.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	_style_panel(card, Color(0.075, 0.08, 0.105, 0.96), Color(0.40, 0.42, 0.52, 0.78), 8.0)
@@ -305,7 +309,7 @@ func _add_empty_state(message: String, allow_fallback_start: bool) -> void:
 	_apply_font(heading, _font_semibold, 26)
 	box.add_child(heading)
 	var body: Label = Label.new()
-	body.text = "%s\nYou can still start a free Stage Race run now." % message
+	body.text = message + ("\nYou can start a free Stage Race run below." if allow_fallback_start else "")
 	body.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_apply_font(body, _font_regular, 20)
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
@@ -334,11 +338,11 @@ func _open_contest(contest_id: String, map_count: int = FALLBACK_STAGE_RACE_MAP_
 	panel.configure_stage_race_map_count(map_count)
 	panel.closed.connect(func():
 		panel.queue_free()
-		visible = true
+		_journey.show()
 		_refresh_contests()
 	)
 	add_child(panel)
-	visible = false
+	_journey.hide()
 
 func _open_fallback_stage_race_lobby(map_count: int = FALLBACK_STAGE_RACE_MAP_COUNT) -> void:
 	var vs_lobby_scene: PackedScene = load("res://scenes/ui/VsLobby.tscn") as PackedScene
@@ -354,10 +358,10 @@ func _open_fallback_stage_race_lobby(map_count: int = FALLBACK_STAGE_RACE_MAP_CO
 	})
 	vs_lobby.connect("closed", func():
 		vs_lobby.queue_free()
-		visible = true
+		_journey.show()
 	)
 	add_child(vs_lobby)
-	visible = false
+	_journey.hide()
 
 func _cap_text(cap: int) -> String:
 	if cap < 0:
@@ -420,7 +424,11 @@ func _apply_font(control: Control, font: Font, size: int) -> void:
 		return
 	if font != null:
 		control.add_theme_font_override("font", font)
-	control.add_theme_font_size_override("font_size", size)
+	control.add_theme_font_size_override("font_size", maxi(36, size))
+	if control is Button:
+		Journey.action(control)
+	elif control is Label:
+		Journey.label(control, maxi(36, size))
 
 func _style_scope_button(button: Button, active: bool) -> void:
 	if button == null:
@@ -450,7 +458,7 @@ func _style_button(button: Button, bg: Color, border: Color, font_color: Color) 
 	button.add_theme_color_override("font_hover_color", font_color.lightened(0.08))
 	button.add_theme_color_override("font_pressed_color", font_color.darkened(0.10))
 
-func _style_panel(panel: Panel, bg: Color, border: Color, radius: float) -> void:
+func _style_panel(panel: Control, bg: Color, border: Color, radius: float) -> void:
 	if panel == null:
 		return
 	var style: StyleBoxFlat = StyleBoxFlat.new()
@@ -458,4 +466,17 @@ func _style_panel(panel: Panel, bg: Color, border: Color, radius: float) -> void
 	style.border_color = border
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(int(radius))
+	if panel is PanelContainer:
+		style.content_margin_left = 24
+		style.content_margin_right = 24
+		style.content_margin_top = 24
+		style.content_margin_bottom = 24
 	panel.add_theme_stylebox_override("panel", style)
+
+func _build_readable_lobby() -> void:
+	_journey = Journey.new()
+	root_panel.add_child(_journey)
+	_journey.configure(title_label, back_button)
+	Journey.adopt(scope_box, _journey.body)
+	Journey.adopt(contest_list, _journey.body)
+	root_vbox.hide()

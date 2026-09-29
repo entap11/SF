@@ -5,7 +5,9 @@
 class_name FloorRenderer
 extends Node2D
 
+const CombatReadability := preload("res://scripts/renderers/combat_readability.gd")
 const CosmeticThemeDB := preload("res://scripts/cosmetics/cosmetic_theme_db.gd")
+const FloorCircuitLayer := preload("res://scripts/renderers/floor_circuit_layer.gd")
 
 @export var floor_color: Color = Color(0.9, 0.9, 0.92)
 @export var floor_texture: Texture2D = null
@@ -15,6 +17,8 @@ const CosmeticThemeDB := preload("res://scripts/cosmetics/cosmetic_theme_db.gd")
 @export var origin_px: Vector2 = Vector2.ZERO
 
 var _size_px: Vector2 = Vector2.ZERO
+var _readability_veil: Polygon2D = null
+var _circuit_layer: Node2D = null
 @onready var _base_floor: Sprite2D = $BaseFloor
 @onready var _overlay_floor: Sprite2D = $FloorOverlay
 
@@ -88,6 +92,27 @@ func _apply_floor_layout() -> void:
 	var visual_bounds: Rect2 = get_visual_floor_bounds_rect()
 	var size: Vector2 = visual_bounds.size
 	var center: Vector2 = visual_bounds.get_center()
+	# The influence shader writes COLOR directly, so a separate floor-only veil
+	# keeps its team information subtle without changing influence calculation.
+	if _readability_veil == null:
+		_readability_veil = Polygon2D.new()
+		_readability_veil.name = "ReadabilityVeil"
+		_readability_veil.z_index = maxi(_base_floor.z_index, _overlay_floor.z_index) + 1
+		add_child(_readability_veil)
+	_readability_veil.visible = CombatReadability.is_enabled()
+	var graphite_floor: bool = floor_texture != null and floor_texture.resource_path == CosmeticThemeDB.DEFAULT_FLOOR_TEXTURE_PATH
+	_readability_veil.color = Color(0.018, 0.022, 0.034, 0.18 if graphite_floor else 0.76)
+	_readability_veil.polygon = PackedVector2Array([visual_bounds.position,
+		visual_bounds.position + Vector2(size.x, 0), visual_bounds.end,
+		visual_bounds.position + Vector2(0, size.y)])
+	if _circuit_layer == null and graphite_floor:
+		_circuit_layer = FloorCircuitLayer.new()
+		_circuit_layer.name = "AmbientCircuits"
+		_circuit_layer.z_index = _readability_veil.z_index + 1
+		add_child(_circuit_layer)
+	if _circuit_layer != null:
+		_circuit_layer.visible = graphite_floor
+		_circuit_layer.call("configure", visual_bounds)
 	_base_floor.position = center
 	_overlay_floor.position = center
 	if floor_texture != null:

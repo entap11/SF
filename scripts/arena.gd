@@ -13,6 +13,7 @@ const SFLog := preload("res://scripts/util/sf_log.gd")
 const MapSchema := preload("res://scripts/maps/map_schema.gd")
 const MapApplier := preload("res://scripts/maps/map_applier.gd")
 const MapRegistry := preload("res://scripts/maps/map_registry.gd")
+const MatchSetupRandomizer := preload("res://scripts/state/match_setup_randomizer.gd")
 const WallRenderer := preload("res://scripts/renderers/wall_renderer.gd")
 const GridSpec := preload("res://scripts/maps/grid_spec.gd")
 const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
@@ -153,6 +154,7 @@ const VS_MODE_HIDDEN_CAPTURE_FLAG: String = "HIDDEN_CAPTURE_FLAG"
 const VS_MODE_ASYNC_SINGLE_MAP_TIMED: String = "ASYNC_SINGLE_MAP_TIMED"
 const CTF_PLAYER_SELECT_PCT_DEFAULT: int = 35
 const CTF_SELECTION_GRACE_MS: int = 5000
+const NETWORK_REMATCH_POLL_INTERVAL_MS: int = 750
 const TREE_META_VS_MODE: String = "vs_mode"
 const TREE_META_VS_STAGE_MAP_PATHS: String = "vs_stage_map_paths"
 const TREE_META_VS_STAGE_CURRENT_INDEX: String = "vs_stage_current_index"
@@ -199,7 +201,7 @@ const PREMATCH_FACTS_CARD_ENABLED: bool = false
 const ASYNC_PREMATCH_CARD_WIDTH_PX: float = 840.0
 const ASYNC_PREMATCH_CARD_HEIGHT_PX: float = 680.0
 const PREMATCH_AD_SIZE: Vector2 = Vector2(720.0, 90.0)
-const IN_GAME_AD_SIZE: Vector2 = Vector2(720.0, 90.0)
+const IN_GAME_AD_SIZE: Vector2 = Vector2(960.0, 150.0)
 # Keep the readable ticker below the persistent 225x110 Menu action.
 const IN_GAME_AD_TOP_MARGIN_PX: float = 142.0
 const IN_GAME_AD_MIN_WIDTH_PX: float = 560.0
@@ -298,6 +300,7 @@ var _last_render_hives_version: int = -1
 @onready var buff_hive_targeting_controller: Node2D = $MapRoot/BuffHiveTargetPresentation
 @onready var buff_lane_global_targeting_controller: Node2D = $MapRoot/BuffLaneGlobalTargetPresentation
 @onready var buff_canonical_feedback_controller: Node2D = $MapRoot/BuffCanonicalFeedbackPresentation
+@onready var buff_freeze_lane_presentation: Node2D = $MapRoot/BuffFreezeLanePresentation
 @onready var unit_renderer: Node2D = _resolve_unit_renderer()
 @onready var control_bar: ControlBar = get_node_or_null("../UI/ControlBar") as ControlBar
 @onready var timer_label: Label = get_node_or_null("../UI/TimerLabel") as Label
@@ -362,6 +365,7 @@ var _prematch_ctf_title: Label = null
 var _prematch_ctf_body: Label = null
 var _prematch_ad_surface: Control = null
 var _in_game_ad_surface: Control = null
+var _bottom_match_ad_surface: Control = null
 var _ctf_move_button: Button = null
 var _controls_hint_controller: ArenaControlsHintController = ArenaControlsHintController.new()
 var _tutorial_controls_controller: ArenaTutorialControlsController = ArenaTutorialControlsController.new()
@@ -451,6 +455,9 @@ var game_over := false
 var _match_end_handled := false
 var _post_match_action_taken := false
 var _post_match_render_frozen := false
+var _network_rematch_parent_session_id: String = ""
+var _network_rematch_local_uid: String = ""
+var _network_rematch_poll_next_ms: int = 0
 var towers: Array = []
 var barracks: Array = []
 var current_map_path := ""
@@ -640,6 +647,8 @@ func _ready() -> void:
 	_setup_buff_hive_targeting_presentation()
 	_setup_buff_lane_global_targeting_presentation()
 	_setup_buff_canonical_feedback_presentation()
+	if buff_freeze_lane_presentation != null:
+		buff_freeze_lane_presentation.call("setup", self, lane_renderer)
 	_ensure_arena_polish_layer()
 	_apply_arena_polish_runtime_settings()
 	$MapRoot/HiveRenderer.visible = true
@@ -861,7 +870,7 @@ func _start_match_flow() -> void:
 			Callable(self, "_force_fullscreen_anchors"),
 			_resolve_local_owner_id(),
 			state,
-			Callable(self, "_tutorial_hive_screen_pos"),
+			Callable(self, "_tutorial_hive_overlay_pos"),
 			Callable(self, "_pause_tutorial_message_sim"),
 			Callable(self, "_resume_tutorial_message_sim"),
 			Callable(self, "_tutorial_arrival_count")
@@ -898,7 +907,7 @@ func _start_match_flow() -> void:
 			_controls_hint_controller.hide(false)
 	elif _is_jukebox_easy_bot_mode():
 		_apply_jukebox_easy_bot_profile()
-	elif _has_vs_cpu_bot_override():
+	elif _has_vs_cpu_bot_override() and not CampaignRuntime.is_active():
 		_apply_vs_cpu_bot_override()
 	elif _controls_hint_controller != null:
 		_controls_hint_controller.maybe_show_once(Callable(self, "_resolve_hud_root"), Callable(self, "_force_fullscreen_anchors"))
@@ -1119,8 +1128,15 @@ func _ensure_jukebox_back_button() -> void:
 		bottom_buffer.add_child(button)
 	if not button.pressed.is_connected(_on_jukebox_back_pressed):
 		button.pressed.connect(_on_jukebox_back_pressed)
-	button.visible = _is_jukebox_run()
+	button.text = "BACK TO CAMPAIGN" if CampaignRuntime.is_active() and CampaignRuntime.entry() == "campaign" else "BACK TO JUKEBOX"
+	if CampaignRuntime.is_active():
+		button.custom_minimum_size = Vector2(420.0, 132.0)
+		button.add_theme_font_size_override("font_size", 40)
+	button.visible = _is_jukebox_run() and get_node_or_null("/root/Shell") == null
 	_jukebox_back_button = button
+	var shell: Node = get_node_or_null("/root/Shell")
+	if shell != null and shell.has_method("_configure_shell_world_viewport_opening"):
+		shell.call_deferred("_configure_shell_world_viewport_opening")
 
 func _capture_jukebox_restore_state() -> Dictionary:
 	var tree: SceneTree = get_tree()
@@ -1142,6 +1158,9 @@ func _on_jukebox_back_pressed() -> void:
 	_return_to_jukebox()
 
 func _return_to_jukebox() -> void:
+	if CampaignRuntime.is_active():
+		CampaignRuntime.request_return()
+		return
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return
@@ -1285,6 +1304,8 @@ func _ensure_post_match_ui() -> void:
 		})
 
 func _resolve_or_create_outcome_overlay() -> OutcomeOverlay:
+	if is_instance_valid(outcome_overlay):
+		return outcome_overlay
 	var existing: OutcomeOverlay = get_node_or_null(SHELL_OUTCOME_OVERLAY_PATH) as OutcomeOverlay
 	if existing != null:
 		return existing
@@ -3456,15 +3477,36 @@ func _ensure_in_game_ad_surface() -> void:
 			_in_game_ad_surface.name = "InGameHudAdSurface"
 			hud_root.add_child(_in_game_ad_surface)
 	if _in_game_ad_surface.has_method("configure"):
-		_in_game_ad_surface.call("configure", "in_game_hud", "in_game", IN_GAME_AD_SIZE, false)
+		_in_game_ad_surface.call("configure", "in_game_hud", "in_game", IN_GAME_AD_SIZE, true)
 	_in_game_ad_surface.z_as_relative = false
 	_in_game_ad_surface.z_index = IN_GAME_AD_HUD_Z_INDEX
+	if _bottom_match_ad_surface == null or not is_instance_valid(_bottom_match_ad_surface):
+		_bottom_match_ad_surface = AdSurfaceScript.new()
+		_bottom_match_ad_surface.name = "BottomMatchAdSurface"
+		hud_root.add_child(_bottom_match_ad_surface)
+		_bottom_match_ad_surface.call("configure", "in_game_footer", "in_game", IN_GAME_AD_SIZE, true)
+		_bottom_match_ad_surface.z_as_relative = false
+		_bottom_match_ad_surface.z_index = IN_GAME_AD_HUD_Z_INDEX
 	_layout_in_game_ad_surface()
 	_snap_power_bar_to_map_top("in_game_ad_surface_ready")
 	_startup_hitch_callback_completed("arena_deferred_in_game_ad", started_usec)
 
 func _layout_in_game_ad_surface() -> void:
 	if _in_game_ad_surface == null:
+		return
+	var shell: Node = get_node_or_null("/root/Shell")
+	if shell != null and shell.has_method("get_match_hud_layout"):
+		var layout: Dictionary = shell.call("get_match_hud_layout")
+		var ad_rect: Rect2 = layout.ad
+		_in_game_ad_surface.custom_minimum_size = ad_rect.size
+		_in_game_ad_surface.position = ad_rect.position
+		_in_game_ad_surface.size = ad_rect.size
+		if is_instance_valid(_bottom_match_ad_surface):
+			var bottom_rect: Rect2 = layout.bottom_ad
+			_bottom_match_ad_surface.custom_minimum_size = bottom_rect.size
+			_bottom_match_ad_surface.position = bottom_rect.position
+			_bottom_match_ad_surface.size = bottom_rect.size
+			_bottom_match_ad_surface.call("set_placement_enabled", not bool(layout.buffs_allowed))
 		return
 	var vp: Viewport = get_viewport()
 	if vp == null:
@@ -4115,6 +4157,8 @@ func _record_active_seats() -> Array[int]:
 	return seats
 
 func _commit_match_records(winner_slot: int) -> void:
+	if BotEvaluationSession.is_active():
+		return
 	if _match_record_committed:
 		return
 	if winner_slot <= 0:
@@ -4695,6 +4739,19 @@ func _tutorial_hive_screen_pos(hive_id: int) -> Vector2:
 		return world_pos
 	return vp.get_canvas_transform() * world_pos
 
+func _tutorial_overlay_pos(local_pos: Vector2) -> Vector2:
+	var projection: Dictionary = buff_arena_local_to_root_screen(local_pos)
+	var hud_root: Control = _resolve_hud_root()
+	if bool(projection.get("ok", false)) and hud_root != null:
+		return hud_root.get_global_transform_with_canvas().affine_inverse() * (projection["root_screen_pos"] as Vector2)
+	return get_viewport().get_canvas_transform() * map_root.to_global(local_pos)
+
+func _tutorial_hive_overlay_pos(hive_id: int) -> Vector2:
+	var hive: HiveData = state.find_hive_by_id(hive_id) if state != null else null
+	if hive == null:
+		return Vector2(-9999.0, -9999.0)
+	return _tutorial_overlay_pos(_cell_center(hive.grid_pos))
+
 func _tutorial_buff_screen_pos() -> Vector2:
 	var buff_strip: Control = get_node_or_null(SHELL_PLAYER_BUFF_STRIP_PATH) as Control
 	if buff_strip == null:
@@ -4741,6 +4798,7 @@ func _begin_match_telemetry_session(reason: String) -> void:
 	if _match_telemetry_collector == null:
 		_match_telemetry_collector = MatchTelemetryCollectorScript.new()
 	if _match_telemetry_collector != null and _match_telemetry_collector.has_method("reset"):
+		BetaMatchCapture.finish("abandoned")
 		_match_telemetry_collector.call("reset")
 	if _match_telemetry_collector == null or not _match_telemetry_collector.has_method("begin_match"):
 		return
@@ -4770,6 +4828,8 @@ func _begin_match_telemetry_session(reason: String) -> void:
 	var match_type: int = _resolve_telemetry_match_type()
 	var start_utc_ms: int = _telemetry_utc_ms_now()
 	var metadata_overrides: Dictionary = _resolve_telemetry_metadata_overrides(player_ids, match_type, reason)
+	if BotEvaluationSession.is_active():
+		metadata_overrides["bot_evaluation"] = BotEvaluationSession.descriptor()
 	_match_telemetry_collector.call(
 		"begin_match",
 		match_id,
@@ -4784,7 +4844,16 @@ func _begin_match_telemetry_session(reason: String) -> void:
 	if _match_telemetry_collector.has_method("is_active"):
 		active_any = _match_telemetry_collector.call("is_active")
 	_telemetry_active = bool(active_any)
+	if _telemetry_active and BotEvaluationSession.is_active():
+		BotEvaluationSession.attach_collector(_match_telemetry_collector)
 	if _telemetry_active:
+		BetaMatchCapture.begin(_match_telemetry_collector, {
+			"map_id": str(OpsState.current_map_id),
+			"map_sha256": FileAccess.get_sha256(str(metadata_overrides.get("map_path", ""))) if FileAccess.file_exists(str(metadata_overrides.get("map_path", ""))) else "",
+			"mode": str(metadata_overrides.get("vs_mode", "")),
+			"local_seat": active_player_id, "bot_seed": OpsState.bot_match_seed,
+			"shared_match_key": str(get_tree().get_meta("vs_handshake_session_id", "")).sha256_text()
+		})
 		_record_match_start_analytics(match_id, season_id, map_id, match_type, start_utc_ms, metadata_overrides)
 	if unit_system != null and unit_system.has_method("set_match_telemetry_collector"):
 		unit_system.call("set_match_telemetry_collector", _match_telemetry_collector)
@@ -4842,6 +4911,7 @@ func _finalize_match_telemetry_session(winner_id_in: int) -> void:
 		profile_result = profile_result_any as Dictionary if typeof(profile_result_any) == TYPE_DICTIONARY else {}
 		if not bool(profile_result.get("ok", false)):
 			SFLog.warn("PLAYER_TELEMETRY_PROFILE_UPDATE_FAILED", profile_result)
+	BetaMatchCapture.finish("completed", winner_id_in)
 	_record_match_end_summary_analytics(telemetry_model, winner_id_in)
 	_telemetry_active = false
 	SFLog.info("TELEMETRY_FINALIZE", {
@@ -5755,6 +5825,8 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 		shell.call("cancel_buff_pointer_session", "match_ended:%s" % reason)
 	if buff_canonical_feedback_controller != null:
 		buff_canonical_feedback_controller.call("clear_presentation")
+	if buff_freeze_lane_presentation != null:
+		buff_freeze_lane_presentation.call("clear_presentation")
 	_buff_activation_transactions.terminate_match(_buff_match_id(), "match_ended:%s" % reason)
 	_persist_buff_activation_runtime_state()
 	if floor_influence_system != null:
@@ -5766,6 +5838,8 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 	end_reason = reason
 	_commit_match_records(winner_id_in)
 	_finalize_match_telemetry_session(winner_id_in)
+	if BotEvaluationSession.is_active():
+		BotEvaluationSession.finish_recording(true)
 	_maybe_record_jukebox_result(winner_id_in, reason)
 	if _should_play_post_match_song(winner_id_in):
 		_play_post_match_song(winner_id_in)
@@ -6037,6 +6111,15 @@ func _should_play_post_match_song(_winner_id_in: int) -> bool:
 	return int(tree.get_meta("progressive_stage_index", 0)) <= 0
 
 func _match_end_deferred(winner_id_in: int, reason: String) -> void:
+	if BotEvaluationSession.is_active():
+		_ensure_post_match_ui()
+		outcome_overlay.show_bot_evaluation_outcome(winner_id_in, BotEvaluationSession.descriptor(), BotEvaluationSession.last_save)
+		return
+	if CampaignRuntime.is_active():
+		_ensure_post_match_ui()
+		CampaignRuntime.retry_result_save()
+		outcome_overlay.show_campaign_outcome(CampaignRuntime.active_level(), CampaignRuntime.result(), CampaignRuntime.entry())
+		return
 	if _controls_hint_controller != null:
 		_controls_hint_controller.hide(false)
 	var tutorial_section1_ended: bool = _tutorial_section1_controller != null and _tutorial_section1_controller.is_active()
@@ -6093,6 +6176,8 @@ func _match_end_deferred(winner_id_in: int, reason: String) -> void:
 	mark_render_dirty("match_end")
 
 func _maybe_record_jukebox_result(winner_id_in: int, reason: String) -> void:
+	if CampaignRuntime.is_active():
+		return
 	var tree: SceneTree = get_tree()
 	if tree == null:
 		return
@@ -6266,11 +6351,42 @@ func _resolve_stage_race_contest_map_id(tree: SceneTree) -> String:
 	return MapRegistry.map_id_from_path(map_path)
 
 func _on_post_match_action(action: String) -> void:
+	if BotEvaluationSession.is_active():
+		if _post_match_action_taken:
+			return
+		_post_match_action_taken = true
+		if action == "evaluation_next":
+			var response: Dictionary = BotEvaluationSession.request_launch(1)
+			_post_match_action_taken = bool(response.get("ok", false))
+		else:
+			BotEvaluationSession.request_return()
+		return
+	if CampaignRuntime.is_active():
+		if _post_match_action_taken:
+			return
+		var level: Dictionary = CampaignRuntime.active_level()
+		var result: Dictionary = CampaignRuntime.result()
+		if action == "campaign_save":
+			CampaignRuntime.retry_result_save()
+			outcome_overlay.show_campaign_outcome(level, CampaignRuntime.result(), CampaignRuntime.entry())
+		elif action == "campaign_next" or action == "campaign_retry":
+			var target: String = str(result.get("next_id", "")) if action == "campaign_next" else str(level.id)
+			var response: Dictionary = CampaignRuntime.request_launch(target, CampaignRuntime.entry())
+			_post_match_action_taken = bool(response.get("ok", false))
+			if not _post_match_action_taken:
+				outcome_overlay.show_campaign_outcome(level, result, CampaignRuntime.entry())
+		elif action == "main_menu" or action == "campaign_back":
+			_post_match_action_taken = true
+			CampaignRuntime.request_return()
+		return
 	if action == "rematch_vote" and not _is_async_stage_run_runtime_mode() and not _is_progressive_runtime_mode():
 		var voter_id: int = active_player_id
 		if voter_id != 1 and voter_id != 2:
 			voter_id = 1
 		if _paid_vs_rematch_funding_blocked(voter_id):
+			return
+		if _uses_network_fresh_rematch():
+			_request_network_fresh_rematch()
 			return
 		var accepted: bool = OpsState.request_rematch(voter_id)
 		SFLog.info("REMATCH_VOTE_INTENT", {
@@ -7191,6 +7307,168 @@ func _handle_rematch() -> void:
 	_reset_sim_state()
 	MapApplier.apply_map(self, current_map_data.duplicate(true))
 
+func _uses_network_fresh_rematch() -> bool:
+	if _vs_pvp_runtime == null or not _vs_pvp_runtime.has_method("is_active"):
+		return false
+	if not bool(_vs_pvp_runtime.call("is_active")):
+		return false
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		return false
+	return not str(tree.get_meta("vs_handshake_session_id", "")).strip_edges().is_empty()
+
+func _request_network_fresh_rematch() -> void:
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		_set_network_rematch_status("failed", "Rematch service unavailable.")
+		return
+	var local_profile_any: Variant = tree.get_meta("vs_local_profile", {})
+	var local_profile: Dictionary = local_profile_any as Dictionary if typeof(local_profile_any) == TYPE_DICTIONARY else {}
+	var local_uid: String = str(local_profile.get("uid", "")).strip_edges()
+	var parent_session_id: String = str(tree.get_meta("vs_handshake_session_id", "")).strip_edges()
+	if local_uid.is_empty() or parent_session_id.is_empty():
+		_set_network_rematch_status("failed", "Rematch identity unavailable.")
+		return
+	_network_rematch_parent_session_id = parent_session_id
+	_network_rematch_local_uid = local_uid
+	_network_rematch_poll_next_ms = 0
+	_set_network_rematch_status("waiting", "Waiting for opponent...")
+	_poll_network_fresh_rematch(true)
+
+func _poll_network_fresh_rematch(force: bool = false) -> void:
+	if _network_rematch_parent_session_id.is_empty() or _network_rematch_local_uid.is_empty():
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	if not force and now_ms < _network_rematch_poll_next_ms:
+		return
+	_network_rematch_poll_next_ms = now_ms + NETWORK_REMATCH_POLL_INTERVAL_MS
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	if handshake == null or not handshake.has_method("request_fresh_rematch"):
+		_set_network_rematch_status("failed", "Rematch service unavailable.")
+		_clear_network_rematch_poll()
+		return
+	var result: Dictionary = handshake.call(
+		"request_fresh_rematch",
+		_network_rematch_parent_session_id,
+		_network_rematch_local_uid
+	) as Dictionary
+	if bool(result.get("ok", false)):
+		var status: String = str(result.get("status", "")).strip_edges().to_lower()
+		if status == "ready":
+			var child_session: Dictionary = result.get("session", {}) as Dictionary
+			_start_network_fresh_rematch(child_session)
+			return
+		_set_network_rematch_status("waiting", "Waiting for opponent...")
+		return
+	var code: String = str(result.get("code", result.get("err", "rematch_failed"))).strip_edges().to_lower()
+	if code == "rematch_expired":
+		_set_network_rematch_status("expired", "Rematch expired.")
+		_clear_network_rematch_poll()
+		return
+	if code == "insufficient_funds":
+		_show_money_payment_required_prompt(result)
+		_set_network_rematch_status("failed", "Rematch payment required.")
+		_clear_network_rematch_poll()
+		return
+	if bool(result.get("transport_error", false)):
+		_set_network_rematch_status("waiting", "Connection interrupted; retrying rematch...")
+		return
+	_set_network_rematch_status("failed", "Unable to create a fresh rematch session.")
+	_clear_network_rematch_poll()
+
+func _start_network_fresh_rematch(child_session: Dictionary) -> void:
+	var child_session_id: String = str(child_session.get("id", "")).strip_edges()
+	if child_session_id.is_empty() or child_session_id == _network_rematch_parent_session_id:
+		_set_network_rematch_status("failed", "Fresh rematch session was not created.")
+		_clear_network_rematch_poll()
+		return
+	var handshake: Node = get_node_or_null("/root/VsHandshake")
+	if handshake == null or not handshake.has_method("resolve_runtime_setup_for_session"):
+		_set_network_rematch_status("failed", "Fresh rematch setup unavailable.")
+		_clear_network_rematch_poll()
+		return
+	var setup: Dictionary = handshake.call("resolve_runtime_setup_for_session", child_session) as Dictionary
+	if not bool(setup.get("ok", false)):
+		SFLog.warn("FRESH_REMATCH_SETUP_FAILED", setup)
+		_set_network_rematch_status("failed", "No valid map was available for the rematch.")
+		_clear_network_rematch_poll()
+		return
+	var stage_maps: Array[String] = []
+	var stage_maps_any: Variant = setup.get("stage_map_paths", [])
+	if typeof(stage_maps_any) == TYPE_ARRAY:
+		for path_any in stage_maps_any as Array:
+			var path: String = str(path_any).strip_edges()
+			if not path.is_empty():
+				stage_maps.append(path)
+	if stage_maps.is_empty():
+		_set_network_rematch_status("failed", "No valid map was available for the rematch.")
+		_clear_network_rematch_poll()
+		return
+	var tree: SceneTree = get_tree()
+	if tree == null:
+		_set_network_rematch_status("failed", "Rematch scene unavailable.")
+		_clear_network_rematch_poll()
+		return
+	_apply_fresh_rematch_session_to_tree(tree, child_session, setup, stage_maps)
+	_set_network_rematch_status("starting", "Starting fresh rematch...")
+	_post_match_action_taken = true
+	_clear_network_rematch_poll()
+	if _vs_pvp_runtime != null and _vs_pvp_runtime.has_method("clear"):
+		_vs_pvp_runtime.call("clear")
+	var shell: Node = get_node_or_null("/root/Shell")
+	if shell == null or not shell.has_method("_apply_map_then_start"):
+		_set_network_rematch_status("failed", "Rematch launcher unavailable.")
+		_post_match_action_taken = false
+		return
+	SFLog.info("FRESH_REMATCH_SESSION_START", {
+		"session_id": child_session_id,
+		"map_path": stage_maps[0],
+		"rematch_index": int((child_session.get("context", {}) as Dictionary).get("rematch_index", 0))
+	})
+	shell.call_deferred("_apply_map_then_start", stage_maps[0])
+
+func _apply_fresh_rematch_session_to_tree(
+	tree: SceneTree,
+	child_session: Dictionary,
+	setup: Dictionary,
+	stage_maps: Array[String]
+) -> void:
+	var context: Dictionary = child_session.get("context", {}) as Dictionary
+	for key in [
+		"vs_money_settlement_result", "vs_money_transaction_ids", "canonical_wax_result",
+		"contest_result_commit_signature", "vs_stage_run_id"
+	]:
+		if tree.has_meta(key):
+			tree.remove_meta(key)
+	for key_any in context.keys():
+		tree.set_meta(str(key_any), context[key_any])
+	tree.set_meta("vs_handshake_session_id", str(child_session.get("id", "")))
+	tree.set_meta("vs_handshake_invite_code", str(child_session.get("invite_code", "")))
+	tree.set_meta("vs_session_contract_version", int(child_session.get("contract_version", 0)))
+	tree.set_meta("vs_session_contract_hash", str(child_session.get("contract_hash", "")))
+	tree.set_meta("vs_roster", (child_session.get("roster", []) as Array).duplicate(true))
+	tree.set_meta(TREE_META_VS_MODE, str(context.get("mode", tree.get_meta(TREE_META_VS_MODE, ""))))
+	tree.set_meta(TREE_META_VS_STAGE_MAP_PATHS, stage_maps.duplicate())
+	tree.set_meta(TREE_META_VS_STAGE_CURRENT_INDEX, 0)
+	tree.set_meta(TREE_META_VS_STAGE_ROUND_RESULTS, [])
+	tree.set_meta("vs_paid_entry", bool(context.get("paid_entry", false)))
+	tree.set_meta("vs_free_roll", bool(context.get("free_roll", true)))
+	tree.set_meta("vs_price_usd", int(context.get("price_usd", 0)))
+	tree.set_meta("vs_wager_cents", int(context.get("wager_cents", 0)))
+	tree.set_meta("vs_money_ledger_status", str(context.get("ledger_status", "")))
+	var randomizer: Dictionary = setup.get("match_randomizer", {}) as Dictionary
+	tree.set_meta(MatchSetupRandomizer.TREE_META_KEY, randomizer.duplicate(true))
+	tree.set_meta(MatchSetupRandomizer.CONTEXT_KEY, randomizer.duplicate(true))
+
+func _set_network_rematch_status(status: String, message: String) -> void:
+	if outcome_overlay != null and outcome_overlay.has_method("set_network_rematch_status"):
+		outcome_overlay.call("set_network_rematch_status", status, message)
+
+func _clear_network_rematch_poll() -> void:
+	_network_rematch_parent_session_id = ""
+	_network_rematch_local_uid = ""
+	_network_rematch_poll_next_ms = 0
+
 func _paid_vs_rematch_funding_blocked(owner_id: int) -> bool:
 	var tree: SceneTree = get_tree()
 	if tree == null or not bool(tree.get_meta("vs_paid_entry", false)):
@@ -7547,6 +7825,7 @@ func _on_ops_state_changed(new_state: GameState) -> void:
 	_post_match_stats_snapshot.clear()
 	_post_match_telemetry_path = ""
 	if _match_telemetry_collector != null and _match_telemetry_collector.has_method("reset"):
+		BetaMatchCapture.finish("abandoned")
 		_match_telemetry_collector.call("reset")
 	if OpsState != null and OpsState.has_method("set_match_telemetry_collector"):
 		OpsState.call("set_match_telemetry_collector", _match_telemetry_collector)
@@ -7617,10 +7896,16 @@ func _create_system(script_path: String, label: String) -> RefCounted:
 	return instance
 
 func _exit_tree() -> void:
+	BetaMatchCapture.finish("abandoned")
+	# OutcomeOverlay moves to the root canvas while visible; retain scene lifetime.
+	if is_instance_valid(outcome_overlay) and not is_ancestor_of(outcome_overlay):
+		outcome_overlay.queue_free()
 	clear_buff_hive_targeting(-1, "arena_scene_exit")
 	clear_buff_lane_global_targeting(-1, "arena_scene_exit")
 	if buff_canonical_feedback_controller != null:
 		buff_canonical_feedback_controller.call("clear_presentation")
+	if buff_freeze_lane_presentation != null:
+		buff_freeze_lane_presentation.call("clear_presentation")
 
 
 func _notification(what: int) -> void:
@@ -7643,6 +7928,7 @@ func _on_viewport_size_changed() -> void:
 	if _prematch_identity_card != null and _prematch_identity_card.visible:
 		_layout_prematch_identity_card()
 	_snap_power_bar_to_map_top("viewport_resize")
+	apply_camera_fit_next_frame("viewport_resize")
 
 func _resize_world_viewport() -> void:
 	var started_usec: int = Time.get_ticks_usec()
@@ -7709,6 +7995,7 @@ func _configure_grid_spec(grid_w_in: int, grid_h_in: int) -> void:
 		_ensure_floor_influence_system()
 	if floor_renderer != null:
 		floor_renderer.margin_px = maxf(0.0, floor_side_visual_projection_px)
+		floor_renderer.vertical_overscan_px = get_floor_vertical_visual_padding_px()
 		floor_renderer.configure(grid_w, grid_h, cell_px, origin)
 	if floor_influence_system != null and floor_renderer != null:
 		floor_influence_system.configure_floor_bounds(floor_renderer.get_floor_bounds_rect())
@@ -8185,6 +8472,7 @@ func _tick_arena_runtime(delta: float) -> void:
 		input_system.tick(delta, api)
 		_sync_inputs_locked_from_state()
 	_pump_vs_pvp_runtime(delta)
+	_poll_network_fresh_rematch()
 	_maybe_publish_spectator_snapshot(delta)
 	_update_timer_ui()
 	_update_progressive_counter_ui()
@@ -8452,6 +8740,8 @@ func _startup_hitch_effectively_visible() -> bool:
 	return alpha > 0.01
 
 func _runtime_telemetry_overlay_enabled() -> bool:
+	if OS.has_feature("store_release") or not OS.is_debug_build():
+		return false
 	if not show_runtime_telemetry_overlay:
 		return false
 	if OS.is_debug_build() or get_node_or_null("/root/DevMapRunner") != null:
@@ -8517,6 +8807,8 @@ func _position_runtime_telemetry_overlay() -> void:
 	_runtime_telemetry_overlay.position = Vector2(12.0, top_px + 12.0)
 
 func _ensure_pvp_debug_overlay() -> void:
+	if OS.has_feature("store_release") or not OS.is_debug_build():
+		return
 	var started_usec: int = Time.get_ticks_usec()
 	_startup_hitch_mark_once("arena_deferred_pvp_overlay_started")
 	if _pvp_debug_overlay != null and is_instance_valid(_pvp_debug_overlay):
@@ -8678,12 +8970,26 @@ func _snap_power_bar_to_map_top(reason: String = "") -> void:
 	var anchor: Control = power_bar.get_parent() as Control
 	if anchor == null or not anchor.is_inside_tree():
 		return
+	var shell: Node = get_node_or_null("/root/Shell")
+	var uses_shell_layout: bool = shell != null and shell.has_method("get_match_hud_layout")
+	if uses_shell_layout:
+		var layout: Dictionary = shell.call("get_match_hud_layout")
+		var safe: Rect2 = layout.safe
+		var width: float = minf(1000.0, maxf(1.0, safe.size.x - 68.0))
+		anchor.size.x = width
+		anchor.global_position.x = safe.get_center().x - width * 0.5
 	var arena_top_y: float = _arena_playfield_top_screen_y()
 	if not is_finite(arena_top_y):
 		return
 	var target_top_y: float = arena_top_y + POWER_BAR_ARENA_TOP_GAP_PX
 	var power_rect: Rect2 = power_bar.get_global_rect()
 	var delta_y: float = target_top_y - power_rect.position.y
+	if uses_shell_layout or bool(ProjectSettings.get_setting("swarmfront/arena/combat_readability_enabled", false)):
+		# The frame texture has transparent vertical padding. Dock the visible
+		# fill above the world viewport, leaving room for the metal frame.
+		var fill_dock: Control = power_bar.get_node_or_null("Rig/BarDock") as Control
+		if fill_dock != null:
+			delta_y = arena_top_y - 24.0 - fill_dock.get_global_rect().end.y
 	if absf(delta_y) <= 0.5:
 		return
 	anchor.offset_top += delta_y
@@ -9110,6 +9416,11 @@ func cam_fit_height_to_bounds(
 	z = clampf(z, 0.02, 50.0)
 	var y_scale: float = 1.0 if cam_fit_lock_map_edges_to_container else clampf(cam_fit_height_y_scale, 0.75, 1.25)
 	var z_y: float = clampf(z * y_scale, 0.02, 50.0)
+	var shell: Node = get_node_or_null("/root/Shell")
+	if cam_fit_lock_map_edges_to_container and shell != null and shell.has_method("get_match_hud_layout"):
+		# Shell reserves the HUD first. Fill the remaining height while keeping
+		# the complete map width; this changes only the screen projection.
+		z_y = clampf(usable_h / bh, 0.02, 50.0)
 	var center: Vector2 = padded_bounds.position + padded_bounds.size * 0.5
 	if z_y > 0.0:
 		# Keep world centered in the remaining playable strip when top/bottom reserves differ.
@@ -9266,12 +9577,19 @@ func _resolve_camera_fit_bounds_world() -> Rect2:
 
 func _with_side_visual_projection(bounds: Rect2) -> Rect2:
 	var side_px: float = maxf(0.0, floor_side_visual_projection_px)
-	if side_px <= 0.0 or bounds.size.x <= 1.0 or bounds.size.y <= 1.0:
+	var vertical_px: float = get_floor_vertical_visual_padding_px()
+	if bounds.size.x <= 1.0 or bounds.size.y <= 1.0:
 		return bounds
 	return Rect2(
-		bounds.position - Vector2(side_px, 0.0),
-		bounds.size + Vector2(side_px * 2.0, 0.0)
+		bounds.position - Vector2(side_px, vertical_px),
+		bounds.size + Vector2(side_px * 2.0, vertical_px * 2.0)
 	)
+
+func get_floor_vertical_visual_padding_px() -> float:
+	# Edge hives and their power labels extend beyond the active grid. Reserve
+	# one visual cell at each end, independent of current power or ownership.
+	var shell: Node = get_node_or_null("/root/Shell")
+	return CELL_SIZE if shell != null and shell.has_method("get_match_hud_layout") else 0.0
 
 func _resolve_camera_fit_bounds_world_with_source() -> Dictionary:
 	if use_node_bounds_camfit:
@@ -9317,7 +9635,7 @@ func _camera_fit_signature(
 
 func _camera_fit_reason_allowed(reason: String) -> bool:
 	match reason:
-		"shell_present", "shell_map_apply", "main_map_build", "dev_map_loader_load", "map_builder_node_build", "fitcam_once":
+		"shell_present", "shell_map_apply", "main_map_build", "dev_map_loader_load", "map_builder_node_build", "fitcam_once", "viewport_resize":
 			return true
 		_:
 			return false
@@ -10530,6 +10848,8 @@ func _init_buff_states() -> void:
 		buff_states[pid] = buff_state
 
 func _default_buff_loadout(pid: int = -1) -> Array:
+	if CampaignRuntime.is_active():
+		return []
 	var resolved_pid: int = pid
 	if resolved_pid <= 0:
 		resolved_pid = int(active_player_id)
@@ -11595,6 +11915,8 @@ func _reset_match_stats() -> void:
 	error_count = 0
 
 func _reset_buff_runtime() -> void:
+	if buff_freeze_lane_presentation != null:
+		buff_freeze_lane_presentation.call("clear_presentation")
 	buff_active_slots.clear()
 	buff_instances.clear()
 	buff_mods.clear()
@@ -11618,6 +11940,12 @@ func _sync_buff_effects(now_ms: int) -> void:
 	if OpsState == null or not OpsState.has_method("get_authoritative_buff_snapshot"):
 		return
 	var authoritative: Dictionary = OpsState.get_authoritative_buff_snapshot()
+	if buff_freeze_lane_presentation != null:
+		if not are_match_buffs_allowed() or _match_end_handled:
+			buff_freeze_lane_presentation.call("clear_presentation")
+		else:
+			var motion_mode: String = "full" if ProfileManager.is_gpu_vfx_enabled() else "reduced"
+			buff_freeze_lane_presentation.call("apply_authoritative_snapshot", authoritative, motion_mode)
 	for pid_v in buff_states.keys():
 		var pid: int = int(pid_v)
 		var buff_state: BuffState = buff_states[pid]
@@ -11710,17 +12038,20 @@ func _buff_flag(pid: int, key: String) -> bool:
 func _lane_insight_active(pid: int) -> bool:
 	return _buff_flag(pid, "lane_insight")
 
+func are_match_buffs_allowed() -> bool:
+	return bool(buffs_enabled) and not _is_crucible_match() and not CampaignRuntime.is_active()
+
 func get_buff_ui_snapshot() -> Dictionary:
 	var now_ms: int = int(_authoritative_sim_time_us() / 1000)
 	var snapshot: Dictionary = {
-		"buffs_enabled": bool(buffs_enabled) and not _is_crucible_match(),
+		"buffs_enabled": are_match_buffs_allowed(),
 		"active_player_id": int(active_player_id),
 		"inventory_revision": _buff_inventory_revision(),
 		"overtime_active": bool(overtime_active),
 		"sim_time_ms": now_ms,
 		"players": {}
 	}
-	if not buffs_enabled or _is_crucible_match():
+	if not are_match_buffs_allowed():
 		return snapshot
 	if buff_states.is_empty():
 		_init_buff_states()
@@ -11745,6 +12076,10 @@ func _buff_ui_player_snapshot(pid: int, buff_state: BuffState, now_ms: int) -> D
 		var consumed: bool = bool(slot.get("consumed", false))
 		var uses_remaining: int = maxi(0, int(slot.get("uses_remaining", 0)))
 		var uses_total: int = maxi(1, int(slot.get("uses_total", 1)))
+		var active_effect: Dictionary = buff_state.get_active_for_category(str(buff_def.get("category", "")))
+		var duration_ms: int = int(round(float(buff_def.get("duration_sec", 0.0)) * 1000.0))
+		if active and int(active_effect.get("source_slot_index", -1)) == i:
+			duration_ms = int(active_effect.get("duration_ticks", duration_ms / 100)) * 100
 		var remaining_ms: int = 0
 		if active:
 			remaining_ms = max(0, ends_ms - now_ms)
@@ -11763,7 +12098,8 @@ func _buff_ui_player_snapshot(pid: int, buff_state: BuffState, now_ms: int) -> D
 			"uses_total": uses_total,
 			"one_use_spent": uses_total == 2 and uses_remaining == 1,
 			"ends_ms": ends_ms,
-			"remaining_ms": remaining_ms
+			"remaining_ms": remaining_ms,
+			"duration_ms": duration_ms
 		})
 	return {
 		"pid": pid,
@@ -11960,6 +12296,7 @@ func _reset_sim_state() -> void:
 	_post_match_stats_snapshot.clear()
 	_post_match_telemetry_path = ""
 	if _match_telemetry_collector != null and _match_telemetry_collector.has_method("reset"):
+		BetaMatchCapture.finish("abandoned")
 		_match_telemetry_collector.call("reset")
 	if _prematch_overlay != null:
 		_prematch_overlay.visible = false
@@ -12231,11 +12568,14 @@ func _send_pointer_event(pressed: bool, button_index: int, local_pos: Vector2, i
 		"lane_id": lane_id
 	}
 	if _tutorial_launch_section() == TUTORIAL_CONTROLS_ID and _tutorial_controls_controller != null:
+		ev["tutorial_screen_pos"] = _tutorial_overlay_pos(local_pos)
 		if not _tutorial_controls_controller.should_allow_pointer_event(ev, state):
 			if get_viewport() != null:
 				get_viewport().set_input_as_handled()
 			return
 	input_system.handle_pointer_event(ev, api)
+	if _tutorial_launch_section() == TUTORIAL_CONTROLS_ID and _tutorial_controls_controller != null:
+		_tutorial_controls_controller.on_pointer_event_handled(ev, state, input_system.selected_src_id)
 
 func _on_map_left_click(lp: Vector2, event: InputEventMouseButton) -> void:
 	if has_method("_handle_left_click_local"):

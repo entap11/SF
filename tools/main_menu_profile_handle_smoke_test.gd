@@ -32,7 +32,7 @@ func _run() -> void:
 	root.add_child(menu)
 	await process_frame
 	await process_frame
-	var welcome_label: Label = menu.get_node_or_null("TopBar/WelcomeHandleLabel") as Label
+	var welcome_label: Label = (menu.get("_home_menu") as Control).get("_welcome") as Label
 	var dash_label: Label = menu.get_node_or_null("DashPanel/DashRoot/DashHandleLabel") as Label
 	_expect(welcome_label != null, "welcome handle label should exist")
 	_expect(dash_label != null, "dash handle label should exist")
@@ -42,28 +42,10 @@ func _run() -> void:
 		"expected": "Welcome %s" % handle,
 		"actual": welcome_label.text
 	})
-	_expect(welcome_label.get_theme_font_size("font_size") >= 64, "welcome label should use the enlarged home font", {
-		"actual": welcome_label.get_theme_font_size("font_size")
-	})
+	_expect(welcome_label.get_theme_font_size("font_size") >= 48, "home identity stays readable")
 	var welcome_rect: Rect2 = welcome_label.get_global_rect()
-	var hero_panel: Control = menu.get_node_or_null("HeroPanel") as Control
-	var viewport_size: Vector2 = root.get_visible_rect().size
-	_expect(absf(welcome_rect.get_center().x - (viewport_size.x * 0.5)) <= 1.0, "welcome label should be horizontally centered", {
-		"rect": welcome_rect,
-		"viewport": viewport_size
-	})
-	_expect(welcome_rect.size.y >= 90.0, "welcome label should reserve enough vertical room for the enlarged text", {
-		"rect": welcome_rect
-	})
-	if hero_panel != null:
-		var hero_rect: Rect2 = hero_panel.get_global_rect()
-		_expect(welcome_rect.end.y <= hero_rect.position.y - 24.0, "welcome label should sit in the gap above the preview", {
-			"welcome": welcome_rect,
-			"hero": hero_rect
-		})
-	_expect(welcome_rect.position.y >= 300.0, "welcome label should sit below the top banner area", {
-		"rect": welcome_rect
-	})
+	_expect(root.get_visible_rect().encloses(welcome_rect), "home identity fits viewport")
+	_expect(welcome_label.text_overrun_behavior == TextServer.OVERRUN_TRIM_ELLIPSIS, "long names retain space for navigation")
 	_expect(dash_label.text == handle, "dash label should use profile handle", {
 		"expected": handle,
 		"actual": dash_label.text

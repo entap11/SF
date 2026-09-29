@@ -114,6 +114,13 @@ func _run() -> void:
 	var power_projection: CanvasItem = hive.get_node_or_null("Visual/PowerProjection") as CanvasItem if hive != null else null
 	var budget_indicators: CanvasItem = hive.get_node_or_null("Visual/LaneBudgetIndicators") as CanvasItem if hive != null else null
 	var distress_item: CanvasItem = component as CanvasItem
+	_expect(distress_item != null and distress_item.material is ShaderMaterial,
+		"production pressure must use the bounded shader surface")
+	if distress_item != null and distress_item.material is ShaderMaterial:
+		_expect((distress_item.material as ShaderMaterial).shader.resource_path == "res://shaders/hive_pressure.gdshader",
+			"production pressure must load the integrated shader, not a study resource")
+	_expect(int(_snapshot(renderer).get("max_sparks", -1)) == 4 and int(_snapshot(renderer).get("max_fragments", -1)) == 0,
+		"pressure must retain four fixed ember paths and no fragment geometry")
 	_expect(
 		distress_item != null
 		and fx_layer != null
@@ -146,6 +153,30 @@ func _run() -> void:
 	renderer.call("_on_app_foregrounded", "test", 0, 0)
 	await process_frame
 	_expect(not bool(_snapshot(renderer).get("lifecycle_suspended", true)), "foregrounding must resume presentation")
+
+	# Motion preferences must retain the warning and its canonical expiry. The
+	# production shader's new pulse/embers only run in full-motion mode.
+	for motion in ["reduced", "none"]:
+		component.call("reset_presentation")
+		component.call("apply_presentation", 1, Vector2.ZERO, Color.WHITE, motion, {
+			"pressure_transition": HiveDistressRules.PRESSURE_TRIGGER,
+			"burst_kind": HiveDistressRules.BURST_NONE,
+			"current_size": Vector2(100, 120), "pre_transition_size": Vector2(100, 120)
+		}, true)
+		await create_timer(0.25).timeout
+		_expect(bool(component.call("get_debug_snapshot").get("pressure_active", false)),
+			motion + " must preserve active pressure")
+		if DisplayServer.get_name() != "headless":
+			var shader_material := distress_item.material as ShaderMaterial
+			_expect(float(shader_material.get_shader_parameter("motion")) == 0.0
+				and float(shader_material.get_shader_parameter("pulse")) == 0.0
+				and float(shader_material.get_shader_parameter("phase")) == 0.0,
+				motion + " must disable shader travel, warning pulse and ignition motion")
+		await create_timer(HiveDistressRules.PRESSURE_HOLD_SEC + 0.25).timeout
+		_expect(not component.visible and not component.is_processing(),
+			motion + " must settle to an invisible, idle component after hold/fade")
+		_expect(distress_item.material.get_instance_id() == material_id,
+			motion + " must reuse the existing material")
 
 	renderer.clear_all()
 	await process_frame

@@ -2,6 +2,9 @@ extends Control
 class_name ContestHub
 const SFLog := preload("res://scripts/util/sf_log.gd")
 const MAP_REGISTRY := preload("res://scripts/maps/map_registry.gd")
+const Journey = preload("res://scripts/ui/menu_journey_frame.gd")
+var _journey: PanelContainer
+
 const UITypography := preload("res://scripts/ui/ui_typography.gd")
 const AsyncContestConfigStoreScript := preload("res://scripts/state/async_contest_config_store.gd")
 const STAGE_RACE_START_PLAYERS := 5
@@ -48,6 +51,7 @@ func _ready() -> void:
 	stage_race_board_button.pressed.connect(_on_stage_race_board_pressed)
 	_load_contest()
 	_refresh()
+	_build_readable_details()
 	if get_viewport() != null and not get_viewport().size_changed.is_connected(_apply_layout):
 		get_viewport().size_changed.connect(_apply_layout)
 
@@ -154,7 +158,7 @@ func _build_maps() -> void:
 	if contest == null:
 		return
 	for map_id in contest.map_ids:
-		var row := HBoxContainer.new()
+		var row := VBoxContainer.new()
 		row.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		row.add_theme_constant_override("separation", 10)
 		var map_button := Button.new()
@@ -269,10 +273,10 @@ func _on_stage_race_play_pressed() -> void:
 	vs_lobby.configure("STAGE_RACE", map_count, contest.price, false, options)
 	vs_lobby.closed.connect(func():
 		vs_lobby.queue_free()
-		visible = true
+		_journey.show()
 	)
 	add_child(vs_lobby)
-	visible = false
+	_journey.hide()
 
 func _entry_metadata(extra: Dictionary = {}) -> Dictionary:
 	var out: Dictionary = extra.duplicate(true)
@@ -423,7 +427,11 @@ func _apply_font(control: Control, font: Font, size: int) -> void:
 		return
 	if font != null:
 		control.add_theme_font_override("font", font)
-	control.add_theme_font_size_override("font_size", size)
+	control.add_theme_font_size_override("font_size", maxi(36, size))
+	if control is Button:
+		Journey.action(control)
+	elif control is Label:
+		Journey.label(control, maxi(36, size))
 
 func _style_button(button: Button, bg: Color, border: Color, font_color: Color) -> void:
 	if button == null:
@@ -454,3 +462,12 @@ func _style_panel(panel: Panel, bg: Color, border: Color, radius: float) -> void
 	style.set_border_width_all(1)
 	style.set_corner_radius_all(int(radius))
 	panel.add_theme_stylebox_override("panel", style)
+
+func _build_readable_details() -> void:
+	_journey = Journey.new()
+	root_panel.add_child(_journey)
+	_journey.configure(name_label, back_button, stage_race_play_button)
+	Journey.action(enter_button)
+	for control in [time_label, cap_label, enter_button, stage_race_summary_label, stage_race_board_button, stage_race_leaders_box, map_list]:
+		Journey.adopt(control, _journey.body)
+	root_vbox.hide()

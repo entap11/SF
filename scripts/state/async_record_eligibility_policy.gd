@@ -11,6 +11,8 @@ const META_JUKEBOX_BOARD_ENABLED: String = "jukebox_board_enabled"
 static func is_balancer_medium_record_eligible(tree: SceneTree) -> bool:
 	if tree == null:
 		return false
+	if tree.has_meta("campaign_level_id"):
+		return false # Challenge records belong to CampaignRuntime, not map-only boards.
 	var style: String = _record_style(tree)
 	var tier: String = _record_tier(tree)
 	if bool(tree.get_meta(META_JUKEBOX_BOARD_ENABLED, false)):
