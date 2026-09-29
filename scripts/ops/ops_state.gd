@@ -10,6 +10,7 @@ const MAP_LOADER = preload("res://scripts/maps/map_loader.gd")
 const MAP_REGISTRY = preload("res://scripts/maps/map_registry.gd")
 const BotTelemetryStoreScript := preload("res://scripts/state/bot_telemetry_store.gd")
 const AuthoritativeBuffSystem := preload("res://scripts/sim/authoritative_buff_system.gd")
+const DeterministicVariantScript := preload("res://scripts/util/deterministic_variant.gd")
 
 signal map_selected(map_id: String)
 signal state_changed(state: GameState)
@@ -43,6 +44,8 @@ const AUTH_FENCE_ALLOWED_PREFIXES := [
 	"res://scripts/sim/",
 	"res://scripts/ops/"
 ]
+const BOT_RUNTIME_SCHEMA_VERSION: int = 1
+const MAX_BOT_SHADOW_EVENTS: int = 512
 
 var dev_enabled := false
 var contests: Dictionary = {}
@@ -128,6 +131,13 @@ var edge_cache: Dictionary = {}
 var edge_cache_version: int = -1
 var blocked_wall_pairs: Array = []
 var bot_profiles: Dictionary = {}
+var bot_match_seed: int = 0
+var bot_adaptive_shadow_enabled: bool = false
+var _bot_shadow_events: Array[Dictionary] = []
+var _bot_runtime_snapshot: Dictionary = {
+	"schema_version": BOT_RUNTIME_SCHEMA_VERSION,
+	"by_seat": {}
+}
 var _remote_replication_apply_depth: int = 0
 var victory_mode: String = VICTORY_MODE_CONQUEST
 var victory_rules: Dictionary = {}
@@ -392,8 +402,10 @@ func get_authority_snapshot() -> Dictionary:
 	var unit_system: Object = st.unit_system
 	var units_any: Variant = unit_system.get("units") if unit_system != null else []
 	return {
-		"version": 2,
+		"version": 3,
 		"hash": get_contract_state_hash(),
+		"bot_runtime_hash": get_bot_runtime_hash(),
+		"bot_match_seed": int(bot_match_seed),
 		"tick": int(st.tick),
 		"current_map_id": current_map_id,
 		"match_phase": int(match_phase),
@@ -422,6 +434,8 @@ func get_authority_snapshot() -> Dictionary:
 		"stats_by_team": stats_by_team.duplicate(true),
 		"team_mode_override": team_mode_override,
 		"match_roster": match_roster.duplicate(true),
+		"bot_profiles": get_bot_profiles_snapshot(),
+		"bot_runtime": get_bot_runtime_snapshot(),
 		"lane_front_by_lane_id": lane_front_by_lane_id.duplicate(true),
 		"state": {
 			"buff_match_id": st.buff_match_id,
@@ -499,6 +513,11 @@ func restore_authority_snapshot(snapshot: Dictionary) -> bool:
 	stats_by_team = (snapshot.get("stats_by_team", {}) as Dictionary).duplicate(true) if typeof(snapshot.get("stats_by_team", {})) == TYPE_DICTIONARY else {}
 	team_mode_override = str(snapshot.get("team_mode_override", team_mode_override))
 	match_roster = (snapshot.get("match_roster", []) as Array).duplicate(true) if typeof(snapshot.get("match_roster", [])) == TYPE_ARRAY else []
+	bot_match_seed = int(snapshot.get("bot_match_seed", bot_match_seed))
+	var profiles_any: Variant = snapshot.get("bot_profiles", {})
+	bot_profiles = (profiles_any as Dictionary).duplicate(true) if typeof(profiles_any) == TYPE_DICTIONARY else {}
+	_bot_profiles_cache_key = _bot_profiles_signature(bot_profiles)
+	_restore_bot_runtime_from_authority(snapshot.get("bot_runtime", {}))
 	lane_front_by_lane_id = (snapshot.get("lane_front_by_lane_id", {}) as Dictionary).duplicate(true) if typeof(snapshot.get("lane_front_by_lane_id", {})) == TYPE_DICTIONARY else {}
 	st.hives = _authority_restore_hives(state_snapshot.get("hives", []))
 	st.lanes = _authority_restore_lanes(state_snapshot.get("lanes", []))
@@ -1189,6 +1208,7 @@ func is_ending_or_ended() -> bool:
 	return match_phase != MatchPhase.RUNNING
 
 func reset_match_state() -> void:
+	flush_bot_telemetry()
 	match_phase = MatchPhase.PREMATCH
 	outcome = GameState.GameOutcome.NONE
 	outcome_tick = -1
@@ -1231,6 +1251,9 @@ func reset_match_state() -> void:
 	lane_front_by_lane_id.clear()
 	match_roster.clear()
 	bot_profiles.clear()
+	bot_match_seed = 0
+	_bot_shadow_events.clear()
+	_reset_bot_runtime_snapshot()
 	_hud_snapshot = {}
 	reset_runtime_telemetry()
 	victory_mode = VICTORY_MODE_CONQUEST
@@ -1918,6 +1941,127 @@ func get_bot_profiles_snapshot() -> Dictionary:
 		var seat: int = int(seat_any)
 		snapshot[seat] = (bot_profiles.get(seat, {}) as Dictionary).duplicate(true)
 	return snapshot
+
+func set_bot_match_seed(seed: int) -> void:
+	bot_match_seed = seed
+
+func get_bot_match_seed() -> int:
+	return bot_match_seed
+
+func set_bot_adaptive_shadow_enabled(enabled: bool) -> void:
+	bot_adaptive_shadow_enabled = enabled
+
+func is_bot_adaptive_shadow_enabled() -> bool:
+	return bot_adaptive_shadow_enabled
+
+func record_bot_shadow_outcomes(
+	shadow_outcomes: Array[Dictionary],
+	actual_outcomes: Array[Dictionary] = []
+) -> void:
+	if not bot_adaptive_shadow_enabled or (shadow_outcomes.is_empty() and actual_outcomes.is_empty()):
+		return
+	var event: Dictionary = _bot_shadow_event_base("decision")
+	event["shadow_outcomes"] = shadow_outcomes.duplicate(true)
+	event["actual_outcomes"] = actual_outcomes.duplicate(true)
+	_store_bot_shadow_event(event)
+
+func record_bot_shadow_session(event_type: String, details: Dictionary = {}) -> void:
+	if not bot_adaptive_shadow_enabled:
+		return
+	var clean_type: String = event_type.strip_edges().to_lower()
+	if clean_type != "match_start" and clean_type != "match_end":
+		return
+	var event: Dictionary = _bot_shadow_event_base(clean_type)
+	event["details"] = details.duplicate(true)
+	_store_bot_shadow_event(event)
+
+func flush_bot_telemetry() -> void:
+	if _bot_telemetry_store != null and _bot_telemetry_store.has_method("flush"):
+		_bot_telemetry_store.call("flush")
+
+func _bot_shadow_event_base(event_type: String) -> Dictionary:
+	var st: GameState = state
+	var context: Dictionary = _intent_telemetry_base_context(_intent_telemetry_tree())
+	return {
+		"schema_version": 2,
+		"event_type": event_type,
+		"policy": "adaptive_v3.0",
+		"mode": "shadow",
+		"match_id": str(context.get("match_id", "")),
+		"match_type": str(context.get("match_type", "")),
+		"source_mode": str(context.get("source_mode", "")),
+		"contest_id": str(context.get("contest_id", "")),
+		"map_id": str(context.get("map_id", current_map_id)),
+		"match_seed": bot_match_seed,
+		"match_elapsed_ms": maxi(0, match_elapsed_ms),
+		"phase": int(match_phase),
+		"tick": int(st.tick) if st != null else -1,
+		"sim_time_ms": maxi(0, int(int(st.get("_sim_time_us")) / 1000)) if st != null else 0
+	}
+
+func _store_bot_shadow_event(event: Dictionary) -> void:
+	_bot_shadow_events.append(event)
+	if _bot_shadow_events.size() > MAX_BOT_SHADOW_EVENTS:
+		_bot_shadow_events.remove_at(0)
+	if _bot_telemetry_store != null and _bot_telemetry_store.has_method("record_shadow_decision"):
+		_bot_telemetry_store.call("record_shadow_decision", event)
+
+func get_bot_shadow_events_snapshot() -> Array[Dictionary]:
+	return _bot_shadow_events.duplicate(true)
+
+func clear_bot_shadow_events() -> void:
+	_bot_shadow_events.clear()
+
+# BotRunner is the sole normal-runtime caller. Authority restore is the only
+# other writer, so snapshots never make the gateway or UI cognition owners.
+func store_bot_runtime_from_runner(snapshot: Dictionary) -> bool:
+	if not _is_valid_bot_runtime_snapshot(snapshot):
+		return false
+	_bot_runtime_snapshot = {
+		"schema_version": BOT_RUNTIME_SCHEMA_VERSION,
+		"by_seat": (snapshot.get("by_seat", {}) as Dictionary).duplicate(true)
+	}
+	return true
+
+func get_bot_runtime_snapshot() -> Dictionary:
+	var snapshot: Dictionary = _bot_runtime_snapshot.duplicate(true)
+	snapshot["runtime_hash"] = get_bot_runtime_hash()
+	return snapshot
+
+func get_bot_runtime_hash() -> String:
+	return DeterministicVariantScript.hash_variant(_bot_runtime_snapshot.get("by_seat", {}))
+
+func _restore_bot_runtime_from_authority(snapshot_any: Variant) -> void:
+	if typeof(snapshot_any) != TYPE_DICTIONARY:
+		_reset_bot_runtime_snapshot()
+		return
+	var snapshot: Dictionary = snapshot_any as Dictionary
+	if not _is_valid_bot_runtime_snapshot(snapshot):
+		_reset_bot_runtime_snapshot()
+		return
+	_bot_runtime_snapshot = {
+		"schema_version": BOT_RUNTIME_SCHEMA_VERSION,
+		"by_seat": (snapshot.get("by_seat", {}) as Dictionary).duplicate(true)
+	}
+
+func _reset_bot_runtime_snapshot() -> void:
+	_bot_runtime_snapshot = {
+		"schema_version": BOT_RUNTIME_SCHEMA_VERSION,
+		"by_seat": {}
+	}
+
+func _is_valid_bot_runtime_snapshot(snapshot: Dictionary) -> bool:
+	var structurally_valid: bool = (
+		int(snapshot.get("schema_version", 0)) == BOT_RUNTIME_SCHEMA_VERSION
+		and typeof(snapshot.get("by_seat", null)) == TYPE_DICTIONARY
+	)
+	if not structurally_valid:
+		return false
+	var expected_hash: String = str(snapshot.get("runtime_hash", ""))
+	return (
+		expected_hash.is_empty()
+		or expected_hash == DeterministicVariantScript.hash_variant(snapshot.get("by_seat", {}))
+	)
 
 func _is_cpu_seat(seat: int) -> bool:
 	if seat < 1 or seat > 4:
@@ -3045,6 +3189,10 @@ func finalize_match_end() -> void:
 	SFLog.info("END_SCREEN_SHOWN", {"winner_team": winner_id})
 	SFLog.log_once("M3_MATCH_ENDED", "M3_MATCH_ENDED", SFLog.Level.INFO)
 	SFLog.log_once("M5_REMATCH_READY", "M5_REMATCH_WINDOW_READY", SFLog.Level.INFO)
+	flush_bot_telemetry()
+
+func _exit_tree() -> void:
+	flush_bot_telemetry()
 
 func enforce_post_match_authority(context: String = "") -> void:
 	if match_phase != MatchPhase.ENDING and match_phase != MatchPhase.ENDED:

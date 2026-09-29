@@ -168,6 +168,9 @@ jobs:
           if [[ -f /tmp/swarmfront_mvp_smoke.log ]]; then
             cp /tmp/swarmfront_mvp_smoke.log artifacts/ci_logs/swarmfront_mvp_smoke.log
           fi
+          if [[ -f /tmp/swarmfront_bot_v3_gate.log ]]; then
+            cp /tmp/swarmfront_bot_v3_gate.log artifacts/ci_logs/swarmfront_bot_v3_gate.log
+          fi
           if [[ -f /tmp/swarmfront_soak.log ]]; then
             cp /tmp/swarmfront_soak.log artifacts/ci_logs/swarmfront_soak.log
           fi

@@ -1,5 +1,22 @@
 # Tools
 
+## Adaptive Bot v3 gate
+
+Run the deterministic bot contract, behavior, shadow-mode, recovery, and host
+performance checks from the repository root:
+
+```bash
+scripts/dev/run_bot_v3_gate.sh
+```
+
+The gate writes its combined log to `/tmp/swarmfront_bot_v3_gate.log` and is
+included in `scripts/dev/run_release_readiness_gate.sh` by default.
+
+Normal Arena matches run `adaptive_v3.0` in non-authoritative shadow mode when
+`swarmfront/bots/adaptive_shadow_enabled` is enabled in `project.godot`.
+Correlated decision evidence is written to
+`user://bot_shadow_decisions_v3.jsonl`.
+
 ## fix_lane_alpha.py
 
 Detects baked checkerboard pixels in `lane_final.png` and writes a cleaned

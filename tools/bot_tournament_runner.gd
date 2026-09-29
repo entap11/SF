@@ -1,7 +1,7 @@
 extends SceneTree
 
 const MAP_LOADER := preload("res://scripts/maps/map_loader.gd")
-const BaselineBotPolicyScript := preload("res://scripts/bot/baseline_bot_policy.gd")
+const BotRunnerScript := preload("res://scripts/bot/bot_runner.gd")
 const UnitSystemScript := preload("res://scripts/systems/unit_system.gd")
 const StructureControlSystemScript := preload("res://scripts/systems/structure_control_system.gd")
 
@@ -28,7 +28,6 @@ var _tiers: Array[String] = DEFAULT_TIERS.duplicate()
 var _variants: Array[String] = DEFAULT_VARIANTS.duplicate()
 var _map_ids: Array[String] = []
 var _profiles: Array[Dictionary] = []
-var _policy: RefCounted = BaselineBotPolicyScript.new()
 var _ops_state: Node = null
 var _ops_profile_builder: Node = null
 var _overall: Dictionary = {}
@@ -293,9 +292,11 @@ func _run_game(map_row: Dictionary, pairing: Dictionary, iteration: int) -> Dict
 		_ops_state.set("match_remaining_ms", _duration_ms)
 		_ops_state.set("winner_id", 0)
 		_ops_state.set("match_end_reason", "")
+		if _ops_state.has_method("set_bot_match_seed"):
+			_ops_state.call("set_bot_match_seed", _match_seed_for(map_row, pairing, iteration))
 	)
-	var bot_schedule: Dictionary = _initial_bot_schedule(active_seats)
-	var pair_cooldowns: Dictionary = {}
+	var bot_runner: RefCounted = BotRunnerScript.new()
+	bot_runner.call("bind_state", state, _ops_state)
 	var sim_ms: int = 0
 	var winner_team: int = 0
 	var reason: String = ""
@@ -309,8 +310,9 @@ func _run_game(map_row: Dictionary, pairing: Dictionary, iteration: int) -> Dict
 		_ops_state.set("match_remaining_ms", maxi(0, _duration_ms - sim_ms))
 		var hive_owners_before: Dictionary = _hive_owner_snapshot(state)
 		var tower_owners_before: Dictionary = _structure_owner_snapshot(state.towers)
-		_tick_manual_bots(state, active_seats, runtime_profile_by_seat, bot_schedule, pair_cooldowns, sim_ms, diagnostics)
 		state.tick_unintended_power(_dt * 1000.0)
+		var bot_outcomes: Array[Dictionary] = bot_runner.call("step") as Array[Dictionary]
+		_record_shared_bot_outcomes(diagnostics, bot_outcomes, sim_ms)
 		state.tick_lane_flow(_dt * 1000.0)
 		unit_system.tick(_dt)
 		structure_control.tick(_dt)
@@ -373,7 +375,7 @@ func _roster_for_seats(active_seats: Array, team_by_seat: Dictionary) -> Array:
 			"team_id": int(team_by_seat.get(seat, seat)),
 			"uid": "bot_%d" % seat,
 			"is_local": false,
-			"is_cpu": false,
+			"is_cpu": active_seats.has(seat),
 			"active": active_seats.has(seat)
 		})
 	return roster
@@ -405,77 +407,35 @@ func _decision_seed_for(map_row: Dictionary, pairing: Dictionary, iteration: int
 	]
 	return int(abs(signature.hash()) % 1000000)
 
+func _match_seed_for(map_row: Dictionary, pairing: Dictionary, iteration: int) -> int:
+	var signature := "%s|%s|%s|%d" % [
+		str(map_row.get("id", "")),
+		str((pairing.get("a", {}) as Dictionary).get("id", "")),
+		str((pairing.get("b", {}) as Dictionary).get("id", "")),
+		iteration
+	]
+	return int(abs(signature.hash()))
+
 func _scaled_ms(value: int) -> int:
 	return maxi(1, int(round(float(maxi(0, value)) * _timing_scale)))
 
-func _initial_bot_schedule(active_seats: Array) -> Dictionary:
-	var out: Dictionary = {}
-	for seat_any in active_seats:
-		out[int(seat_any)] = 0
-	return out
-
-func _tick_manual_bots(
-		state: GameState,
-		active_seats: Array,
-		runtime_profile_by_seat: Dictionary,
-		next_think_by_seat: Dictionary,
-		pair_cooldowns: Dictionary,
-		sim_ms: int,
-		diagnostics: Dictionary
-	) -> void:
-	if state == null:
-		return
-	for seat_any in active_seats:
-		var seat: int = int(seat_any)
-		var next_ms: int = int(next_think_by_seat.get(seat, 0))
-		if sim_ms < next_ms:
+func _record_shared_bot_outcomes(diagnostics: Dictionary, outcomes: Array[Dictionary], sim_ms: int) -> void:
+	for outcome in outcomes:
+		if str(outcome.get("outcome", "")) != "act":
 			continue
-		var profile: Dictionary = runtime_profile_by_seat.get(seat, {}) as Dictionary
-		profile["blocked_wall_pairs"] = _ops_state.call("get_blocked_wall_pairs") if _ops_state.has_method("get_blocked_wall_pairs") else []
-		var decision_any: Variant = _policy.call("choose_intent", state, seat, profile, sim_ms)
-		var interval_ms: int = _next_interval_ms(profile, state, seat)
-		next_think_by_seat[seat] = sim_ms + interval_ms
-		if typeof(decision_any) != TYPE_DICTIONARY:
+		var result: Dictionary = outcome.get("result", {}) as Dictionary
+		if not bool(result.get("ok", false)):
 			continue
-		var decision: Dictionary = decision_any as Dictionary
-		if decision.is_empty():
+		var action: Dictionary = outcome.get("action", {}) as Dictionary
+		var intent: String = str(action.get("route_intent", ""))
+		if intent.is_empty():
 			continue
-		var src: int = int(decision.get("src", -1))
-		var dst: int = int(decision.get("dst", -1))
-		var intent: String = str(decision.get("intent", ""))
-		if src <= 0 or dst <= 0 or intent.is_empty():
-			continue
-		var cooldown_key: String = "%d|%d|%d|%s" % [seat, src, dst, intent]
-		if sim_ms < int(pair_cooldowns.get(cooldown_key, 0)):
-			continue
-		var result: Dictionary = _ops_state.call("apply_lane_intent", src, dst, intent) as Dictionary
-		if bool(result.get("ok", false)):
-			_record_bot_intent_diagnostic(diagnostics, seat, intent, sim_ms, decision)
-			var pair_until: int = sim_ms + int(profile.get("pair_intent_cooldown_ms", 1000))
-			_apply_pair_cooldown(pair_cooldowns, seat, src, dst, pair_until)
-			var global_until: int = sim_ms + int(profile.get("global_intent_cooldown_ms", 0))
-			if global_until > int(next_think_by_seat.get(seat, 0)):
-				next_think_by_seat[seat] = global_until
-		else:
-			var retry_ms: int = int(profile.get("retry_block_ms", 500))
-			if str(result.get("reason", "")) == "no_lane":
-				retry_ms = int(profile.get("no_lane_retry_ms", retry_ms))
-			pair_cooldowns[cooldown_key] = sim_ms + retry_ms
-
-func _next_interval_ms(profile: Dictionary, state: GameState, seat: int) -> int:
-	var base_ms: int = maxi(1, int(profile.get("think_interval_ms", 80)))
-	var jitter_ms: int = maxi(0, int(profile.get("think_jitter_ms", 0)))
-	if jitter_ms <= 0:
-		return base_ms
-	var hash_value: int = abs((int(state.tick) + 1) * 1103515245 + seat * 12345 + 97)
-	var jitter_span: int = jitter_ms * 2 + 1
-	var offset: int = int(hash_value % jitter_span) - jitter_ms
-	return maxi(1, base_ms + offset)
-
-func _apply_pair_cooldown(cooldowns: Dictionary, seat: int, src: int, dst: int, until_ms: int) -> void:
-	for intent_name in ["attack", "feed", "swarm"]:
-		cooldowns["%d|%d|%d|%s" % [seat, src, dst, intent_name]] = until_ms
-		cooldowns["%d|%d|%d|%s" % [seat, dst, src, intent_name]] = until_ms
+		var trace: Dictionary = outcome.get("trace", {}) as Dictionary
+		_record_bot_intent_diagnostic(diagnostics, int(action.get("seat", 0)), intent, sim_ms, {
+			"src": int(action.get("src_id", -1)),
+			"dst": int(action.get("dst_id", -1)),
+			"score": float(trace.get("score", 0.0))
+		})
 
 func _new_game_diagnostics(active_seats: Array) -> Dictionary:
 	var last_state_by_seat: Dictionary = {}

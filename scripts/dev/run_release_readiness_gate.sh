@@ -4,12 +4,14 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 MVP_GATE="${ROOT_DIR}/scripts/dev/run_mvp_smoke.sh"
+BOT_V3_GATE="${ROOT_DIR}/scripts/dev/run_bot_v3_gate.sh"
 BETA_OPS_GATE="${ROOT_DIR}/scripts/dev/run_beta_ops_gate.sh"
 MATRIX_GATE="${ROOT_DIR}/scripts/dev/run_player_config_matrix_gate.sh"
 SOAK_GATE="${ROOT_DIR}/scripts/dev/run_soak_gate.sh"
 TF_PREFLIGHT="${ROOT_DIR}/tools/tf_preflight.sh"
 
 RUN_MVP="${RELEASE_READINESS_RUN_MVP:-1}"
+RUN_BOT_V3="${RELEASE_READINESS_RUN_BOT_V3:-1}"
 RUN_BETA_OPS="${RELEASE_READINESS_RUN_BETA_OPS:-0}"
 RUN_MATRIX="${RELEASE_READINESS_RUN_MATRIX:-1}"
 RUN_SOAK_GATE="${RELEASE_READINESS_RUN_SOAK_GATE:-0}"
@@ -21,6 +23,7 @@ MATRIX_SEED_RUNS="${RELEASE_READINESS_MATRIX_SEED_RUNS:-}"
 MATRIX_NO_SOAK="${RELEASE_READINESS_MATRIX_NO_SOAK:-0}"
 
 MVP_TIMEOUT_SECONDS="${RELEASE_READINESS_MVP_TIMEOUT_SECONDS:-180}"
+BOT_V3_TIMEOUT_SECONDS="${RELEASE_READINESS_BOT_V3_TIMEOUT_SECONDS:-180}"
 BETA_OPS_TIMEOUT_SECONDS="${RELEASE_READINESS_BETA_OPS_TIMEOUT_SECONDS:-360}"
 MATRIX_TIMEOUT_SECONDS="${RELEASE_READINESS_MATRIX_TIMEOUT_SECONDS:-}"
 SOAK_GATE_TIMEOUT_SECONDS="${RELEASE_READINESS_SOAK_GATE_TIMEOUT_SECONDS:-2400}"
@@ -32,8 +35,9 @@ Usage:
   scripts/dev/run_release_readiness_gate.sh [options]
 
 Default stages:
-  1. MVP smoke
-  2. Player config matrix gate, fast tier
+  1. Adaptive Bot v3 certification
+  2. MVP smoke
+  3. Player config matrix gate, fast tier
 
 Options:
   --matrix-gate <fast|pr|nightly>  Player config matrix tier.
@@ -41,6 +45,7 @@ Options:
   --matrix-seed-runs <n>           Number of matrix soak seed runs.
   --matrix-no-soak                 Run matrix contract + boot routes only.
   --skip-mvp                       Skip MVP smoke.
+  --skip-bot-v3                    Skip Adaptive Bot v3 certification.
   --include-beta-ops               Also run scripts/dev/run_beta_ops_gate.sh.
   --skip-matrix                    Skip player config matrix.
   --include-soak-gate              Also run scripts/dev/run_soak_gate.sh.
@@ -54,6 +59,7 @@ Default matrix timeout budgets:
 
 Environment overrides:
   RELEASE_READINESS_RUN_MVP
+  RELEASE_READINESS_RUN_BOT_V3
   RELEASE_READINESS_RUN_BETA_OPS
   RELEASE_READINESS_RUN_MATRIX
   RELEASE_READINESS_RUN_SOAK_GATE
@@ -63,6 +69,7 @@ Environment overrides:
   RELEASE_READINESS_MATRIX_SEED_RUNS
   RELEASE_READINESS_MATRIX_NO_SOAK
   RELEASE_READINESS_MVP_TIMEOUT_SECONDS
+  RELEASE_READINESS_BOT_V3_TIMEOUT_SECONDS
   RELEASE_READINESS_BETA_OPS_TIMEOUT_SECONDS
   RELEASE_READINESS_MATRIX_TIMEOUT_SECONDS
   RELEASE_READINESS_SOAK_GATE_TIMEOUT_SECONDS
@@ -102,6 +109,10 @@ while [[ $# -gt 0 ]]; do
       ;;
     --skip-mvp)
       RUN_MVP=0
+      shift
+      ;;
+    --skip-bot-v3)
+      RUN_BOT_V3=0
       shift
       ;;
     --include-beta-ops)
@@ -197,6 +208,12 @@ run_stage() {
 }
 
 echo "RELEASE_READINESS_BEGIN matrix_gate=${MATRIX_GATE_TIER} matrix_seed=${MATRIX_SEED} matrix_seed_runs=${MATRIX_SEED_RUNS}"
+
+if [[ "${RUN_BOT_V3}" == "1" || "${RUN_BOT_V3}" == "true" ]]; then
+  run_stage bot_v3_certification "${BOT_V3_TIMEOUT_SECONDS}" "${BOT_V3_GATE}"
+else
+  echo "RELEASE_READINESS_STAGE_SKIP bot_v3_certification"
+fi
 
 if [[ "${RUN_MVP}" == "1" || "${RUN_MVP}" == "true" ]]; then
   run_stage mvp_smoke "${MVP_TIMEOUT_SECONDS}" "${MVP_GATE}"

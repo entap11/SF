@@ -3,11 +3,18 @@ extends SceneTree
 const BaselineBotPolicyScript := preload("res://scripts/bot/baseline_bot_policy.gd")
 const OpsStateScript := preload("res://scripts/ops/ops_state.gd")
 
+var _failures: Array[String] = []
+
 func _init() -> void:
 	await process_frame
 	_test_balancer_and_raider_diverge_on_same_board()
 	_test_raider_skips_suicidal_home_opener()
-	_test_turtle_medium_pushes_when_shell_is_stable()
+	_test_turtle_medium_preserves_baseline_stabilization()
+	if not _failures.is_empty():
+		for failure in _failures:
+			push_error("BOT_STYLE_SEPARATION_SMOKE: %s" % failure)
+		quit(1)
+		return
 	print("BOT_STYLE_SEPARATION_SMOKE: PASS")
 	quit(0)
 
@@ -71,7 +78,7 @@ func _test_raider_skips_suicidal_home_opener() -> void:
 	_assert_eq(int(raider_intent.get("dst", 0)), 3, "raider should take the edge neutral instead of home-harassing first")
 	ops_state.free()
 
-func _test_turtle_medium_pushes_when_shell_is_stable() -> void:
+func _test_turtle_medium_preserves_baseline_stabilization() -> void:
 	var state := GameState.new()
 	state.load_from_map_dict({
 		"hives": [
@@ -92,11 +99,11 @@ func _test_turtle_medium_pushes_when_shell_is_stable() -> void:
 	var turtle_profile: Dictionary = ops_state.call("_build_bot_profile_for_seat", 1, "turtle", "medium") as Dictionary
 	turtle_profile["team_by_seat"] = {1: 1, 2: 2, 3: 1, 4: 4}
 	var turtle_intent: Dictionary = policy.choose_intent(state, 1, turtle_profile, 0)
-	_assert_eq(str(turtle_intent.get("intent", "")), "attack", "turtle medium should push outward once its shell is stable")
+	_assert_eq(str(turtle_intent.get("intent", "")), "feed", "baseline turtle should stabilize the allied hive")
+	_assert_eq(int(turtle_intent.get("dst", 0)), 3, "baseline turtle should feed the allied hive")
 	ops_state.free()
 
 func _assert_eq(actual: Variant, expected: Variant, label: String) -> void:
 	if actual == expected:
 		return
-	push_error("BOT_STYLE_SEPARATION_SMOKE: %s (expected %s, got %s)" % [label, str(expected), str(actual)])
-	quit(1)
+	_failures.append("%s (expected %s, got %s)" % [label, str(expected), str(actual)])

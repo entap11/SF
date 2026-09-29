@@ -5,6 +5,7 @@ extends RefCounted
 const SFLog := preload("res://scripts/util/sf_log.gd")
 
 const INTENT_LOG_PATH: String = "user://bot_intent_telemetry_v1.jsonl"
+const SHADOW_LOG_PATH: String = "user://bot_shadow_decisions_v3.jsonl"
 const SUMMARY_PATH: String = "user://bot_intent_summary_v1.json"
 const SUMMARY_FLUSH_INTERVAL_MS: int = 1000
 const INTENT_FLUSH_INTERVAL_MS: int = 1000
@@ -16,6 +17,8 @@ var _summary_dirty: bool = false
 var _last_summary_flush_ms: int = 0
 var _pending_intent_lines: Array[String] = []
 var _last_intent_flush_ms: int = 0
+var _pending_shadow_lines: Array[String] = []
+var _last_shadow_flush_ms: int = 0
 
 func record_intent(event: Dictionary) -> void:
 	if event == null or event.is_empty():
@@ -30,9 +33,24 @@ func record_intent(event: Dictionary) -> void:
 	_flush_intents_if_due(now_ms)
 	_flush_summary_if_due(now_ms)
 
+func record_shadow_decision(event: Dictionary) -> void:
+	if event == null or event.is_empty():
+		return
+	var now_ms: int = Time.get_ticks_msec()
+	var entry: Dictionary = event.duplicate(true)
+	entry["recorded_app_ms"] = now_ms
+	entry["recorded_unix_ms"] = int(Time.get_unix_time_from_system() * 1000.0)
+	_pending_shadow_lines.append(JSON.stringify(entry))
+	if (
+		_pending_shadow_lines.size() >= MAX_PENDING_INTENT_LINES
+		or now_ms - _last_shadow_flush_ms >= INTENT_FLUSH_INTERVAL_MS
+	):
+		_flush_pending_shadow_decisions(false)
+
 func flush() -> void:
 	_ensure_loaded()
 	_flush_pending_intents(true)
+	_flush_pending_shadow_decisions(true)
 	_save_summary(true)
 
 func get_summary_snapshot() -> Dictionary:
@@ -102,6 +120,16 @@ func _flush_pending_intents(force: bool) -> void:
 	_append_jsonl_lines(INTENT_LOG_PATH, _pending_intent_lines)
 	_pending_intent_lines.clear()
 	_last_intent_flush_ms = int(Time.get_ticks_msec())
+
+func _flush_pending_shadow_decisions(force: bool) -> void:
+	if _pending_shadow_lines.is_empty() and not force:
+		return
+	if _pending_shadow_lines.is_empty():
+		_last_shadow_flush_ms = int(Time.get_ticks_msec())
+		return
+	_append_jsonl_lines(SHADOW_LOG_PATH, _pending_shadow_lines)
+	_pending_shadow_lines.clear()
+	_last_shadow_flush_ms = int(Time.get_ticks_msec())
 
 func _append_jsonl_lines(path: String, lines: Array[String]) -> void:
 	if lines.is_empty():

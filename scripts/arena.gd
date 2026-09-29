@@ -644,6 +644,7 @@ func _ready() -> void:
 	SFLog.trace("ARENA CAM", {"arena_cam": cam, "viewport_cam": vcam})
 	assert(vcam == cam)
 	state = OpsState.get_state()
+	_configure_adaptive_bot_shadow_collection()
 	if not OpsState.state_changed.is_connected(_on_ops_state_changed):
 		OpsState.state_changed.connect(_on_ops_state_changed)
 	if not OpsState.ops_state_changed.is_connected(_on_ops_state_changed_iid):
@@ -1856,7 +1857,19 @@ func _bind_app_lifecycle() -> void:
 	if _app_lifecycle.has_signal("app_foregrounded") and not _app_lifecycle.is_connected("app_foregrounded", foreground_callable):
 		_app_lifecycle.connect("app_foregrounded", foreground_callable)
 
+func _configure_adaptive_bot_shadow_collection() -> void:
+	if OpsState == null or not OpsState.has_method("set_bot_adaptive_shadow_enabled"):
+		return
+	var enabled: bool = bool(ProjectSettings.get_setting("swarmfront/bots/adaptive_shadow_enabled", false))
+	OpsState.call("set_bot_adaptive_shadow_enabled", enabled)
+	SFLog.info("BOT_ADAPTIVE_SHADOW_CONFIG", {
+		"enabled": enabled,
+		"policy": "adaptive_v3.0"
+	})
+
 func _on_app_backgrounded(reason: String, paused_at_msec: int, _paused_at_unix: int) -> void:
+	if OpsState != null and OpsState.has_method("flush_bot_telemetry"):
+		OpsState.call("flush_bot_telemetry")
 	if not _should_local_lifecycle_pause_match():
 		SFLog.info("APP_LIFECYCLE_LOCAL_PAUSE_SKIPPED", {
 			"reason": reason,
@@ -4474,6 +4487,12 @@ func _start_match_sim(reason: String) -> void:
 	_post_match_stats_snapshot.clear()
 	_post_match_telemetry_path = ""
 	_begin_match_telemetry_session(reason)
+	if OpsState != null and OpsState.has_method("record_bot_shadow_session"):
+		OpsState.call("record_bot_shadow_session", "match_start", {
+			"human_seat": active_player_id,
+			"start_reason": reason,
+			"bot_profiles": OpsState.get_bot_profiles_snapshot()
+		})
 	_prewarm_render_assets()
 	var iid := 0
 	if sim_runner != null:
@@ -5574,6 +5593,15 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 		SFLog.info("MATCH_END_DUPLICATE_SKIP", {"winner_id": winner_id_in})
 		return
 	_match_end_handled = true
+	if OpsState != null and OpsState.has_method("record_bot_shadow_session"):
+		OpsState.call("record_bot_shadow_session", "match_end", {
+			"human_seat": active_player_id,
+			"winner_id": winner_id_in,
+			"end_reason": reason,
+			"shadow_decision_events": OpsState.get_bot_shadow_events_snapshot().size()
+		})
+	if OpsState != null and OpsState.has_method("flush_bot_telemetry"):
+		OpsState.call("flush_bot_telemetry")
 	var shell: Node = get_node_or_null("/root/Shell")
 	if shell != null and shell.has_method("cancel_buff_pointer_session"):
 		shell.call("cancel_buff_pointer_session", "match_ended:%s" % reason)
@@ -7441,6 +7469,8 @@ func _create_system(script_path: String, label: String) -> RefCounted:
 	return instance
 
 func _exit_tree() -> void:
+	if OpsState != null and OpsState.has_method("flush_bot_telemetry"):
+		OpsState.call("flush_bot_telemetry")
 	clear_buff_hive_targeting(-1, "arena_scene_exit")
 	clear_buff_lane_global_targeting(-1, "arena_scene_exit")
 	if buff_canonical_feedback_controller != null:
@@ -11658,6 +11688,8 @@ func _reset_sim_state() -> void:
 	sim_running = false
 	match_seed = _compute_match_seed()
 	_seed_game_rng()
+	if OpsState.has_method("set_bot_match_seed"):
+		OpsState.call("set_bot_match_seed", match_seed)
 	tie_history.clear()
 	tie_cache.clear()
 	if audio_system != null:
