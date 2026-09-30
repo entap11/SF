@@ -220,13 +220,13 @@ static func _validate_connection_symmetry(model: Dictionary, state: GameState) -
 	var by_position: Dictionary = {}
 	var connections: Dictionary = {}
 	for hive in state.hives:
-		by_position[Layout.point_key(Vector2(hive.grid_pos))] = hive.id
+		by_position[Layout.point_key(state._hive_render_grid_pos(hive))] = hive.id
 		for other in state.hives:
 			connections[Vector2i(hive.id, other.id)] = state.can_connect(hive.id, other.id)
 	for operation in operations:
 		var counterpart: Dictionary = {}
 		for hive in state.hives:
-			var p: Vector2 = Layout.transform_point(Vector2(hive.grid_pos), operation, center)
+			var p: Vector2 = Layout.transform_point(state._hive_render_grid_pos(hive), operation, center)
 			if not by_position.has(Layout.point_key(p)):
 				return [{"reason": "missing_runtime_counterpart", "operation": operation}]
 			counterpart[hive.id] = by_position[Layout.point_key(p)]
@@ -474,6 +474,13 @@ static func _expand_v1xy_compact_if_needed(source: Dictionary, path: String) -> 
 				entity["owner_id"] = owner_id
 				entity["owner"] = owner_raw
 				entity["power"] = maxi(1, explicit_power if explicit_power > 0 else default_power)
+			elif kind == "tower" or kind == "barracks":
+				# Compact authoring nodes carry the same setup contract as entities.
+				# Dropping controls here silently invokes runtime proximity selection.
+				entity["owner_id"] = _as_int(node.get("owner_id", owner_id), owner_id)
+				for key in ["control_hive_ids", "required_hive_ids", "power", "current_power"]:
+					if node.has(key):
+						entity[key] = node[key]
 			entities_from_nodes.append(entity)
 			next_entity_id += 1
 		if entities_from_nodes.is_empty():
@@ -1229,6 +1236,12 @@ static func _load_v1xy(data: Dictionary, path: String) -> Dictionary:
 	# Design rule: maps do not author active lanes.
 	# Keep topology as candidates only; runtime intents instantiate active lanes.
 	model["lanes"] = []
+	# Resolve references after all hives exist, including compact string IDs and
+	# JSON numeric IDs (parsed as floats), just as structure slots already do.
+	for structures in [towers, barracks]:
+		for structure in structures:
+			for key in ["control_hive_ids", "required_hive_ids"]:
+				structure[key] = _resolve_hive_id_list(structure.get(key, []), id_map)
 	model["towers"] = towers
 	model["barracks"] = barracks
 	var structure_slots: Array = _structure_slots_from_source(data, id_map, w, h)
@@ -1292,6 +1305,9 @@ static func _structure_slots_from_source(data: Dictionary, id_map: Dictionary, g
 			"grid_pos": [x, y],
 			"allowed": _structure_slot_allowed(slot.get("allowed", slot.get("kinds", ["tower", "barracks"])))
 		}
+		var symmetry_group: String = str(slot.get("symmetry_group", "")).strip_edges()
+		if not symmetry_group.is_empty():
+			out["symmetry_group"] = symmetry_group
 		var req_ids: Array = _resolve_hive_id_list(slot.get("required_hive_ids", []), id_map)
 		if not req_ids.is_empty():
 			out["required_hive_ids"] = req_ids
@@ -1324,7 +1340,7 @@ static func _resolve_hive_id_list(values_v: Variant, id_map: Dictionary) -> Arra
 		return out
 	for value_any in values_v as Array:
 		var hive_id: int = 0
-		if value_any is int:
+		if value_any is int or (value_any is float and is_finite(value_any) and value_any == floor(value_any)):
 			hive_id = int(value_any)
 		else:
 			var key: String = str(value_any)

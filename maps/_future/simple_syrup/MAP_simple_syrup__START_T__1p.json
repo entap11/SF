@@ -1,0 +1,189 @@
+{
+  "_schema": "swarmfront.map.v1.xy",
+  "async_bot_count": 1,
+  "barracks": [],
+  "defaults": {
+    "npc_start_power": 5.0,
+    "player_start_power": 10.0
+  },
+  "display_family": "Simple Syrup",
+  "family": "simple_syrup",
+  "grid": {
+    "h": 28,
+    "quant": "full_or_half",
+    "w": 18
+  },
+  "height": 28,
+  "id": "MAP_simple_syrup__START_T__1p",
+  "layout_symmetry": {
+    "center": [
+      8.5,
+      13.5
+    ],
+    "kind": "mirror_y"
+  },
+  "map_usage": "both",
+  "mode": "1p",
+  "name": "Simple Syrup — Start Triangles (Towers)",
+  "nodes": [
+    {
+      "id": "1.0",
+      "kind": "hive",
+      "owner": "P1",
+      "pos": {
+        "x": 8.5,
+        "y": 24.0
+      },
+      "power": 10.0
+    },
+    {
+      "id": "2.0",
+      "kind": "hive",
+      "owner": "NPC",
+      "pos": {
+        "x": 4.0,
+        "y": 18.0
+      },
+      "power": 5.0
+    },
+    {
+      "id": "3.0",
+      "kind": "hive",
+      "owner": "NPC",
+      "pos": {
+        "x": 13.0,
+        "y": 18.0
+      },
+      "power": 5.0
+    },
+    {
+      "id": "4.0",
+      "kind": "hive",
+      "owner": "NPC",
+      "pos": {
+        "x": 8.5,
+        "y": 13.5
+      },
+      "power": 10.0
+    },
+    {
+      "id": "5.0",
+      "kind": "hive",
+      "owner": "NPC",
+      "pos": {
+        "x": 4.0,
+        "y": 9.0
+      },
+      "power": 5.0
+    },
+    {
+      "id": "6.0",
+      "kind": "hive",
+      "owner": "NPC",
+      "pos": {
+        "x": 13.0,
+        "y": 9.0
+      },
+      "power": 5.0
+    },
+    {
+      "id": "7.0",
+      "kind": "hive",
+      "owner": "P2",
+      "pos": {
+        "x": 8.5,
+        "y": 3.0
+      },
+      "power": 10.0
+    },
+    {
+      "control_hive_ids": [
+        1.0,
+        2.0,
+        3.0
+      ],
+      "id": "tower_bottom",
+      "kind": "tower",
+      "owner": "NPC",
+      "pos": {
+        "x": 9.0,
+        "y": 20.0
+      },
+      "power": 0.0
+    },
+    {
+      "control_hive_ids": [
+        7.0,
+        5.0,
+        6.0
+      ],
+      "id": "tower_top",
+      "kind": "tower",
+      "owner": "NPC",
+      "pos": {
+        "x": 9.0,
+        "y": 7.0
+      },
+      "power": 0.0
+    }
+  ],
+  "player_buckets": [
+    "1P"
+  ],
+  "playstyle_tags": [
+    "FFA",
+    "STRATEGY"
+  ],
+  "rotation": {
+    "status": "candidate",
+    "weight": 1.0
+  },
+  "season_tags": [
+    "simple_syrup"
+  ],
+  "start_slots": [
+    "1.0",
+    "7.0"
+  ],
+  "strict_player_buckets": true,
+  "structure_slots": [
+    {
+      "allowed": [
+        "tower",
+        "barracks"
+      ],
+      "control_hive_ids": [
+        "1.0",
+        "2.0",
+        "3.0"
+      ],
+      "id": "start_bottom_s0",
+      "pos": {
+        "x": 9.0,
+        "y": 20.0
+      },
+      "symmetry_group": "syrup_start_pair"
+    },
+    {
+      "allowed": [
+        "tower",
+        "barracks"
+      ],
+      "control_hive_ids": [
+        "7.0",
+        "5.0",
+        "6.0"
+      ],
+      "id": "start_top_s0",
+      "pos": {
+        "x": 9.0,
+        "y": 7.0
+      },
+      "symmetry_group": "syrup_start_pair"
+    }
+  ],
+  "symmetry": "none",
+  "towers": [],
+  "walls": [],
+  "width": 18
+}

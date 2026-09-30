@@ -130,6 +130,11 @@ static func compile(draft: Dictionary) -> Dictionary:
 	out["width"] = 18
 	out["height"] = 28
 	out["grid"] = {"w": 18, "h": 28, "quant": "full"}
+	for node in generated_nodes:
+		var p := Layout.point(node)
+		if p.distance_to(p.round()) > Layout.EPS:
+			out.grid.quant = "full_or_half"
+			break
 	out["symmetry"] = "none" # Already expanded; legacy lane builder must not mirror again.
 	out["start_slots"] = []
 	for node in generated_nodes:

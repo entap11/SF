@@ -1,0 +1,372 @@
+{
+  "schema_version": 1,
+  "source_report_sha256": "a5c3ee01b92dd5e70dac59a03c9019fd76e7bb5c0877f48455e12938a39dd435",
+  "engine": {
+    "build": "official",
+    "hash": "a13da4feb8d8aefc283c3763d33a2f170a18d541",
+    "hex": 263937,
+    "major": 4,
+    "minor": 7,
+    "patch": 1,
+    "status": "stable",
+    "string": "4.7.1-stable (official)",
+    "timestamp": 0
+  },
+  "canonical_tick_ms": 100,
+  "seed": 9292026,
+  "description": "Production medium Balancer versus Raider, two seeds with profiles swapped between seats; automated pilot only. Final controls and precise structure centers.",
+  "results": [
+    {
+      "map_id": "MAP_simple_syrup__CENTER_B__1p",
+      "map_hash": "cce8d780e4634a006cd1f20f2086af041622625b0b4f38c685a089429f79f499",
+      "seed": 9292026,
+      "a": "balancer:medium",
+      "b": "raider:medium",
+      "completed": true,
+      "reason": "conquest",
+      "sim_ms": 97100,
+      "winner_team": 2,
+      "winner_profile": "raider:medium",
+      "state_hash": "3b9d46f413e3d6300bd17e14acac7c1f79ada09af88d19f9d479d75eb28dafd8",
+      "first_hive_capture_ms": 14300,
+      "first_tower_capture_ms": -1,
+      "final_structure_owners": {
+        "barracks": {
+          "1": 2,
+          "2": 2
+        },
+        "towers": {}
+      }
+    },
+    {
+      "map_id": "MAP_simple_syrup__CENTER_B__1p",
+      "map_hash": "bf819c9a59afba1c6e2a2abe76a9fdc179db2ab665877dceaaa15e7d5776950a",
+      "seed": 9292027,
+      "a": "balancer:medium",
+      "b": "raider:medium",
+      "completed": true,
+      "reason": "conquest",
+      "sim_ms": 101500,
+      "winner_team": 2,
+      "winner_profile": "raider:medium",
+      "state_hash": "441a0c5fea9736a0ea38a7b5fdbf48b751eb62326ac5cd0158e33e07048839be",
+      "first_hive_capture_ms": 14300,
+      "first_tower_capture_ms": -1,
+      "final_structure_owners": {
+        "barracks": {
+          "1": 2,
+          "2": 2
+        },
+        "towers": {}
+      }
+    },
+    {
+      "map_id": "MAP_simple_syrup__CENTER_B__1p",
+      "map_hash": "cce8d780e4634a006cd1f20f2086af041622625b0b4f38c685a089429f79f499",
+      "seed": 9292026,
+      "a": "raider:medium",
+      "b": "balancer:medium",
+      "completed": true,
+      "reason": "conquest",
+      "sim_ms": 87400,
+      "winner_team": 2,
+      "winner_profile": "balancer:medium",
+      "state_hash": "416170feb73ebf7139e97d0d477234ebea81e7ab56cad26f43ac76aa6f37df90",
+      "first_hive_capture_ms": 14800,
+      "first_tower_capture_ms": -1,
+      "final_structure_owners": {
+        "barracks": {
+          "1": 2,
+          "2": 2
+        },
+        "towers": {}
+      }
+    },
+    {
+      "map_id": "MAP_simple_syrup__CENTER_B__1p",
+      "map_hash": "bf819c9a59afba1c6e2a2abe76a9fdc179db2ab665877dceaaa15e7d5776950a",
+      "seed": 9292027,
+      "a": "raider:medium",
+      "b": "balancer:medium",
+      "completed": true,
+      "reason": "conquest",
+      "sim_ms": 140900,
+      "winner_team": 1,
+      "winner_profile": "raider:medium",
+      "state_hash": "74a35475b0da9095b1b6f0ce88a66f479c8d82337dd9e4cf6457d403da02123d",
+      "first_hive_capture_ms": 15000,
+      "first_tower_capture_ms": -1,
+      "final_structure_owners": {
+        "barracks": {
+          "1": 1,
+          "2": 1
+        },
+        "towers": {}
+      }
+    },
+    {
+      "map_id": "MAP_simple_syrup__CENTER_T__1p",
+      "map_hash": "964590d07dbecd1ac44197df2a0eb6460377a93e0e281ddbeeca857d1310f263",
+      "seed": 9292026,
+      "a": "balancer:medium",
+      "b": "raider:medium",
+      "completed": true,
+      "reason": "conquest",
+      "sim_ms": 260600,
+      "winner_team": 2,
+      "winner_profile": "raider:medium",
+      "state_hash": "3f8b30230d9ccedec38c71e8a3513bc039b4e0ddd7bdc61c6b41282b545d9cc7",
+      "first_hive_capture_ms": 12900,
+      "first_tower_capture_ms": 33900,
+      "final_structure_owners": {
+        "barracks": {},
+        "towers": {
+          "1": 2,
+          "2": 2
+        }
+      }
+    },
+    {
+      "map_id": "MAP_simple_syrup__CENTER_T__1p",
+      "map_hash": "b0d7df37cf1613797d011ac2a732580ce24e90e9a2c379f9c4e9e0b37e596c69",
+      "seed": 9292027,
+      "a": "balancer:medium",
+      "b": "raider:medium",
+      "completed": true,
+      "reason": "conquest",
+      "sim_ms": 169700,
+      "winner_team": 1,
+      "winner_profile": "balancer:medium",
+      "state_hash": "7e53dbc9a423c4fcdc3fcbac567ce5169b0fe7dab8c5d6550da36d19abdfdaf0",
+      "first_hive_capture_ms": 12900,
+      "first_tower_capture_ms": 34400,
+      "final_structure_owners": {
+        "barracks": {},
+        "towers": {
+          "1": 1,
+          "2": 1
+        }
+      }
+    },
+    {
+      "map_id": "MAP_simple_syrup__CENTER_T__1p",
+      "map_hash": "964590d07dbecd1ac44197df2a0eb6460377a93e0e281ddbeeca857d1310f263",
+      "seed": 9292026,
+      "a": "raider:medium",
+      "b": "balancer:medium",
+      "completed": true,
+      "reason": "conquest",
+      "sim_ms": 97900,
+      "winner_team": 2,
+      "winner_profile": "balancer:medium",
+      "state_hash": "34bd86857cdb41e7b14c84df50e6993f88306721c806eca7f75cd440269932d7",
+      "first_hive_capture_ms": 12900,
+      "first_tower_capture_ms": 24200,
+      "final_structure_owners": {
+        "barracks": {},
+        "towers": {
+          "1": 2,
+          "2": 2
+        }
+      }
+    },
+    {
+      "map_id": "MAP_simple_syrup__CENTER_T__1p",
+      "map_hash": "b0d7df37cf1613797d011ac2a732580ce24e90e9a2c379f9c4e9e0b37e596c69",
+      "seed": 9292027,
+      "a": "raider:medium",
+      "b": "balancer:medium",
+      "completed": true,
+      "reason": "conquest",
+      "sim_ms": 127600,
+      "winner_team": 1,
+      "winner_profile": "raider:medium",
+      "state_hash": "35876861eb12addb835c5cd5d2d35ceaecfc82fc8d626274a2e9d94ef0b5c070",
+      "first_hive_capture_ms": 12900,
+      "first_tower_capture_ms": 34900,
+      "final_structure_owners": {
+        "barracks": {},
+        "towers": {
+          "1": 1,
+          "2": 1
+        }
+      }
+    },
+    {
+      "map_id": "MAP_simple_syrup__START_B__1p",
+      "map_hash": "e7fe7999d86d9f9b06de322892126669c9d533cf787dc39c14d8c8da5091b85f",
+      "seed": 9292026,
+      "a": "balancer:medium",
+      "b": "raider:medium",
+      "completed": true,
+      "reason": "conquest",
+      "sim_ms": 119700,
+      "winner_team": 2,
+      "winner_profile": "raider:medium",
+      "state_hash": "4afca97c1d1c46167f8638603815271d9b0d76cfc85dca0f45c4ee25f8602fc0",
+      "first_hive_capture_ms": 12900,
+      "first_tower_capture_ms": -1,
+      "final_structure_owners": {
+        "barracks": {
+          "1": 2,
+          "2": 2
+        },
+        "towers": {}
+      }
+    },
+    {
+      "map_id": "MAP_simple_syrup__START_B__1p",
+      "map_hash": "11448759d2460ef1c99d7dd913d25a12edc8fd22d25d3fac84008d3033301824",
+      "seed": 9292027,
+      "a": "balancer:medium",
+      "b": "raider:medium",
+      "completed": true,
+      "reason": "conquest",
+      "sim_ms": 146600,
+      "winner_team": 2,
+      "winner_profile": "raider:medium",
+      "state_hash": "70adb2a2cde6a107327063d359359052880aa1a3ff343d0d32e7ea7b733acad8",
+      "first_hive_capture_ms": 12900,
+      "first_tower_capture_ms": -1,
+      "final_structure_owners": {
+        "barracks": {
+          "1": 2,
+          "2": 2
+        },
+        "towers": {}
+      }
+    },
+    {
+      "map_id": "MAP_simple_syrup__START_B__1p",
+      "map_hash": "e7fe7999d86d9f9b06de322892126669c9d533cf787dc39c14d8c8da5091b85f",
+      "seed": 9292026,
+      "a": "raider:medium",
+      "b": "balancer:medium",
+      "completed": true,
+      "reason": "conquest",
+      "sim_ms": 92800,
+      "winner_team": 2,
+      "winner_profile": "balancer:medium",
+      "state_hash": "5dcd8820460cabf0feb354beaf8aedca8c51754108b05917debdbe6497bc9b48",
+      "first_hive_capture_ms": 12900,
+      "first_tower_capture_ms": -1,
+      "final_structure_owners": {
+        "barracks": {
+          "1": 2,
+          "2": 2
+        },
+        "towers": {}
+      }
+    },
+    {
+      "map_id": "MAP_simple_syrup__START_B__1p",
+      "map_hash": "11448759d2460ef1c99d7dd913d25a12edc8fd22d25d3fac84008d3033301824",
+      "seed": 9292027,
+      "a": "raider:medium",
+      "b": "balancer:medium",
+      "completed": true,
+      "reason": "conquest",
+      "sim_ms": 101700,
+      "winner_team": 1,
+      "winner_profile": "raider:medium",
+      "state_hash": "a4e563de4dbd6f27c87fdc1e1d2b31e8eadec76c3b96a7234f74ab01f5899062",
+      "first_hive_capture_ms": 12900,
+      "first_tower_capture_ms": -1,
+      "final_structure_owners": {
+        "barracks": {
+          "1": 1,
+          "2": 1
+        },
+        "towers": {}
+      }
+    },
+    {
+      "map_id": "MAP_simple_syrup__START_T__1p",
+      "map_hash": "c83486e4ee8c2998303ff46963ca71403e7df8fcbffcc418257a692f195d5063",
+      "seed": 9292026,
+      "a": "balancer:medium",
+      "b": "raider:medium",
+      "completed": true,
+      "reason": "conquest",
+      "sim_ms": 132500,
+      "winner_team": 2,
+      "winner_profile": "raider:medium",
+      "state_hash": "a64f45d33428a41e708f8c45274d7d45687ca2defb8bfff9ed2c1eab24b06f54",
+      "first_hive_capture_ms": 12900,
+      "first_tower_capture_ms": 15100,
+      "final_structure_owners": {
+        "barracks": {},
+        "towers": {
+          "1": 2,
+          "2": 2
+        }
+      }
+    },
+    {
+      "map_id": "MAP_simple_syrup__START_T__1p",
+      "map_hash": "3c00087a137085a5fdadd553fad3be55963479645fdc5cfebbe8feb798cdb200",
+      "seed": 9292027,
+      "a": "balancer:medium",
+      "b": "raider:medium",
+      "completed": true,
+      "reason": "conquest",
+      "sim_ms": 117000,
+      "winner_team": 2,
+      "winner_profile": "raider:medium",
+      "state_hash": "5d0831773cf6e45e835074e7993f458137de044623cba05738c8c87a23843601",
+      "first_hive_capture_ms": 12900,
+      "first_tower_capture_ms": 15200,
+      "final_structure_owners": {
+        "barracks": {},
+        "towers": {
+          "1": 2,
+          "2": 2
+        }
+      }
+    },
+    {
+      "map_id": "MAP_simple_syrup__START_T__1p",
+      "map_hash": "c83486e4ee8c2998303ff46963ca71403e7df8fcbffcc418257a692f195d5063",
+      "seed": 9292026,
+      "a": "raider:medium",
+      "b": "balancer:medium",
+      "completed": true,
+      "reason": "conquest",
+      "sim_ms": 95800,
+      "winner_team": 2,
+      "winner_profile": "balancer:medium",
+      "state_hash": "c0322fe29388a4f1dcf8039c7048d06db6c21af328b5092d5505f83406e248a2",
+      "first_hive_capture_ms": 12900,
+      "first_tower_capture_ms": 15200,
+      "final_structure_owners": {
+        "barracks": {},
+        "towers": {
+          "1": 2,
+          "2": 2
+        }
+      }
+    },
+    {
+      "map_id": "MAP_simple_syrup__START_T__1p",
+      "map_hash": "3c00087a137085a5fdadd553fad3be55963479645fdc5cfebbe8feb798cdb200",
+      "seed": 9292027,
+      "a": "raider:medium",
+      "b": "balancer:medium",
+      "completed": true,
+      "reason": "conquest",
+      "sim_ms": 117200,
+      "winner_team": 1,
+      "winner_profile": "raider:medium",
+      "state_hash": "9904dad84acbcb62c711887c3d2b611001791e753b996ae8848b7bcbdd955730",
+      "first_hive_capture_ms": 12900,
+      "first_tower_capture_ms": 15200,
+      "final_structure_owners": {
+        "barracks": {},
+        "towers": {
+          "1": 1,
+          "2": 1
+        }
+      }
+    }
+  ]
+}

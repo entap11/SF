@@ -203,7 +203,7 @@ func _refresh() -> void:
 			for a in state.hives:
 				for b in state.hives:
 					if a.id < b.id and state.can_connect(a.id, b.id):
-						_connections.append([Vector2(a.grid_pos), Vector2(b.grid_pos)])
+						_connections.append([state._hive_render_grid_pos(a), state._hive_render_grid_pos(b)])
 	_dirty = true
 	queue_redraw()
 
@@ -251,7 +251,7 @@ func _gui_input(event: InputEvent) -> void:
 			elif event.pressed and _inside(p):
 				if mode in ["curve", "straight"]: _stroke = [[p.x, p.y]]
 				elif mode == "corners": _stroke.append([p.x, p.y])
-				elif mode == "place": _place(p.round())
+				elif mode == "place": _place(p.round() if place_type == "slot" else p.snapped(Vector2(0.5, 0.5)))
 				else: _select(p)
 			elif not event.pressed:
 				if mode in ["curve", "straight"]: _finish_stroke()
@@ -261,11 +261,12 @@ func _gui_input(event: InputEvent) -> void:
 					_changed()
 	elif event is InputEventMouseMotion:
 		var p := _grid(event.position)
-		hover_changed.emit("Cell %d, %d" % [roundi(p.x), roundi(p.y)])
+		var hive_point := p.snapped(Vector2(0.5, 0.5))
+		hover_changed.emit("Cell %s, %s" % [hive_point.x, hive_point.y])
 		if _panning: pan += event.relative
 		elif _inside(p):
 			if _drag_index >= 0:
-				draft.nodes[_drag_index].pos = {"x": roundi(p.x), "y": roundi(p.y)}
+				draft.nodes[_drag_index].pos = {"x": hive_point.x, "y": hive_point.y}
 				_refresh()
 			elif _drag_slot >= 0:
 				draft.structure_slots[_drag_slot].pos = {"x": roundi(p.x), "y": roundi(p.y)}

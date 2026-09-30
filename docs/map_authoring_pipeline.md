@@ -47,8 +47,25 @@ as a regression case: geometric validation passes, runtime validation rejects it
 
 The first symmetry presets are mirror X, mirror Y, half-turn, both mirrors, and
 quarter-turn. Quarter-turn requires a square playable layout that fits the board.
-Three-player 120-degree geometry cannot be represented exactly by the current
-integer hive-coordinate contract; it must not be approximated and certified.
+Hives retain integer or half-cell coordinates, matching the existing runtime.
+Structure slots use integer cells. The drawing template labels zero-based cell
+centers `(0,0)` through `(17,27)`; the outside border begins at `(-0.5,-0.5)`.
+Reject out-of-bounds input before export rather than silently dropping it.
+Three-player 120-degree geometry cannot be represented exactly by this lattice;
+it must not be approximated and certified.
+
+Paired random structure slots can carry the same nonempty `symmetry_group`.
+With matching allowed types, the setup randomizer chooses the same type for the
+entire group from the shared seed. Legacy ungrouped slots retain their existing
+selection behavior. The contract checks group membership, controls and entity
+structures as well as standalone structure arrays.
+Compact-node import preserves explicit structure controls, ownership and power.
+Simulation structure centers use precise authoritative hive positions, matching
+the rendered control-triangle centroid instead of flooring half-cell hives.
+
+The September 29 Simple Syrup pass adds two retained drafts and four unpublished
+exports. See [the review](simple_syrup_map_review_2026-09-29.md) for playable
+commands, actual match captures and verification evidence.
 
 ## Acceptance evidence
 

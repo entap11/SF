@@ -332,6 +332,12 @@ static func _structure_kind_for_slot(slot: Dictionary, desired_kind: String, see
 		if allowed.size() == 1:
 			return str(allowed[0])
 		var slot_key: String = "%d|%d|%s|%s" % [seed, slot_index, str(slot.get("id", "")), str(slot.get("grid_pos", slot.get("pos", [])))]
+		# Opt-in authoring groups share one deterministic type choice. Legacy
+		# ungrouped slots retain their existing seed/index/position behavior.
+		var symmetry_group: String = str(slot.get("symmetry_group", "")).strip_edges()
+		if not symmetry_group.is_empty():
+			allowed.sort()
+			slot_key = "%d|symmetry_group|%s" % [seed, symmetry_group]
 		var idx: int = _stable_positive_hash(slot_key) % allowed.size()
 		return str(allowed[idx])
 	if allowed.has(desired_kind):

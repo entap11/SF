@@ -3,6 +3,10 @@
 Draw on `templates/SF_18x28_grid.png`. Hive dots specify exact cells; wall strokes
 specify the intended route. Export a PNG/JPG from the drawing app. Keep deliberate
 openings as separate strokes. The previous 12×8 template is historical.
+Labels mark zero-based cell centers `(0,0)` through `(17,27)`, not grid borders.
+Hive placement snaps to half-cells to preserve existing layouts; structure slots
+snap to whole cells. Legal-connection previews use the same precise hive positions
+as the simulation.
 Regenerate the SVG/PNG with `python3 tools/generate_map_grid.py` (requires Pillow;
 `--font` selects a local font on platforms without Helvetica).
 
@@ -58,7 +62,7 @@ unchanged barriers, and the cleaned symmetric pilot. Set
 `SF_MAP_BARRIER_OVERLAY=1` for the exact blocking overlay.
 
 Current presets: mirror X/Y, half-turn, both mirrors, quarter-turn. Three-player
-120° symmetry is blocked because the current integer hive lattice cannot encode
+120° symmetry is blocked because the current integer/half-cell hive lattice cannot encode
 it exactly. This is a validation limit, not permission to approximate fairness.
 Legacy maps without a designation are explicitly unclassified in the usage API;
 this authoring update does not certify or silently rewrite the live catalog.

@@ -689,7 +689,7 @@ func _structure_center_for_required(required: Array, fallback_center: Vector2) -
 		var hive: HiveData = state.find_hive_by_id(int(hive_id_v))
 		if hive == null:
 			continue
-		sum += _cell_center(hive.grid_pos)
+		sum += state.hive_world_pos_by_id(hive.id)
 		count += 1
 	if count == 0:
 		return fallback_center

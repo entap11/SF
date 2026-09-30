@@ -111,8 +111,8 @@ static func validate(data: Dictionary, require_usage: bool = true) -> Dictionary
 		if not p.is_finite() or p.x < 0 or p.y < 0 or p.x >= width or p.y >= height:
 			errors.append("Hive %s has invalid/out-of-bounds coordinates" % hive.id)
 			continue
-		if p.distance_to(p.round()) > EPS:
-			errors.append("Hive %s must occupy an integer cell; runtime rounds fractional hives" % hive.id)
+		if (p * 2.0).distance_to((p * 2.0).round()) > EPS:
+			errors.append("Hive %s must occupy a native integer or half-cell position" % hive.id)
 		if hive.power < 1 or hive.owner < 0 or hive.owner > 4:
 			errors.append("Hive %s needs positive power and owner NPC/P1/P2/P3/P4" % hive.id)
 		var key := point_key(p)
@@ -144,6 +144,12 @@ static func validate(data: Dictionary, require_usage: bool = true) -> Dictionary
 		if not source is Array:
 			errors.append("%s must be an array" % category)
 			continue
+		source = source.duplicate()
+		if category != "structure_slots":
+			var entity_kind := "tower" if category == "towers" else "barracks"
+			for entry in data.get("nodes", data.get("entities", [])):
+				if entry is Dictionary and str(entry.get("kind", entry.get("type", ""))) == entity_kind:
+					source.append(entry)
 		for item in source:
 			if not item is Dictionary:
 				errors.append("Invalid %s entry" % category)
@@ -264,6 +270,8 @@ static func _has_segment(segments: Array, keys: Dictionary, a: Vector2, b: Vecto
 
 static func _slot_matches(a: Dictionary, b: Dictionary, hives: Dictionary, operation: String, center: Vector2, owner_map: Dictionary) -> bool:
 	if a.category != b.category or transform_point(a.pos, operation, center).distance_to(b.pos) > EPS:
+		return false
+	if str(a.get("symmetry_group", "")) != str(b.get("symmetry_group", "")):
 		return false
 	for key in ["power", "tier"]:
 		if a.get(key, 0) != b.get(key, 0): return false
