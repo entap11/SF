@@ -47,8 +47,9 @@ not guarantee an advertiser fill.
   multiplayer and stake copy disclose the applicable consequence.
 - Exit intents go to existing match services. No UI code changes gameplay state,
   awards results, or settles money. Failed service requests keep the match open.
-- In-match ad taps save the original creative/link and acknowledge it inside the
-  banner. Repeated taps on that creative do not duplicate the saved entry.
+- Ad taps copy the destination URL and acknowledge it inside the surface without
+  interrupting playback. In-match taps also save the original creative/link.
+  Repeated taps on that creative do not duplicate the saved entry.
 - Results offer Saved Ads. Only an explicit Open there invokes the provider's
   browser action. Saved entries are scoped to the current match/player in memory.
 - Opening an external browser behind the game is not a portable mobile contract.

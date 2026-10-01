@@ -2017,3 +2017,68 @@ func _sanitize_match_id(match_id: String) -> String:
 	out = out.replace(" ", "_")
 	out = out.replace("|", "_")
 	return out
+
+const CHECKPOINT_FIELDS = [
+	"_active_player_ids",
+	"_started",
+	"_finalized",
+	"_start_utc_ms",
+	"_end_utc_ms",
+	"_total_swarm_collisions",
+	"_units_produced_by_player",
+	"_barracks_units_produced_by_player",
+	"_swarms_sent_by_player",
+	"_hives_captured_by_player",
+	"_units_first_landed_by_player",
+	"_meaningful_actions_by_player",
+	"_lane_reversals_by_player",
+	"_units_arrived_friendly_hive_by_player",
+	"_units_arrived_enemy_hive_by_player",
+	"_units_arrived_npc_hive_by_player",
+	"_idle_time_s_by_player",
+	"_last_production_seen_by_player",
+	"_last_production_change_ms_by_player",
+	"_units_lost_by_player",
+	"_tower_units_killed_by_player",
+	"_unit_deaths_by_victim_player",
+	"_unit_deaths_by_killer_player",
+	"_hive_damage_dealt_by_player",
+	"_hive_damage_taken_by_player",
+	"_lane_control_time_s_by_player",
+	"_tower_control_time_s_by_player",
+	"_barracks_control_time_s_by_player",
+	"_active_lane_slots_time_s_by_player",
+	"_lane_budget_slots_time_s_by_player",
+	"_fully_utilized_lane_time_s_by_player",
+	"_underutilized_lane_time_s_by_player",
+	"_early_active_lane_slots_time_s_by_player",
+	"_early_lane_budget_slots_time_s_by_player",
+	"_board_control_area_by_player",
+	"_board_control_peak_share_by_player",
+	"_early_board_control_area_by_player",
+	"_overcommit_events_by_player",
+	"_overcommit_window_s_by_player",
+	"_overcommit_active_by_player",
+	"_intent_total_by_player",
+	"_intent_success_by_player",
+	"_intent_fail_by_player",
+	"_intent_budget_fail_by_player",
+	"_intent_no_lane_fail_by_player",
+	"_damage_events",
+	"_buff_windows",
+	"_replay_frames",
+	"_replay_map",
+	"_replay_last_sample_ms",
+	"_runtime_perf_samples",
+	"_runtime_perf_last_sample_ms",
+	"_evaluation_witness_count",
+]
+
+func capture_checkpoint() -> Dictionary:
+	var saved := preload("res://scripts/persistence/checkpoint_fields.gd").capture(self, CHECKPOINT_FIELDS)
+	saved["model"] = _model.to_dict()
+	return saved
+
+func restore_checkpoint(saved: Dictionary) -> void:
+	preload("res://scripts/persistence/checkpoint_fields.gd").restore(self, CHECKPOINT_FIELDS, saved)
+	_model = MatchTelemetryModelScript.from_dict(saved.get("model", {}))

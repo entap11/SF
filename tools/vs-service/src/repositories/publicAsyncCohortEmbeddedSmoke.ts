@@ -1,3 +1,4 @@
+import { PostgresPlatformEconomyDeliveryRepository } from "./platformEconomyDelivery.js";
 import type { Pool } from "pg";
 import { PGlite } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
@@ -132,6 +133,14 @@ async function main(): Promise<void> {
   expect(reconciled.closed >= 1 && dnfMessages.some((message) => message.message_kind === "PUBLIC_CONTEST_DNF"
     && message.qualified === false),
   "deadline DNF did not close/message the locked roster", { reconciled, dnfMessages });
+  const quests = new PostgresPlatformEconomyDeliveryRepository(pool);
+  const count = Number((await pool.query("SELECT count(*)::int AS n FROM vs_public_contest_results")).rows[0].n);
+  expect(await quests.reconcileQuestResults("quest-local", { verifiedAtOrAfter: start }) === count,
+    "async quest delivery lost verified attempts");
+  const jobs = await pool.query<{payload: JsonRecord}>("SELECT payload FROM vs_platform_economy_deliveries WHERE operation='QUEST_ACTIVITY'");
+  expect(jobs.rows.length > 0 && jobs.rows.every((row) => row.payload.family === "ASYNC_MAP_SET"
+    && row.payload.scope === "ROLLING_COHORT" && row.payload.completed_maps === row.payload.map_count),
+    "async quest facts lost family or full map set", jobs.rows);
   await db.close();
   console.log("PUBLIC_ASYNC_COHORT_EMBEDDED_SMOKE: PASS");
 }

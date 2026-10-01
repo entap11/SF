@@ -1,3 +1,4 @@
+import { buildQuestCatalog } from "./platformQuestCatalog.js";
 import { installBetaCaptureRoutes } from "./betaCapture.js";
 import express, { type NextFunction, type Request, type Response } from "express";
 import { config } from "./config.js";
@@ -406,7 +407,9 @@ function normalizeQueueEntries(raw: unknown): MatchQueueEntry[] {
 async function main(): Promise<void> {
   const store = new RankStore(pool, config.legacyStatePath);
   await store.init();
-  const platformEconomy = new PlatformEconomyRepository(pool);
+  if (config.questsEnabled && !Number.isFinite(Date.parse(config.questStartsAt))) throw new Error("RANK_QUEST_STARTS_AT_required");
+  const platformEconomy = new PlatformEconomyRepository(pool,
+    config.questsEnabled ? buildQuestCatalog(config.questStartsAt) : [], () => new Date(), config.questsEnabled);
   const identitySessions = new IdentitySessionStore(pool, config.identity, config.identity.challengeTtlSec);
   const accountDeletion = new AccountDeletionStore(pool,
     process.env.ENTAP_ACCOUNT_DELETION_ENABLED?.trim().toLowerCase() === "true"
@@ -535,6 +538,14 @@ async function main(): Promise<void> {
     })
   );
 
+  app.post("/v1/service/economy/quest-activity", asyncHandler(async (req, res) => {
+    try {
+      const claims = verifyServiceJwt(bearerToken(req.header("authorization")), config.serviceAuth, "economy:produce");
+      const body = isRecord(req.body) ? req.body : {};
+      res.json(await platformEconomy.recordQuestActivity(producerEnvelope(body, String(claims.sub), "QUEST_ACTIVITY_V1")));
+    } catch (error) { platformFailure(res, error); }
+  }));
+
   app.post(
     "/v1/service/economy/nectar-match",
     asyncHandler(async (req, res) => {
@@ -593,6 +604,37 @@ async function main(): Promise<void> {
           matchId: toStringValue(payload.match_id), resultId: toStringValue(payload.result_id),
           reason: toStringValue(payload.reason) });
         res.json(result);
+      } catch (error) { platformFailure(res, error); }
+    })
+  );
+
+  app.get(
+    "/v1/platform/quests/me",
+    asyncHandler(async (req, res) => {
+      res.setHeader("Cache-Control", "no-store");
+      try {
+        const token = bearerTokenFromHeader(req.header("authorization"));
+        if (!token) throw new PlayerTokenError("token_missing");
+        const claims = verifyPlayerAccessToken(token, config.identity, { requiredScope: "economy:read" });
+        await accountDeletion.assertActiveSession(claims);
+        res.json(await platformEconomy.getPlayerQuests(claims.sub));
+      } catch (error) { platformFailure(res, error); }
+    })
+  );
+
+  app.post(
+    "/v1/platform/quests/claim",
+    asyncHandler(async (req, res) => {
+      res.setHeader("Cache-Control", "no-store");
+      try {
+        const token = bearerTokenFromHeader(req.header("authorization"));
+        if (!token) throw new PlayerTokenError("token_missing");
+        const claims = verifyPlayerAccessToken(token, config.identity, { requiredScope: "progression:claim" });
+        await accountDeletion.assertActiveSession(claims);
+        const body = isRecord(req.body) ? req.body : {};
+        res.json(await platformEconomy.claimQuest({ playerId: claims.sub,
+          epochId: toStringValue(body.epoch_id), questId: toStringValue(body.quest_id),
+          cycleStart: toStringValue(body.cycle_start), requestId: toStringValue(body.request_id) }));
       } catch (error) { platformFailure(res, error); }
     })
   );

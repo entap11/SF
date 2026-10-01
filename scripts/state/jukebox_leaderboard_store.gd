@@ -25,7 +25,10 @@ func record_run_all_periods(map_id: String, mode: String, result: Dictionary) ->
 	var recorded_at: int = _resolve_updated_at(int(result.get("updated_at", 0)))
 	var updated_periods: Array[String] = []
 	var best_time_ms: int = 0
+	var started_at: int = int(result.get("started_at", recorded_at))
 	for period_label in PERIOD_LABELS:
+		if _period_scope_id(period_label, started_at) != _period_scope_id(period_label, recorded_at):
+			continue
 		var write_result: Dictionary = _append_result(clean_map_id, clean_mode, str(period_label), result, recorded_at)
 		if not bool(write_result.get("ok", false)):
 			return write_result

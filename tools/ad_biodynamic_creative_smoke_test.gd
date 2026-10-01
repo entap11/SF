@@ -79,13 +79,9 @@ func _run() -> void:
 			return
 	provider_snapshot = manager.call("get_provider_debug_snapshot") as Dictionary
 	var opened_urls: Array = provider_snapshot.get("opened_urls", []) as Array
-	if opened_urls.size() != cases.size():
-		_fail("dev provider should receive one open_ad call per placement")
+	if not opened_urls.is_empty():
+		_fail("ad taps must copy links without invoking provider open_ad")
 		return
-	for url in opened_urls:
-		if str(url) != DESTINATION_URL:
-			_fail("unexpected destination URL: %s" % str(url))
-			return
 	var events: Array = manager.call("get_measurement_events") as Array
 	if events.size() != cases.size() * 2:
 		_fail("expected impression+tap measurement event per placement")

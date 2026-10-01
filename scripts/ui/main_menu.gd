@@ -2341,6 +2341,7 @@ func _bind_onboarding_gate() -> void:
 				onboarding_panel.onboarding_guide_prompt_requested.connect(_on_onboarding_guide_prompt_requested)
 	else:
 		onboarding_overlay.visible = false
+		call_deferred("_offer_saved_game")
 
 func _apply_performance_pref_from_profile() -> void:
 	if not ProfileManager.has_method("get_content_scale_factor"):
@@ -2352,6 +2353,7 @@ func _apply_performance_pref_from_profile() -> void:
 
 func _on_onboarding_done() -> void:
 	onboarding_overlay.visible = false
+	call_deferred("_offer_saved_game")
 	_refresh_scholastic_dash_visibility()
 	_maybe_show_sfa_join_cta(true)
 
@@ -14826,7 +14828,8 @@ func _on_public_contest_play_requested(definition: Dictionary, attempt: Dictiona
 		"public_contest_definition_hash": str(definition.get("definition_hash", "")),
 		"public_contest_attempt": attempt.duplicate(true),
 		"public_contest_map_ids": (definition.get("map_ids", []) as Array).duplicate(),
-		"public_contest_submission_deadline_at": str(attempt.get("submission_deadline_at", ""))
+		"public_contest_submission_deadline_at": str(attempt.get("submission_deadline_at", "")),
+		"public_contest_ends_at": str(definition.get("ends_at", ""))
 	}
 	if family == "GAUNTLET":
 		_on_progressive_selected(false, 0, str(definition.get("contest_id", "")), "WEEKLY", "SCHEDULED", definition, attempt)
@@ -14951,6 +14954,7 @@ func _launch_progressive_stage_direct(run: Dictionary, stage: Dictionary, launch
 		tree.set_meta("public_contest_attempt", public_attempt.duplicate(true))
 		tree.set_meta("public_contest_map_ids", (public_definition.get("map_ids", []) as Array).duplicate())
 		tree.set_meta("public_contest_submission_deadline_at", str(public_attempt.get("submission_deadline_at", "")))
+		tree.set_meta("public_contest_ends_at", str(public_definition.get("ends_at", "")))
 	tree.set_meta("vs_assigned_players", [local_name, bot_name])
 	tree.set_meta("vs_open_slots", 0)
 	tree.set_meta("vs_required_players", 2)
@@ -15087,7 +15091,8 @@ func _progressive_launch_clear_keys() -> Array[String]:
 		"public_contest_definition_hash",
 		"public_contest_attempt",
 		"public_contest_map_ids",
-		"public_contest_submission_deadline_at"
+		"public_contest_submission_deadline_at",
+		"public_contest_ends_at"
 	]
 
 func _on_async_mode_selected(mode_id: String, paid: bool, denomination: int) -> void:
@@ -18314,3 +18319,85 @@ func _init_dash_state() -> void:
 func _set_dash_offsets(x_shift: float) -> void:
 	dash_panel.offset_left = x_shift
 	dash_panel.offset_right = x_shift
+
+
+var _saved_game_prompt_offered := false
+var _saved_game_dialog: ConfirmationDialog
+
+func _offer_saved_game() -> void:
+	if _saved_game_prompt_offered or onboarding_overlay.visible:
+		return
+	_saved_game_prompt_offered = true
+	if not SavedMatch.last_error.is_empty():
+		status_label.text = SavedMatch.last_error
+	_open_saved_games(false)
+
+func _open_saved_games(show_empty: bool = true) -> void:
+	if is_instance_valid(_saved_game_dialog):
+		_saved_game_dialog.popup_centered()
+		return
+	var saves: Array[Dictionary] = SavedMatch.available()
+	if saves.is_empty():
+		if show_empty:
+			status_label.text = "No unfinished games are available on this device."
+		return
+	_show_saved_game(saves[0])
+
+func _show_saved_game(saved: Dictionary) -> void:
+	var dialog := ConfirmationDialog.new()
+	_saved_game_dialog = dialog
+	dialog.name = "ResumeSavedGame"
+	dialog.title = "Resume your unfinished game?"
+	dialog.exclusive = true
+	dialog.ok_button_text = "RESUME"
+	dialog.cancel_button_text = "LATER"
+	var launch: Dictionary = saved.get("context", {})
+	var mode := str(launch.get("vs_mode", "Solo game")).replace("_", " ").capitalize()
+	var remaining := int(saved.get("sim", {}).get("authority", {}).get("match_remaining_ms", 0)) / 1000
+	dialog.dialog_text = "%s — %d:%02d remaining.\nResume with a 3–2–1 countdown." % [mode, remaining / 60, remaining % 60]
+	if bool(saved.get("launch_only", false)):
+		dialog.dialog_text = "%s — your completed stages are saved.\nContinue with the next stage." % mode
+	if bool(launch.get("jukebox_board_enabled", false)):
+		var board_store = preload("res://scripts/state/jukebox_leaderboard_store.gd").new()
+		var closed: Array[String] = []
+		for period in board_store.PERIOD_LABELS:
+			if board_store._period_scope_id(period, int(saved.started_at)) != board_store._period_scope_id(period, int(Time.get_unix_time_from_system())):
+				closed.append(str(period).capitalize())
+		if not closed.is_empty():
+			dialog.dialog_text += "\nClosed leaderboards: %s. You can still finish, but this run won't enter those boards or their new periods." % ", ".join(closed)
+	dialog.add_theme_font_size_override("font_size", 32)
+	dialog.get_label().add_theme_font_size_override("font_size", 32)
+	dialog.get_label().autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	for button in [dialog.get_ok_button(), dialog.get_cancel_button(), dialog.add_button("DISCARD", true, "discard")]:
+		button.add_theme_font_size_override("font_size", 30)
+		button.custom_minimum_size.y = 72
+	var other_saves: Array[Dictionary] = SavedMatch.available()
+	if other_saves.size() > 1:
+		var next_button := dialog.add_button("OTHER GAME", true, "next")
+		next_button.add_theme_font_size_override("font_size", 30)
+		next_button.custom_minimum_size.y = 72
+	add_child(dialog)
+	dialog.confirmed.connect(func():
+		var result: Dictionary = SavedMatch.request_resume(str(saved.id))
+		if not bool(result.ok):
+			status_label.text = str(result.get("reason", "Unable to resume this game."))
+	)
+	dialog.custom_action.connect(func(action: StringName):
+		if action == &"next":
+			var index := 0
+			for i in other_saves.size():
+				if str(other_saves[i].id) == str(saved.id):
+					index = (i + 1) % other_saves.size()
+			dialog.hide()
+			call_deferred("_show_saved_game", other_saves[index])
+		if action == &"discard":
+			SavedMatch.store.remove(ProfileManager.get_user_id(), str(saved.id))
+			dialog.hide()
+			call_deferred("_open_saved_games", false)
+	)
+	dialog.visibility_changed.connect(func():
+		if not dialog.visible:
+			_saved_game_dialog = null
+			dialog.queue_free()
+	)
+	dialog.popup_centered(Vector2i(mini(900, int(get_viewport_rect().size.x) - 64), 480))

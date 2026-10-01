@@ -848,6 +848,11 @@ func _apply_map_mm_background_art_layout() -> void:
 	_map_mm_background_art.scale = Vector2(MM_BACKGROUND_X_SCALE * width_scale_extra, 1.0)
 
 func _start_match_flow() -> void:
+	if _saved_resume_seconds >= 0.0:
+		return
+	var resume_next_stage: bool = bool(SavedMatch.pending.get("launch_only", false))
+	if resume_next_stage:
+		SavedMatch.pending = {}
 	SFLog.info("PREMATCH_BEGIN", {})
 	_force_unpause_sanity()
 	_ensure_prematch_ui()
@@ -857,6 +862,9 @@ func _start_match_flow() -> void:
 	var tutorial_section: String = _tutorial_launch_section()
 	var controls_tutorial_launch: bool = tutorial_launch_active and tutorial_section == TUTORIAL_CONTROLS_ID
 	_begin_prematch()
+	if resume_next_stage:
+		_prematch_remaining_ms_f = 3000.0
+		OpsState.sim_mutate("resume_next_stage", func(): OpsState.set_prematch_remaining_ms(3000, "resume_next_stage"))
 	if controls_tutorial_launch:
 		_finish_prematch()
 		SFLog.info("TUTORIAL_CONTROLS_PREMATCH_BYPASS", {
@@ -911,6 +919,11 @@ func _start_match_flow() -> void:
 		_apply_vs_cpu_bot_override()
 	elif _controls_hint_controller != null:
 		_controls_hint_controller.maybe_show_once(Callable(self, "_resolve_hud_root"), Callable(self, "_force_fullscreen_anchors"))
+
+	if not SavedMatch.pending.is_empty():
+		_restore_saved_match()
+	else:
+		SavedMatch.checkpoint(self, true)
 
 func _is_tutorial_launch_active() -> bool:
 	var tree: SceneTree = get_tree()
@@ -1951,6 +1964,7 @@ func _bind_app_lifecycle() -> void:
 		_app_lifecycle.connect("app_foregrounded", foreground_callable)
 
 func _on_app_backgrounded(reason: String, paused_at_msec: int, _paused_at_unix: int) -> void:
+	SavedMatch.checkpoint(self, true)
 	if not _should_local_lifecycle_pause_match():
 		SFLog.info("APP_LIFECYCLE_LOCAL_PAUSE_SKIPPED", {
 			"reason": reason,
@@ -1975,6 +1989,10 @@ func _on_app_backgrounded(reason: String, paused_at_msec: int, _paused_at_unix: 
 	})
 
 func _on_app_foregrounded(reason: String, _elapsed_msec: int, _resumed_at_unix: int) -> void:
+	if _saved_resume_seconds >= 0.0:
+		_saved_resume_seconds = 3.0
+		_saved_resume_clock_ms = -1
+		return
 	if not _lifecycle_local_pause_active:
 		return
 	var resume_allowed := _can_resume_after_lifecycle_pause()
@@ -2039,10 +2057,11 @@ func _async_submission_expiry_snapshot(now_unix: int = -1) -> Dictionary:
 		return {"expired": false, "reason": "no_tree"}
 	var mode: String = _current_vs_mode()
 	var has_hive_tournament_runtime: bool = not str(tree.get_meta("hive_tournament_round_id", "")).strip_edges().is_empty()
-	if not _is_async_runtime_mode(mode) and not has_hive_tournament_runtime:
+	if not _is_async_runtime_mode(mode) and not has_hive_tournament_runtime and str(tree.get_meta("contest_id", "")).is_empty():
 		return {"expired": false, "reason": "not_async_runtime", "mode": mode}
 	var resolved_now_unix: int = now_unix if now_unix >= 0 else int(Time.get_unix_time_from_system())
 	var deadlines: Array[Dictionary] = []
+	_append_submission_deadline(deadlines, "saved_attempt", preload("res://scripts/state/saved_match_policy.gd").deadline(SavedMatch.context()))
 	_append_submission_deadline(deadlines, "vs_window", int(tree.get_meta(TREE_META_VS_WINDOW_DEADLINE_UNIX, 0)))
 	_append_submission_deadline(deadlines, "hive_tournament", int(tree.get_meta(TREE_META_HIVE_TOURNAMENT_DEADLINE_UNIX, 0)))
 	var contest_id: String = str(tree.get_meta(TREE_META_CONTEST_ID, "")).strip_edges()
@@ -4690,6 +4709,10 @@ func _start_match_sim(reason: String) -> void:
 		return
 	_startup_hitch_mark("simulation_activation_requested", {"reason": reason})
 	_match_started = true
+	var save_map_path: String = str(get_tree().get_meta("saved_match_map_path", get_tree().get_meta("jukebox_map_path", "")))
+	if save_map_path.is_empty():
+		save_map_path = current_map_path
+	SavedMatch.begin_match(self, save_map_path)
 	_post_match_analysis_summary.clear()
 	_post_match_stats_snapshot.clear()
 	_post_match_telemetry_path = ""
@@ -4714,6 +4737,8 @@ func _pause_tutorial_message_sim() -> void:
 		sim_runner.log_pause_snapshot("tutorial_message_pause")
 
 func _resume_tutorial_message_sim() -> void:
+	if _saved_resume_seconds >= 0.0:
+		return
 	if sim_runner == null or OpsState == null:
 		return
 	if not _match_started:
@@ -4721,6 +4746,7 @@ func _resume_tutorial_message_sim() -> void:
 	if OpsState.match_phase != OpsState.MatchPhase.RUNNING or bool(OpsState.input_locked) or OpsState.is_ending_or_ended():
 		return
 	if not sim_runner.running:
+		OpsState.resume_match_clock("tutorial_message_resume")
 		sim_runner.set_running(true, "tutorial_message_resume")
 		sim_runner.log_pause_snapshot("tutorial_message_resume")
 
@@ -5743,6 +5769,7 @@ func set_floor_graphics_enabled(enabled: bool) -> void:
 	_ensure_floor_influence_system()
 
 func _on_sim_ticked() -> void:
+	SavedMatch.checkpoint(self)
 	var phase: int = int(OpsState.match_phase)
 	var post_match_phase: bool = phase == int(OpsState.MatchPhase.ENDING) or phase == int(OpsState.MatchPhase.ENDED)
 	if post_match_phase:
@@ -5820,6 +5847,7 @@ func _on_match_ended(winner_id_in: int, reason: String) -> void:
 		SFLog.info("MATCH_END_DUPLICATE_SKIP", {"winner_id": winner_id_in})
 		return
 	_match_end_handled = true
+	SavedMatch.discard_active()
 	var shell: Node = get_node_or_null("/root/Shell")
 	if shell != null and shell.has_method("cancel_buff_pointer_session"):
 		shell.call("cancel_buff_pointer_session", "match_ended:%s" % reason)
@@ -6207,7 +6235,8 @@ func _maybe_record_jukebox_result(winner_id_in: int, reason: String) -> void:
 			"handle": str(identity.get("handle", "You")).strip_edges(),
 			"best_time_ms": elapsed_ms,
 			"updated_at": int(Time.get_unix_time_from_system()),
-			"source": "jukebox_run"
+			"source": "jukebox_run",
+			"started_at": int(tree.get_meta("match_started_unix", Time.get_unix_time_from_system()))
 		}
 	)
 	if bool(result.get("ok", false)):
@@ -6632,6 +6661,10 @@ func _show_stage_race_round_overlay(winner_id_in: int, reason: String) -> void:
 		return
 	var submission_expired: bool = reason == LIFECYCLE_CONTEST_EXPIRED_REASON
 	var next_round_available: bool = bool(summary.get("next_round_available", false)) and not submission_expired
+	if next_round_available:
+		var next_index: int = int(get_tree().get_meta(TREE_META_VS_STAGE_CURRENT_INDEX, 0)) + 1
+		var maps: Array[String] = _get_stage_map_paths_runtime()
+		SavedMatch.save_stage_transition(self, maps[next_index], {TREE_META_VS_STAGE_CURRENT_INDEX: next_index})
 	var next_action: String = "next_round" if next_round_available else "finish_run"
 	var next_label: String = "Next Round" if next_round_available else "Finish Run"
 	var status_text: String = "Submission window expired. This run cannot submit." if submission_expired else "Cumulative rank is provisional. Ready for next round?" if next_round_available else "Cumulative rank is provisional. Run complete."
@@ -7136,6 +7169,7 @@ func _advance_progressive_stage() -> void:
 		_return_to_main_menu()
 		return
 	_apply_progressive_stage_tree_meta(run, stage)
+	SavedMatch.save_stage_transition(self, map_path)
 	SFLog.info("PROGRESSIVE_ADVANCE_ATTEMPT", {
 		"run_id": str(run.get("run_id", "")),
 		"stage_index": int(run.get("stage_index", -1)),
@@ -7896,6 +7930,7 @@ func _create_system(script_path: String, label: String) -> RefCounted:
 	return instance
 
 func _exit_tree() -> void:
+	SavedMatch.checkpoint(self, true)
 	BetaMatchCapture.finish("abandoned")
 	# OutcomeOverlay moves to the root canvas while visible; retain scene lifetime.
 	if is_instance_valid(outcome_overlay) and not is_ancestor_of(outcome_overlay):
@@ -8402,6 +8437,8 @@ func _apply_autostart() -> void:
 	sim_runner.set_running(true, "arena_apply_autostart_true")
 
 func _can_apply_autostart_now() -> bool:
+	if _saved_resume_seconds >= 0.0:
+		return false
 	if sim_runner == null or state == null or OpsState == null:
 		return false
 	if _match_started:
@@ -8452,6 +8489,9 @@ func _tick_arena_heartbeat(delta: float) -> void:
 	_maybe_log_frame_hitch(delta)
 
 func _tick_arena_runtime(delta: float) -> void:
+	if _saved_resume_seconds >= 0.0:
+		_tick_saved_match_countdown(delta)
+		return
 	_enforce_camera_transition_lock()
 	_update_prematch_flow(delta)
 	if OpsState.match_phase == OpsState.MatchPhase.RUNNING:
@@ -16632,3 +16672,126 @@ func _has_prop(obj: Object, prop_name: String) -> bool:
 		if String(p.name) == prop_name:
 			return true
 	return false
+
+
+var _saved_resume_seconds: float = -1.0
+var _saved_resume_clock_ms: int = -1
+var _saved_resume_layer: CanvasLayer
+var _saved_resume_label: Label
+var _saved_resume_running: bool = true
+
+func capture_saved_match() -> Dictionary:
+	var buffs: Dictionary = {}
+	for seat in buff_states:
+		buffs[seat] = buff_states[seat].capture_checkpoint()
+	var tutorials: Array = []
+	for controller in [_tutorial_controls_controller, _tutorial_section1_controller, _tutorial_section2_controller, _tutorial_section3_controller]:
+		tutorials.append(controller.capture_checkpoint() if controller != null else {})
+	return {
+		"sim": sim_runner.capture_match_checkpoint(),
+		"running": _saved_resume_running if _saved_resume_seconds >= 0.0 else (sim_runner.running or _lifecycle_local_pause_sim_was_running),
+		"campaign": CampaignRuntime.capture_checkpoint(),
+		"progressive": _progressive_run_store.load_current_run() if _current_vs_mode() == VS_MODE_PROGRESSIVE else {},
+		"telemetry": _match_telemetry_collector.capture_checkpoint(),
+		"buffs": buffs, "buff_transactions": _buff_activation_transactions.export_state(),
+		"buff_counter": _buff_activation_counter, "active_player_id": active_player_id,
+		"tutorials": tutorials, "tutorial_arrivals": tutorial_arrivals_by_hive_owner.duplicate(true),
+		"selection": sel.capture_checkpoint() if sel != null else {},
+		"match_seed": match_seed, "game_rng_state": game_rng.state,
+	}
+
+func _restore_saved_match() -> void:
+	var saved: Dictionary = SavedMatch.pending
+	var validation: Dictionary = SavedMatch.validate(saved)
+	if not bool(validation.ok):
+		SavedMatch.abort_restore(str(validation.get("reason", "Saved game unavailable.")))
+		sim_runner.set_running(false, "saved_match_invalid")
+		get_tree().change_scene_to_file("res://scenes/MainMenu.tscn")
+		return
+	_saved_resume_seconds = 3.0
+	if not sim_runner.restore_match_checkpoint(saved.get("sim", {})):
+		SavedMatch.abort_restore("Your saved game could not be restored.")
+		get_tree().change_scene_to_file("res://scenes/MainMenu.tscn")
+		return
+	_match_started = true
+	_saved_resume_running = bool(saved.get("running", true))
+	active_player_id = int(saved.get("active_player_id", 1))
+	match_seed = int(saved.get("match_seed", match_seed))
+	game_rng.state = int(saved.get("game_rng_state", game_rng.state))
+	if sel != null:
+		sel.restore_checkpoint(saved.get("selection", {}))
+	overtime_active = OpsState.in_overtime
+	for seat in saved.get("buffs", {}):
+		var buff: BuffState = buff_states.get(int(seat))
+		if buff != null:
+			buff.restore_checkpoint(saved.buffs[seat])
+	_buff_activation_counter = int(saved.get("buff_counter", 0))
+	_buff_activation_transactions.import_state(saved.get("buff_transactions", {}))
+	_match_telemetry_collector.restore_checkpoint(saved.get("telemetry", {}))
+	_telemetry_active = _match_telemetry_collector.is_active()
+	OpsState.set_match_telemetry_collector(_match_telemetry_collector)
+	if not saved.get("progressive", {}).is_empty():
+		_progressive_run_store.save_current_run(saved.progressive)
+	tutorial_arrivals_by_hive_owner = saved.get("tutorial_arrivals", {}).duplicate(true)
+	var controllers := [_tutorial_controls_controller, _tutorial_section1_controller, _tutorial_section2_controller, _tutorial_section3_controller]
+	var tutorials: Array = saved.get("tutorials", [])
+	for i in mini(controllers.size(), tutorials.size()):
+		if controllers[i] != null:
+			controllers[i].restore_checkpoint(tutorials[i])
+	if _prematch_overlay != null:
+		_prematch_overlay.hide()
+	if _prematch_identity_card != null:
+		_prematch_identity_card.hide()
+	_prematch_warmup_tasks.clear()
+	_clear_lifecycle_local_pause_state()
+	_clear_unit_visuals_for_state_swap()
+	mark_render_dirty("saved_match_restored")
+	_push_render_model()
+	_sync_inputs_locked_from_state()
+	_update_timer_ui()
+	_update_buff_states()
+	_show_saved_match_countdown()
+	SavedMatch.attach_restored_arena(self)
+	SavedMatch.pending = {}
+
+func _show_saved_match_countdown() -> void:
+	_saved_resume_layer = CanvasLayer.new()
+	_saved_resume_layer.layer = 1100
+	add_child(_saved_resume_layer)
+	var blocker := Control.new()
+	_saved_resume_layer.add_child(blocker)
+	blocker.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	blocker.mouse_filter = Control.MOUSE_FILTER_STOP
+	_saved_resume_label = Label.new()
+	blocker.add_child(_saved_resume_label)
+	_saved_resume_label.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	_saved_resume_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	_saved_resume_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+	_saved_resume_label.add_theme_font_size_override("font_size", 96)
+	_saved_resume_label.add_theme_color_override("font_outline_color", Color.BLACK)
+	_saved_resume_label.add_theme_constant_override("outline_size", 12)
+	_saved_resume_label.text = "3"
+
+func _tick_saved_match_countdown(_delta: float) -> void:
+	if AppLifecycle.is_backgrounded() or _match_loading_cover_holds_countdown():
+		_saved_resume_clock_ms = -1
+		return
+	if _saved_resume_clock_ms < 0:
+		_saved_resume_clock_ms = Time.get_ticks_msec()
+	_saved_resume_seconds = maxf(0.0, 3.0 - float(Time.get_ticks_msec() - _saved_resume_clock_ms) / 1000.0)
+	_saved_resume_label.text = str(maxi(1, ceili(_saved_resume_seconds)))
+	if _saved_resume_seconds > 0.0:
+		return
+	var expiry := _async_submission_expiry_snapshot()
+	if bool(expiry.get("expired", false)):
+		_saved_resume_seconds = -1.0
+		_saved_resume_layer.queue_free()
+		_expire_local_async_submission(expiry, "saved_match_countdown")
+		return
+	_saved_resume_seconds = -1.0
+	_saved_resume_layer.queue_free()
+	OpsState.finish_saved_match_countdown()
+	sim_runner.set_running(_saved_resume_running, "saved_match_ready")
+	if not _saved_resume_running:
+		OpsState.pause_match_clock("tutorial_reading")
+	SavedMatch.checkpoint(self, true)

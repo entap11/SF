@@ -1,9 +1,11 @@
+import { runQuestCatalogSmoke } from "./platformQuestCatalogSmoke.js";
 import type { Pool, QueryResult } from "pg";
 import { PGlite, type PGliteInterface } from "@electric-sql/pglite";
 import { pgcrypto } from "@electric-sql/pglite/contrib/pgcrypto";
 import { PlatformEconomyError, PlatformEconomyRepository, type JsonRecord, type ProducerEnvelope } from "./platformEconomy.js";
 import { evaluateHoneyFact } from "./platformPolicies.js";
 import { RankStore } from "./store.js";
+import { runQuestSmoke } from "./platformQuestsEmbeddedSmoke.js";
 
 type DbResult<T> = { rows: T[]; affectedRows?: number };
 class Adapter {
@@ -243,6 +245,8 @@ async function main(): Promise<void> {
   );
   expect(failedReceipt.rows[0]?.count === "0", "rolled-back insufficient spend left a receipt");
 
+  await runQuestSmoke(pool, PLAYER_A, PLAYER_B, EPOCH);
+  await runQuestCatalogSmoke(pool, PLAYER_A, PLAYER_B, EPOCH);
   const report = await economy.reconcile(EPOCH);
   expect(report.ok === true && Number(report.unbalanced_transactions) === 0 && Number(report.account_drift) === 0,
     "ledger failed reconciliation", report);

@@ -498,3 +498,21 @@ static func price_for(_tier_level: int, tier: String) -> float:
 	if normalized_tier == BuffDefinitions.TIER_ELITE:
 		return 0.50
 	return 0.20
+
+const CHECKPOINT_FIELDS = [
+	"loadout",
+	"slots",
+	"slots_active",
+	"tap_to_top_enabled",
+	"_active_by_category",
+	"_buff_chill_timer_sec",
+	"_buff_category_timers",
+	"_last_update_ms",
+]
+
+func capture_checkpoint() -> Dictionary:
+	var saved := preload("res://scripts/persistence/checkpoint_fields.gd").capture(self, CHECKPOINT_FIELDS)
+	return saved
+
+func restore_checkpoint(saved: Dictionary) -> void:
+	preload("res://scripts/persistence/checkpoint_fields.gd").restore(self, CHECKPOINT_FIELDS, saved)

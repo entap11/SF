@@ -201,6 +201,19 @@ async function main(): Promise<void> {
     retryable: false, retryDelaySec: 0 });
   expect(await rankSettlements.leaseNext("bounded-rank-worker-empty", nowIso, 60, boundary) === null,
     "historical or non-allowlisted rank settlement was leaseable");
+  expect(await repository.reconcileQuestResults("beta_launch_0001", boundary) === 2,
+    "quest facts did not preserve bounded human roster");
+  expect(await repository.reconcileQuestResults("beta_launch_0001", boundary) === 0,
+    "quest reconcile duplicated activity");
+  expect(await repository.leaseNext("quests-disabled", nowIso, 60, { operation: "QUEST_ACTIVITY" }, boundary) === null,
+    "disabled quest worker leased queued facts");
+  expect(await repository.leaseNext("quests-before-cutover", nowIso, 60,
+    { operation: "QUEST_ACTIVITY", includeQuests: true, questStartsAt: new Date(Date.parse(nowIso) + 1).toISOString() }, boundary) === null,
+    "queued quest delivery escaped a later quest cutover");
+  const quest = await repository.leaseNext("quests-enabled", nowIso, 60,
+    { operation: "QUEST_ACTIVITY", includeQuests: true }, boundary);
+  expect(quest?.payload.mode_id === "STANDARD_1V1" && quest.payload.family === "LIVE"
+    && quest.payload.subject_id === quest.matchId, "quest mode or subject lost", quest);
   console.log(JSON.stringify({ ok: true, smoke: "platform_economy_delivery",
     crucible_reservations_receipt_gated: true, durable_retry: true,
     standard_fact_fanout: { honey: 2, nectar: 2 }, partial_fanout_repaired: true,

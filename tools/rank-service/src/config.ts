@@ -63,6 +63,8 @@ export const config: RankServiceConfig = {
   port: parseIntValue(process.env.PORT, 8790),
   bindHost: process.env.BIND_HOST?.trim() || "127.0.0.1",
   apiToken: process.env.RANK_API_TOKEN?.trim() || "",
+  questsEnabled: parseBoolean(process.env.RANK_ENABLE_QUESTS, false),
+  questStartsAt: process.env.RANK_QUEST_STARTS_AT?.trim() || "",
   economyMutationsEnabled: parseBoolean(process.env.RANK_ECONOMY_MUTATIONS_ENABLED, false),
   economyResetEnabled: parseBoolean(process.env.RANK_ECONOMY_RESET_ENABLED, false),
   verifiedMatchMutationsEnabled: parseBoolean(process.env.RANK_VERIFIED_MATCH_MUTATIONS_ENABLED, false),

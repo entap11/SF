@@ -468,7 +468,7 @@ func get_authority_snapshot() -> Dictionary:
 		}
 	}
 
-func restore_authority_snapshot(snapshot: Dictionary) -> bool:
+func restore_authority_snapshot(snapshot: Dictionary, notify_listeners: bool = true) -> bool:
 	if snapshot.is_empty():
 		return false
 	var state_any: Variant = snapshot.get("state", {})
@@ -566,8 +566,25 @@ func restore_authority_snapshot(snapshot: Dictionary) -> bool:
 		st.unit_system = unit_system
 		st.units_by_lane.clear()
 		st.units_by_lane["_all"] = unit_system.get("units")
-	call_deferred("_emit_state_changed", st)
+	if notify_listeners:
+		call_deferred("_emit_state_changed", st)
 	return true
+
+func prepare_saved_match_countdown() -> void:
+	# Process uptime changes on relaunch: persisted deadlines must never be reused.
+	match_deadline_ms = Time.get_ticks_msec() + maxi(0, match_remaining_ms)
+	match_clock_pause_started_ms = Time.get_ticks_msec()
+	match_clock_paused = true
+	match_clock_running = false
+	match_clock_pause_reason = "saved_match_countdown"
+	input_locked = true
+	input_locked_reason = "saved_match_countdown"
+	_hud_snapshot.clear()
+
+func finish_saved_match_countdown() -> void:
+	input_locked = false
+	input_locked_reason = ""
+	resume_match_clock("saved_match_ready")
 
 func get_pvp_debug_state_hash() -> String:
 	return _build_pvp_debug_state_signature().sha256_text()

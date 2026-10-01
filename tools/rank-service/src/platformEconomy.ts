@@ -2,6 +2,10 @@ import type { Pool, PoolClient } from "pg";
 import { computeGain, computeLoss } from "./logic.js";
 import { evaluateHoneyFact, evaluateNectarMatchFact, honeyCatalogItem, opponentKey, passLevelForNectarMilli } from "./platformPolicies.js";
 import { sha256Canonical } from "./verifiedReceipt.js";
+import { PLATFORM_QUESTS, advanceQuest, questActive, questComplete, questCycle,
+  questDefinitionHash, validateQuestCatalog, type QuestDefinition } from "./platformQuests.js";
+import { QUEST_BONUS_BPS, QUEST_CATALOG_VERSION, weeklyAssignments } from "./platformQuestCatalog.js";
+import { eligibleQuestActivity } from "./platformQuestActivity.js";
 
 export type PlatformAsset = "HONEY_CENTI" | "WAX_MILLIS" | "NECTAR_MILLI";
 export type PlatformCapability = "NECTAR" | "HONEY_EARN" | "HONEY_SPEND" | "WAX_STANDARD" | "WAX_CRUCIBLE";
@@ -45,7 +49,283 @@ export class PlatformEconomyError extends Error {
 }
 
 export class PlatformEconomyRepository {
-  constructor(private readonly pool: Pool) {}
+  private readonly quests: readonly QuestDefinition[];
+  constructor(private readonly pool: Pool, quests: readonly QuestDefinition[] = PLATFORM_QUESTS,
+    private readonly now: () => Date = () => new Date(), private readonly scheduledQuests = false) {
+    this.quests = validateQuestCatalog(quests);
+  }
+
+  async getPlayerQuests(playerId: string): Promise<JsonRecord> {
+    if (!this.quests.length) return { ok: true, enabled: false, quests: [] };
+    return this.withTransaction(async (client) => {
+      const current = await client.query<{ epoch_id: string }>(
+        "SELECT epoch_id FROM platform_economy_epochs WHERE is_current = TRUE LIMIT 1"
+      );
+      if (!current.rows[0]) throw new PlatformEconomyError("active_epoch_missing", 503);
+      const epochId = current.rows[0].epoch_id;
+      const epoch = await this.lockEpoch(client, epochId);
+      await this.requireCurrentActiveEpoch(client, epochId);
+      await this.requirePlayer(client, playerId);
+      const at = this.now().toISOString();
+      if (this.scheduledQuests) await this.ensureQuestWeek(client, epochId, String(epoch.season_id), playerId, at);
+      const rows = await client.query<JsonRecord>(
+        `SELECT quest_id, cycle_start, cycle_end, definition_json, progress_json, claimed_transaction_id
+         FROM platform_quest_progress WHERE epoch_id = $1 AND player_id = $2
+           AND cycle_start <= $3::timestamptz AND cycle_end > $3::timestamptz`, [epochId, playerId, at]
+      );
+      const available = new Map<string, JsonRecord>();
+      for (const quest of this.quests.filter((entry) => !this.scheduledQuests && questActive(entry, at))) {
+        const cycle = questCycle(quest, at);
+        available.set(quest.id, { quest_id: quest.id, cycle_start: cycle.start, cycle_end: cycle.end,
+          definition_json: quest, progress_json: {}, claimed_transaction_id: null });
+      }
+      // Existing assignments retain their frozen definition through the cycle.
+      for (const row of rows.rows) {
+        if (questActive(row.definition_json as QuestDefinition, at)) available.set(String(row.quest_id), row);
+      }
+      const quests = [...available.values()].map((row) => {
+        const quest = row.definition_json as QuestDefinition;
+        const progress = row.progress_json as Record<string, number>;
+        const claimed = row.claimed_transaction_id != null;
+        return { quest_id: quest.id, version: quest.version, title: quest.title, cadence: quest.cadence,
+          cycle_start: new Date(String(row.cycle_start)).toISOString(),
+          cycle_end: new Date(String(row.cycle_end)).toISOString(), reward: quest.reward,
+          objectives: quest.objectives.map((objective) => ({ ...objective, progress: progress[objective.id] ?? 0 })),
+          completed: questComplete(quest, progress), claimed,
+          ready_to_claim: !claimed && questComplete(quest, progress) };
+      });
+      const bonus = this.scheduledQuests ? await this.questWeekSummary(client, epochId, playerId, at) : {};
+      return { ok: true, enabled: true, player_id: playerId, epoch_id: epochId, season_id: epoch.season_id, server_time: at, quests,
+        weekly_bonus: bonus };
+    });
+  }
+
+  async claimQuest(input: { playerId: string; epochId: string; questId: string; cycleStart: string;
+    requestId: string }): Promise<JsonRecord> {
+    if (!this.quests.length) throw new PlatformEconomyError("quests_disabled", 503);
+    const playerId = uuid(input.playerId, "player_id_invalid");
+    if (!/^[a-z][a-z0-9_]{0,63}$/.test(input.questId)) throw new PlatformEconomyError("quest_id_invalid");
+    if (!/^[A-Za-z0-9._:-]{1,128}$/.test(input.requestId)) throw new PlatformEconomyError("invalid_request_id");
+    if (!Number.isFinite(Date.parse(input.cycleStart))) throw new PlatformEconomyError("quest_cycle_invalid");
+    const cycleStart = new Date(input.cycleStart).toISOString();
+    const envelope: ProducerEnvelope = {
+      producerService: "player-quest-intent", producerEventId: `${playerId}:${input.requestId}`,
+      eventType: "QUEST_CLAIM_V1", epochId: input.epochId, sourceAuthority: "entap-player-session",
+      occurredAt: this.now().toISOString(), schemaVersion: 1,
+      payload: { player_id: playerId, quest_id: input.questId, cycle_start: cycleStart }
+    };
+    return this.runEvent(envelope, async (client, platformEventId) => {
+      await this.lockEpoch(client, input.epochId);
+      await this.requireCurrentActiveEpoch(client, input.epochId);
+      await this.requirePlayer(client, playerId);
+      const found = await client.query<JsonRecord>(
+        `SELECT definition_json, progress_json, season_id, cycle_end, claimed_transaction_id, week_start
+         FROM platform_quest_progress
+         WHERE epoch_id = $1 AND player_id = $2 AND quest_id = $3 AND cycle_start = $4::timestamptz FOR UPDATE`,
+        [input.epochId, playerId, input.questId, cycleStart]
+      );
+      const row = found.rows[0];
+      if (!row) throw new PlatformEconomyError("quest_not_available", 404);
+      if (row.claimed_transaction_id) throw new PlatformEconomyError("quest_already_claimed", 409);
+      if (this.now().getTime() >= new Date(String(row.cycle_end)).getTime()) {
+        throw new PlatformEconomyError("quest_expired", 409);
+      }
+      const quest = row.definition_json as QuestDefinition;
+      if (!questActive(quest, this.now().toISOString()) || this.now().getTime() < Date.parse(cycleStart)) {
+        throw new PlatformEconomyError("quest_not_available", 409);
+      }
+      if (!questComplete(quest, row.progress_json as Record<string, number>)) {
+        throw new PlatformEconomyError("quest_incomplete", 409);
+      }
+      const reward = quest.reward;
+      let bonusCenti = 0;
+      if (row.week_start && this.scheduledQuests) {
+        const summary = await this.questWeekSummary(client, input.epochId, playerId, new Date(String(row.week_start)).toISOString());
+        if (summary.eligible === true && summary.claimed_count === 24 && summary.expected_count === 25 && !summary.awarded) {
+          bonusCenti = safeInteger(summary.potential_bonus_centi);
+        }
+      }
+      if (reward.honey_centi + bonusCenti > 0) await this.requireCapability(client, "HONEY_EARN");
+      if (reward.nectar_milli > 0) await this.requireCapability(client, "NECTAR");
+      const postings: Posting[] = [];
+      for (const [asset, amount] of [["HONEY_CENTI", reward.honey_centi + bonusCenti], ["NECTAR_MILLI", reward.nectar_milli]] as const) {
+        if (amount === 0) continue;
+        const player = await this.ensurePlayerAccount(client, input.epochId, playerId, asset);
+        const issuance = await this.ensureSystemAccount(client, input.epochId, asset, "ISSUANCE");
+        postings.push({ accountId: issuance.accountId, asset, deltaUnits: -amount },
+          { accountId: player.accountId, asset, deltaUnits: amount });
+      }
+      const tx = await this.postTransaction(client, platformEventId, envelope, postings,
+        { quest_id: quest.id, quest_version: quest.version, cycle_start: cycleStart, reward,
+          weekly_bonus_honey_centi: bonusCenti });
+      if (bonusCenti > 0) {
+        await client.query(`UPDATE platform_quest_weeks SET bonus_transaction_id = $4, bonus_centi = $5
+          WHERE epoch_id = $1 AND player_id = $2 AND week_start = $3`,
+        [input.epochId, playerId, row.week_start, tx, bonusCenti]);
+      }
+      const honey = await this.getPlayerBalanceInTransaction(client, input.epochId, playerId, "HONEY_CENTI");
+      const nectar = await this.getPlayerBalanceInTransaction(client, input.epochId, playerId, "NECTAR_MILLI");
+      if (reward.nectar_milli > 0) {
+        await client.query(
+          `INSERT INTO platform_nectar_progression (epoch_id, season_id, player_id, nectar_milli, pass_level, revision)
+           VALUES ($1, $2, $3, $4, $5, 1)
+           ON CONFLICT (epoch_id, season_id, player_id) DO UPDATE
+           SET nectar_milli = EXCLUDED.nectar_milli, pass_level = EXCLUDED.pass_level,
+             revision = platform_nectar_progression.revision + 1, updated_at = now()`,
+          [input.epochId, row.season_id, playerId, nectar, passLevelForNectarMilli(nectar)]
+        );
+      }
+      await client.query(
+        `UPDATE platform_quest_progress SET claimed_transaction_id = $5, updated_at = now()
+         WHERE epoch_id = $1 AND player_id = $2 AND quest_id = $3 AND cycle_start = $4::timestamptz`,
+        [input.epochId, playerId, input.questId, cycleStart, tx]
+      );
+      return { transactionId: tx, response: { ok: true, claimed: true, player_id: playerId,
+        epoch_id: input.epochId, quest_id: quest.id, cycle_start: cycleStart, reward,
+        honey_centi: honey, nectar_milli: nectar, pass_level: passLevelForNectarMilli(nectar),
+        weekly_bonus_honey_centi: bonusCenti,
+        transaction_id: tx, platform_event_id: platformEventId } };
+    }, { stablePlayerIntent: true });
+  }
+
+  private async advanceMatchQuests(client: PoolClient, envelope: ProducerEnvelope,
+    platformEventId: string, playerId: string, seasonId: string, eligible: boolean): Promise<void> {
+    if (this.scheduledQuests) return; // v1 uses the dedicated trusted activity stream.
+    const fact = envelope.payload;
+    // Reuse the existing match eligibility policy. Crucible reward rules remain unchanged.
+    if (!eligible || fact.completed !== true || /^CRUCIBLE/.test(String(fact.mode_id).toUpperCase())
+      || Date.parse(envelope.occurredAt) > this.now().getTime()) return;
+    const definitions = new Map(this.quests.filter((quest) => questActive(quest, envelope.occurredAt))
+      .map((quest) => [quest.id, quest]));
+    if (this.quests.length === 0) {
+      // Empty production catalog is a no-op, including for existing match delivery.
+      return;
+    }
+    const assignments = await client.query<{ definition_json: QuestDefinition }>(
+      `SELECT definition_json FROM platform_quest_progress
+       WHERE epoch_id = $1 AND player_id = $2 AND cycle_start <= $3::timestamptz AND cycle_end > $3::timestamptz`,
+      [envelope.epochId, playerId, envelope.occurredAt]
+    );
+    for (const row of assignments.rows) {
+      if (questActive(row.definition_json, envelope.occurredAt)) definitions.set(row.definition_json.id, row.definition_json);
+    }
+    if (!definitions.size) return;
+    const matchId = uuid(fact.match_id, "quest_match_id_missing");
+    const counted = await client.query(
+      `INSERT INTO platform_quest_match_facts (epoch_id, player_id, match_id, platform_event_id, occurred_at)
+       VALUES ($1, $2, $3, $4, $5) ON CONFLICT DO NOTHING RETURNING match_id`,
+      [envelope.epochId, playerId, matchId, platformEventId, envelope.occurredAt]
+    );
+    if (!counted.rowCount) return;
+    for (const quest of definitions.values()) {
+      const cycle = questCycle(quest, envelope.occurredAt);
+      await client.query(
+        `INSERT INTO platform_quest_progress
+          (epoch_id, season_id, player_id, quest_id, cycle_start, cycle_end, definition_hash, definition_json)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8::jsonb) ON CONFLICT DO NOTHING`,
+        [envelope.epochId, seasonId, playerId, quest.id, cycle.start, cycle.end,
+          questDefinitionHash(quest), JSON.stringify(quest)]
+      );
+      const existing = await client.query<JsonRecord>(
+        `SELECT definition_json, progress_json, claimed_transaction_id FROM platform_quest_progress
+         WHERE epoch_id = $1 AND player_id = $2 AND quest_id = $3 AND cycle_start = $4::timestamptz FOR UPDATE`,
+        [envelope.epochId, playerId, quest.id, cycle.start]
+      );
+      const row = existing.rows[0]!;
+      if (row.claimed_transaction_id) continue;
+      const next = advanceQuest(row.definition_json as QuestDefinition, row.progress_json as Record<string, number>, fact);
+      await client.query(
+        `UPDATE platform_quest_progress SET progress_json = $5::jsonb, updated_at = now()
+         WHERE epoch_id = $1 AND player_id = $2 AND quest_id = $3 AND cycle_start = $4::timestamptz`,
+        [envelope.epochId, playerId, quest.id, cycle.start, JSON.stringify(next)]
+      );
+    }
+  }
+
+  private questWeekStart(at: string): string {
+    return questCycle({ cadence: "WEEKLY", ends_at: "2099-01-01T00:00:00Z" } as QuestDefinition, at).start;
+  }
+
+  private async ensureQuestWeek(client: PoolClient, epochId: string, seasonId: string, playerId: string, at: string): Promise<void> {
+    const start = this.questWeekStart(at);
+    const assignments = weeklyAssignments(this.quests, start);
+    const end = new Date(Date.parse(start) + 7 * 86400000).toISOString();
+    const eligible = assignments.length === 25 && assignments.every(({ definition }) =>
+      Date.parse(definition.starts_at) <= Date.parse(start) && Date.parse(definition.ends_at) >= Date.parse(end));
+    const created = await client.query(`INSERT INTO platform_quest_weeks
+      (epoch_id, player_id, week_start, week_end, catalog_version, assignment_count, bonus_bps, bonus_eligible)
+      VALUES ($1, $2, $3, $4, $5, 25, $6, $7) ON CONFLICT DO NOTHING RETURNING week_start`,
+    [epochId, playerId, start, end, QUEST_CATALOG_VERSION, QUEST_BONUS_BPS, eligible]);
+    if (!created.rowCount) return;
+    for (const assignment of assignments) {
+      await client.query(`INSERT INTO platform_quest_progress
+        (epoch_id, season_id, player_id, quest_id, cycle_start, cycle_end, definition_hash, definition_json, week_start)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9)`,
+      [epochId, seasonId, playerId, assignment.definition.id, assignment.start,
+        assignment.end,
+        questDefinitionHash(assignment.definition), JSON.stringify(assignment.definition), start]);
+    }
+  }
+
+  private async questWeekSummary(client: PoolClient, epochId: string, playerId: string, at: string): Promise<JsonRecord> {
+    const start = this.questWeekStart(at);
+    const found = await client.query<JsonRecord>(`SELECT w.*,
+        (SELECT count(*)::int FROM platform_quest_progress p WHERE p.epoch_id = w.epoch_id
+          AND p.player_id = w.player_id AND p.week_start = w.week_start AND p.claimed_transaction_id IS NOT NULL) AS claimed_count,
+        (SELECT COALESCE(sum((p.definition_json->'reward'->>'honey_centi')::bigint),0)::text
+          FROM platform_quest_progress p WHERE p.epoch_id = w.epoch_id AND p.player_id = w.player_id
+            AND p.week_start = w.week_start) AS total_honey
+      FROM platform_quest_weeks w WHERE epoch_id = $1 AND player_id = $2 AND week_start = $3`, [epochId, playerId, start]);
+    const row = found.rows[0];
+    if (!row) return {};
+    return { week_start: start, week_end: new Date(String(row.week_end)).toISOString(),
+      eligible: row.bonus_eligible === true, expected_count: Number(row.assignment_count),
+      claimed_count: Number(row.claimed_count), bonus_bps: Number(row.bonus_bps),
+      potential_bonus_centi: Math.floor(safeInteger(row.total_honey) * Number(row.bonus_bps) / 10000),
+      awarded: row.bonus_transaction_id != null, awarded_honey_centi: safeInteger(row.bonus_centi) };
+  }
+
+  async recordQuestActivity(envelope: ProducerEnvelope): Promise<JsonRecord> {
+    if (!this.quests.length || !this.scheduledQuests) throw new PlatformEconomyError("quests_disabled", 503);
+    const playerId = uuid(envelope.payload.player_id, "player_id_invalid");
+    const subjectId = uuid(envelope.payload.subject_id, "quest_subject_invalid");
+    return this.runEvent(envelope, async (client, eventId) => {
+      const epoch = await this.lockEpoch(client, envelope.epochId);
+      await this.requireCurrentActiveEpoch(client, envelope.epochId);
+      await this.requirePlayer(client, playerId);
+      const response = { ok: true, epoch_id: envelope.epochId, player_id: playerId };
+      if (Date.parse(envelope.occurredAt) > this.now().getTime()) throw new PlatformEconomyError("quest_future_fact", 503);
+      if (!eligibleQuestActivity(envelope.payload)) return { response: { ...response, counted: false, reason: "ineligible_activity" } };
+      if (!this.quests.some((quest) => questActive(quest, envelope.occurredAt))) {
+        return { response: { ...response, counted: false, reason: "outside_catalog_window" } };
+      }
+      const factHash = sha256Canonical({ occurred_at: envelope.occurredAt, payload: envelope.payload });
+      const inserted = await client.query(`INSERT INTO platform_quest_activity_facts
+        (epoch_id, player_id, subject_id, family, fact_hash, platform_event_id, occurred_at)
+        VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT DO NOTHING RETURNING subject_id`,
+      [envelope.epochId, playerId, subjectId, envelope.payload.family, factHash, eventId, envelope.occurredAt]);
+      if (!inserted.rowCount) {
+        const prior = await client.query<{ fact_hash: string }>(`SELECT fact_hash FROM platform_quest_activity_facts
+          WHERE epoch_id = $1 AND player_id = $2 AND subject_id = $3`, [envelope.epochId, playerId, subjectId]);
+        if (prior.rows[0]?.fact_hash !== factHash) throw new PlatformEconomyError("quest_fact_conflict", 409);
+        return { response: { ...response, counted: false, reason: "already_counted" } };
+      }
+      await this.ensureQuestWeek(client, envelope.epochId, String(epoch.season_id), playerId, envelope.occurredAt);
+      const rows = await client.query<JsonRecord>(`SELECT quest_id, cycle_start, definition_json, progress_json
+        FROM platform_quest_progress WHERE epoch_id = $1 AND player_id = $2
+          AND cycle_start <= $3::timestamptz AND cycle_end > $3::timestamptz AND claimed_transaction_id IS NULL FOR UPDATE`,
+      [envelope.epochId, playerId, envelope.occurredAt]);
+      for (const row of rows.rows) {
+        const definition = row.definition_json as QuestDefinition;
+        if (!questActive(definition, envelope.occurredAt)) continue;
+        const progress = advanceQuest(definition, row.progress_json as Record<string, number>, envelope.payload);
+        await client.query(`UPDATE platform_quest_progress SET progress_json = $5::jsonb, updated_at = now()
+          WHERE epoch_id = $1 AND player_id = $2 AND quest_id = $3 AND cycle_start = $4`,
+        [envelope.epochId, playerId, row.quest_id, row.cycle_start, JSON.stringify(progress)]);
+      }
+      return { response: { ...response, counted: true } };
+    });
+  }
 
   async getCurrentEpoch(): Promise<JsonRecord | null> {
     const result = await this.pool.query<JsonRecord>(
@@ -291,6 +571,7 @@ export class PlatformEconomyRepository {
         [envelopeInput.producerService, envelopeInput.producerEventId, envelopeInput.epochId,
           seasonId, playerId, clean(policy.mode_id), key, envelopeInput.occurredAt, baseMilli, awardMilli]
       );
+      await this.advanceMatchQuests(client, envelopeInput, platformEventId, playerId, seasonId, policy.ok === true);
       return { transactionId: tx, response: {
         ok: true, applied: awardMilli > 0, awarded: awardMilli > 0, duplicate: false,
         epoch_id: envelopeInput.epochId, season_id: seasonId, player_id: playerId,
@@ -732,6 +1013,8 @@ export class PlatformEconomyRepository {
         );
         const receipt = existing.rows[0];
         const legacyStableRetry = options.stablePlayerIntent === true
+          && envelope.eventType === "HONEY_SPEND_V1"
+          && typeof envelope.payload.catalog_action_id === "string"
           && String(receipt?.status) === "COMPLETED"
           && isRecord(receipt?.response_json)
           && String((receipt!.response_json as JsonRecord).player_id) === String(envelope.payload.player_id)

@@ -20,7 +20,7 @@ const LOCAL_FILES: Array[String] = [
 	"beta_feedback_experience.json", "beta_feedback_experience.json.tmp",
 	"vs_handshake_diagnostics.jsonl", "vs_contract_violations.jsonl"
 ]
-const LOCAL_DIRS: Array[String] = ["matches", "exports", "pvp_runtime", "logs", "beta_captures", "bot_evaluation"]
+const LOCAL_DIRS: Array[String] = ["saved_matches", "matches", "exports", "pvp_runtime", "logs", "beta_captures", "bot_evaluation"]
 
 var _receipt: Dictionary = {}
 var _layer: CanvasLayer

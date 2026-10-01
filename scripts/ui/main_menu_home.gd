@@ -73,6 +73,9 @@ func configure(menu: Control) -> void:
 	_adopt_action(choices, _menu.get("menu_free_roll_button"), "FREE ROLL", "Choose a game. Play without a cash entry.")
 	_adopt_action(choices, _menu.get("menu_cash_button"), "MONEY GAMES", "Browse games with a cash entry.")
 	_adopt_action(choices, _menu.get("menu_unused_button"), "TOURNAMENTS", "Explore tournament play.")
+	var saved_games := _route_button(choices, "RESUME GAME", "_open_saved_games", true)
+	saved_games.name = "ResumeGame"
+	saved_games.visible = not SavedMatch.available().is_empty()
 	_replay = _route_button(choices, "LAST MATCH REPLAY", "_open_home_replay", true)
 	_replay.name = "LatestReplay"
 	_replay.custom_minimum_size.y = 104

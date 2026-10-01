@@ -42,3 +42,21 @@ func reset_drag() -> void:
 	drag_moved = false
 	last_vibe_target_id = -1
 	drag_dev_pid = -1
+
+
+const CHECKPOINT_FIELDS = [
+	"selected_cell",
+	"selected_hive_id",
+	"selected_lane_id",
+	"active_player_id",
+	"tap_first_id",
+	"tap_first_owner_id",
+	"tap_dev_pid",
+]
+
+func capture_checkpoint() -> Dictionary:
+	return preload("res://scripts/persistence/checkpoint_fields.gd").capture(self, CHECKPOINT_FIELDS)
+
+func restore_checkpoint(saved: Dictionary) -> void:
+	reset_drag()
+	preload("res://scripts/persistence/checkpoint_fields.gd").restore(self, CHECKPOINT_FIELDS, saved)

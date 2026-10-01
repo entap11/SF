@@ -1027,3 +1027,27 @@ func _get_ops_state() -> Node:
 	if tree.root == null:
 		return null
 	return tree.root.get_node_or_null("/root/OpsState")
+
+const CHECKPOINT_FIELDS = [
+	"_active",
+	"_current_step",
+	"_local_owner_id",
+	"_baseline_owned_hives",
+	"_starting_hive_id",
+	"_first_target_hive_id",
+	"_swarm_target_hive_id",
+	"_swarm_finish_launched",
+	"_auto_hide_generation",
+]
+
+func capture_checkpoint() -> Dictionary:
+	var saved := preload("res://scripts/persistence/checkpoint_fields.gd").capture(self, CHECKPOINT_FIELDS)
+	saved["saved_uptime_ms"] = Time.get_ticks_msec()
+	saved["overlay_visible"] = _overlay != null and _overlay.visible
+	return saved
+
+func restore_checkpoint(saved: Dictionary) -> void:
+	preload("res://scripts/persistence/checkpoint_fields.gd").restore(self, CHECKPOINT_FIELDS, saved)
+	_refresh_overlay_copy()
+	if _overlay != null:
+		_overlay.visible = _active and bool(saved.get("overlay_visible", true))

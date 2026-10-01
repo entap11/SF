@@ -1310,6 +1310,9 @@ func _find_map_index_by_path(map_path: String) -> int:
 	return -1
 
 func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> void:
+	if not SavedMatch.pending.is_empty():
+		map_path = str(SavedMatch.pending.map_path)
+		tutorial_section = str(SavedMatch.pending.get("context", {}).get("tutorial_launch_section", ""))
 	if TRACE_SHELL_LOGS: print("APPLY_MAP_THEN_START 010", {"map_path": map_path})
 	if TRACE_SHELL_LOGS: print("APPLY_MAP_THEN_START_BEGIN", {"map_path": map_path})
 	if map_path == "":
@@ -1351,6 +1354,7 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 		_set_shell_status("Launch blocked. %s does not support this mode." % _map_display_name(map_path), "error")
 		_report_map_mode_contract_violation(str(mode_validation.get("mode", "")), map_path, str(mode_validation.get("reason", "invalid_map_mode")))
 		return
+	get_tree().set_meta("saved_match_map_path", map_path)
 	var clean_tutorial_section: String = tutorial_section.strip_edges()
 	if tree != null:
 		tree.set_meta(TREE_META_TUTORIAL_ACTIVE, not clean_tutorial_section.is_empty())
@@ -1774,9 +1778,11 @@ func _open_match_menu() -> void:
 	_match_menu_panel = preload("res://scripts/ui/match_menu_panel.gd").new()
 	_match_menu_panel.set("warning_text", policy.warning(data))
 	_match_menu_panel.set("finished", bool(data.finished))
+	_match_menu_panel.set("resumable", SavedMatch.can_save(_arena_instance))
 	_match_menu_layer.add_child(_match_menu_panel)
 	_match_menu_panel.connect("closed", _close_match_menu)
 	_match_menu_panel.connect("leave_requested", _confirm_match_exit)
+	_match_menu_panel.connect("save_requested", _save_match_and_exit)
 
 func _close_match_menu() -> void:
 	if is_instance_valid(_match_menu_layer):
@@ -1784,12 +1790,25 @@ func _close_match_menu() -> void:
 	_match_menu_panel = null
 	_match_menu_layer = null
 
+func _save_match_and_exit() -> void:
+	if OpsState.is_ending_or_ended():
+		_close_match_menu()
+		_open_main_menu()
+		return
+	if not SavedMatch.checkpoint(_arena_instance, true):
+		_match_menu_panel.call("show_save_failure", SavedMatch.last_error)
+		return
+	_arena_instance.call("_on_app_backgrounded", "save_and_exit", Time.get_ticks_msec(), int(Time.get_unix_time_from_system()))
+	_close_match_menu()
+	_open_main_menu()
+
 func _confirm_match_exit() -> void:
 	var policy = preload("res://scripts/state/match_exit_intent.gd")
 	var result: Dictionary = policy.request_leave(policy.context(get_tree()), get_node("/root/VsHandshake"), get_node("/root/CrucibleState"))
 	if not bool(result.get("ok", false)):
 		_match_menu_panel.call("show_failure")
 		return
+	SavedMatch.discard_active()
 	_close_match_menu()
 	if CampaignRuntime.is_active():
 		CampaignRuntime.request_return()

@@ -269,6 +269,12 @@ func get_money_transactions(filters: Dictionary = {}) -> Dictionary:
 		return transport.get("result", {}) as Dictionary
 	return {"ok": false, "handled": false, "err": "transport_not_configured"}
 
+func get_quests() -> Dictionary:
+	return _call_public_transport("get_quests", {})
+
+func claim_quest(payload: Dictionary) -> Dictionary:
+	return _call_public_transport("claim_quest", payload)
+
 func get_honey_balance(player_id: String) -> Dictionary:
 	var transport := _call_transport("get_honey_balance", {
 		"player_id": player_id

@@ -31,6 +31,9 @@ var _policy_snapshot: Dictionary = {}
 var _viewable_ms: float = 0.0
 var _impression_recorded: bool = false
 var _loaded_creative_path: String = ""
+var _tap_feedback: Control = null
+var _tap_feedback_label: Label = null
+var _tap_feedback_timer: Timer = null
 
 func _ready() -> void:
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
@@ -40,6 +43,7 @@ func _ready() -> void:
 	_sync_empty_state()
 
 func configure(slot_id_in: String, placement_in: String, size_in: Vector2, reserve_empty: bool = false) -> void:
+	_hide_tap_feedback()
 	slot_id = slot_id_in.strip_edges()
 	placement = placement_in.strip_edges()
 	reserved_size = Vector2(maxf(1.0, size_in.x), maxf(1.0, size_in.y))
@@ -69,6 +73,7 @@ func set_ad_available(available: bool) -> void:
 		_impression_recorded = false
 	if not _ad_available:
 		_cancel_auto_dismiss()
+		_hide_tap_feedback()
 		_viewable_ms = 0.0
 	_sync_empty_state()
 	if _ad_available:
@@ -292,13 +297,48 @@ func _gui_input(event: InputEvent) -> void:
 	var manager: Node = _ad_manager()
 	if manager != null and manager.has_method("record_tap"):
 		var result: Dictionary = manager.call("record_tap", slot_id, _surface_measurement_context("tap"))
-		if bool(result.get("saved", false)):
-			_label.text = "LINK SAVED · OPEN AFTER THE MATCH"
-			_label.visible = true
-			if _creative_texture_rect != null:
-				_creative_texture_rect.visible = false
-			get_tree().create_timer(2.0).timeout.connect(_sync_empty_state, CONNECT_ONE_SHOT)
+		if bool(result.get("copied", false)):
+			_show_tap_feedback("LINK COPIED")
+		elif bool(result.get("saved", false)):
+			_show_tap_feedback("LINK SAVED · VIEW AFTER THE MATCH")
+		elif str(result.get("copy", {}).get("reason", "")) == "clipboard_unavailable":
+			_show_tap_feedback("CLIPBOARD UNAVAILABLE")
+		else:
+			_show_tap_feedback("LINK UNAVAILABLE")
 	accept_event()
+
+func _show_tap_feedback(text: String) -> void:
+	if _tap_feedback == null:
+		_tap_feedback = Control.new()
+		_tap_feedback.name = "TapFeedback"
+		_tap_feedback.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_tap_feedback.z_index = 1
+		add_child(_tap_feedback)
+		_tap_feedback_label = Label.new()
+		_tap_feedback_label.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		_tap_feedback_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+		_tap_feedback_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
+		_tap_feedback_label.add_theme_font_size_override("font_size", 30)
+		var background := StyleBoxFlat.new()
+		background.bg_color = Color(0.03, 0.04, 0.05, 0.94)
+		_tap_feedback_label.add_theme_stylebox_override("normal", background)
+		_tap_feedback.add_child(_tap_feedback_label)
+		_tap_feedback_label.set_anchors_preset(Control.PRESET_TOP_WIDE)
+		_tap_feedback_label.offset_bottom = 64.0
+		_tap_feedback_timer = Timer.new()
+		_tap_feedback_timer.one_shot = true
+		_tap_feedback_timer.process_mode = Node.PROCESS_MODE_ALWAYS
+		_tap_feedback_timer.timeout.connect(_hide_tap_feedback)
+		_tap_feedback.add_child(_tap_feedback_timer)
+	_tap_feedback_label.text = text
+	_tap_feedback.show()
+	_tap_feedback_timer.start(2.0)
+
+func _hide_tap_feedback() -> void:
+	if _tap_feedback_timer != null:
+		_tap_feedback_timer.stop()
+	if _tap_feedback != null:
+		_tap_feedback.hide()
 
 func _ad_manager() -> Node:
 	return get_node_or_null("/root/AdManager")

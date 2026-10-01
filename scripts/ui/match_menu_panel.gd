@@ -2,6 +2,9 @@ extends Control
 
 signal closed
 signal leave_requested
+signal save_requested
+
+var resumable := false
 
 var warning_text := ""
 var finished := false
@@ -48,6 +51,8 @@ func _ready() -> void:
 	_body.text = "The match keeps running while this menu is open." if not finished else "Match complete."
 	content.add_child(_body)
 	_resume = _button(content, "BACK TO GAME", func(): closed.emit())
+	if resumable and not finished:
+		_button(content, "SAVE & EXIT", func(): save_requested.emit())
 	_leave = _button(content, "LEAVE MATCH", _on_leave)
 	_resume.grab_focus()
 
@@ -70,6 +75,9 @@ func _on_leave() -> void:
 		return
 	_leave.disabled = true
 	leave_requested.emit()
+
+func show_save_failure(message: String) -> void:
+	_body.text = message
 
 func show_failure() -> void:
 	_body.text = "Could not confirm your exit with the match service. You're still in this match. Try again or keep playing."

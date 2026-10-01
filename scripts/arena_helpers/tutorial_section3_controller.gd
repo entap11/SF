@@ -547,3 +547,24 @@ func _get_profile_manager() -> Object:
 	if tree.root == null:
 		return null
 	return tree.root.get_node_or_null("/root/ProfileManager")
+
+const CHECKPOINT_FIELDS = [
+	"_active",
+	"_current_step",
+	"_local_owner_id",
+	"_seen_swarm_ids",
+	"_baseline_local_tower_ids",
+	"_baseline_local_barracks_routes",
+]
+
+func capture_checkpoint() -> Dictionary:
+	var saved := preload("res://scripts/persistence/checkpoint_fields.gd").capture(self, CHECKPOINT_FIELDS)
+	saved["saved_uptime_ms"] = Time.get_ticks_msec()
+	saved["overlay_visible"] = _overlay != null and _overlay.visible
+	return saved
+
+func restore_checkpoint(saved: Dictionary) -> void:
+	preload("res://scripts/persistence/checkpoint_fields.gd").restore(self, CHECKPOINT_FIELDS, saved)
+	_refresh_overlay_copy()
+	if _overlay != null:
+		_overlay.visible = _active and bool(saved.get("overlay_visible", true))

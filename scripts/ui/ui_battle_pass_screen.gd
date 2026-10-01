@@ -246,6 +246,17 @@ func _build_actions() -> Control:
 		row = grid
 	else:
 		row = HBoxContainer.new()
+	if OS.is_debug_build() and OS.get_environment("SF_ENABLE_QUESTS") == "1":
+		var quests_button: Button = _make_button("Quests")
+		quests_button.pressed.connect(func() -> void:
+			if get_node_or_null("QuestPanel") != null:
+				return
+			var panel: Control = preload("res://scripts/ui/quest_panel.gd").new()
+			panel.name = "QuestPanel"
+			add_child(panel)
+			panel.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+		)
+		row.add_child(quests_button)
 	row.name = "Actions"
 	row.add_theme_constant_override("h_separation", _scaled_int(8))
 	row.add_theme_constant_override("v_separation", _scaled_int(8))

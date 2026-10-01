@@ -44,7 +44,7 @@ func request_launch(id: String, source: String = "campaign") -> Dictionary:
 	# Session setup owns the launch contract; UI only requests a catalog entry.
 	for key in tree.get_meta_list():
 		var token := str(key)
-		if token.begins_with("vs_") or token.begins_with("jukebox_") or token.begins_with("tutorial_") or token.begins_with("progressive_") or token.begins_with("durable_") or token.begins_with("ctf_") or token.begins_with("async_") or token in ["practice", "open_map_picker_on_ready"]:
+		if token.begins_with("vs_") or token.begins_with("jukebox_") or token.begins_with("tutorial_") or token.begins_with("progressive_") or token.begins_with("durable_") or token.begins_with("ctf_") or token.begins_with("async_") or token.begins_with("public_contest_") or token.begins_with("contest_") or token.begins_with("hive_tournament_") or token.begins_with("miss_n_out_") or token in ["practice", "open_map_picker_on_ready"]:
 			tree.remove_meta(key)
 	_active = level
 	_result = {}
@@ -109,3 +109,17 @@ func _on_match_ended(winner: int, reason: String) -> void:
 
 func retry_result_save() -> void:
 	_on_match_ended(int(OpsState.winner_id), str(OpsState.match_end_reason))
+
+const CHECKPOINT_FIELDS = [
+	"_active",
+	"_result",
+	"_run_id",
+	"_entry",
+]
+
+func capture_checkpoint() -> Dictionary:
+	var saved := preload("res://scripts/persistence/checkpoint_fields.gd").capture(self, CHECKPOINT_FIELDS)
+	return saved
+
+func restore_checkpoint(saved: Dictionary) -> void:
+	preload("res://scripts/persistence/checkpoint_fields.gd").restore(self, CHECKPOINT_FIELDS, saved)

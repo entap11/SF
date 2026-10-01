@@ -185,6 +185,8 @@ func _log_run_state_change(reason: String, prev_running: bool, next_running: boo
 	log_pause_snapshot("sim_run_state_change")
 
 func _set_running(value: bool, reason: String) -> void:
+	if value and OpsState.input_locked_reason == "saved_match_countdown":
+		return
 	if running == value:
 		return
 	var prev_running: bool = running
@@ -237,6 +239,12 @@ func set_running(value: bool, reason: String = "set_running") -> void:
 		return
 	_set_running(false, reason)
 	_pending_start = false
+
+func capture_match_checkpoint() -> Dictionary:
+	return preload("res://scripts/systems/match_checkpoint.gd").capture(self, OpsState)
+
+func restore_match_checkpoint(saved: Dictionary) -> bool:
+	return preload("res://scripts/systems/match_checkpoint.gd").restore(self, OpsState, saved)
 
 func enable_deterministic_clock(start_ms: int = 0) -> void:
 	_deterministic_clock_enabled = true

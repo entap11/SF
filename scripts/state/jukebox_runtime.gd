@@ -94,7 +94,8 @@ func _on_runtime_match_ended(winner_id: int, reason: String) -> void:
 		"handle": str(identity.get("handle", "You")).strip_edges(),
 		"best_time_ms": elapsed_ms,
 		"updated_at": int(Time.get_unix_time_from_system()),
-		"source": "jukebox_run"
+		"source": "jukebox_run",
+		"started_at": int(tree.get_meta("match_started_unix", Time.get_unix_time_from_system()))
 	})
 	if not bool(result.get("ok", false)):
 		return

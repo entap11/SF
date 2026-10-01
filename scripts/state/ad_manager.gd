@@ -11,6 +11,8 @@ const DEV_BIODYNAMIC_ADS_ENV: String = "SF_BIODYNAMIC_TEST_ADS"
 const SETTINGS_FAKE_ADS: String = "swarmfront/ads/fake_ads"
 const SETTINGS_DEV_BIODYNAMIC_ADS: String = "swarmfront/ads/dev_biodynamic_test_ads"
 const SETTINGS_DEV_BIODYNAMIC_IMAGE_PATH: String = "swarmfront/ads/dev_biodynamic_image_path"
+const SETTINGS_DEV_BIODYNAMIC_VIDEO_PATH: String = "swarmfront/ads/dev_biodynamic_video_path"
+const SETTINGS_DEV_BIODYNAMIC_VIDEO_DESTINATION_URL: String = "swarmfront/ads/dev_biodynamic_video_destination_url"
 const SETTINGS_DEV_BIODYNAMIC_DESTINATION_URL: String = "swarmfront/ads/dev_biodynamic_destination_url"
 const SETTINGS_DEV_BIODYNAMIC_OPEN_URL_ON_TAP: String = "swarmfront/ads/dev_biodynamic_open_url_on_tap"
 const CONTENT_MODE_AD: String = "ad"
@@ -18,6 +20,7 @@ const CONTENT_MODE_INTERNAL_TICKER: String = "internal_ticker"
 const CONTENT_MODE_HIDDEN: String = "hidden"
 const MEASUREMENT_SCHEMA_VERSION: int = 1
 const DEV_BIODYNAMIC_DEFAULT_IMAGE_PATH: String = "res://assets/ads/test_creatives/biodynamic_laser_cleaning_banner.png"
+const DEV_BIODYNAMIC_DEFAULT_VIDEO_PATH: String = "res://assets/ads/test_creatives/biodynamic_mobile_loading_10s.ogv"
 const DEV_BIODYNAMIC_DEFAULT_DESTINATION_URL: String = "https://www.biodynamicusa.com"
 
 var _provider: Object = null
@@ -33,19 +36,38 @@ class DevBiodynamicTestProvider:
 	extends RefCounted
 
 	var image_path: String = ""
+	var video_path: String = ""
+	var video_destination_url: String = ""
 	var destination_url: String = ""
 	var open_url_on_tap: bool = true
 	var opened_urls: Array[String] = []
 	var recorded_events: Array[Dictionary] = []
 
-	func _init(image_path_in: String, destination_url_in: String, open_url_on_tap_in: bool) -> void:
+	func _init(image_path_in: String, destination_url_in: String, open_url_on_tap_in: bool, video_path_in: String = "", video_destination_url_in: String = "") -> void:
 		image_path = image_path_in.strip_edges()
+		video_path = video_path_in.strip_edges()
+		video_destination_url = _normalized_url(video_destination_url_in)
 		destination_url = _normalized_url(destination_url_in)
 		open_url_on_tap = open_url_on_tap_in
 
 	func request_ad(slot_id: String, placement: String, policy: Dictionary) -> Dictionary:
 		if not bool(policy.get("allowed", false)):
 			return {"ok": true, "filled": false, "reason": "policy_blocked", "policy": policy}
+		if slot_id == "match_loading":
+			if video_path.is_empty() or not ResourceLoader.exists(video_path):
+				return {"ok": true, "filled": false, "reason": "video_missing", "policy": policy}
+			return {
+				"ok": true, "filled": true, "policy": policy,
+				"creative": {
+					"id": "biodynamic_restoration_loading_10s_v1",
+					"title": "Biodynamic Restoration",
+					"campaign_id": "biodynamic_local_dev",
+					"provider": "dev_biodynamic_test_provider",
+					"video_path": video_path,
+					"destination_url": video_destination_url,
+					"placement": placement,
+				},
+			}
 		if image_path.is_empty() or not FileAccess.file_exists(image_path):
 			return {"ok": true, "filled": false, "reason": "creative_missing", "policy": policy}
 		return {
@@ -121,7 +143,7 @@ func get_policy(slot_id: String, placement: String) -> Dictionary:
 		"house_ads_allowed": house_ads_allowed,
 		"family_safe_only": family_safe_only,
 		"personalized_ads_allowed": false,
-		"auto_dismiss_sec": _auto_dismiss_sec_for_placement(clean_placement),
+		"auto_dismiss_sec": 10.0 if clean_slot == "match_loading" else _auto_dismiss_sec_for_placement(clean_placement),
 		"external_open_requires_tap": true,
 		"interrupts_gameplay": false
 	}
@@ -222,6 +244,12 @@ func record_tap(slot_id: String, context: Dictionary = {}) -> Dictionary:
 	record["last_tap_event_id"] = str(measurement.get("event_id", ""))
 	_slots[clean_slot] = record
 	_emit_ad_event("tap", record)
+	var copy_result: Dictionary = _copy_ad_destination(record)
+	var result: Dictionary = {
+		"ok": true, "slot": record.duplicate(true), "event": measurement,
+		"copied": bool(copy_result.get("copied", false)), "copy": copy_result,
+		"open": {"opened": false, "reason": "copy_only"},
+	}
 	if str(record.get("placement", "")) == PLACEMENT_IN_GAME and _match_is_unfinished():
 		var match_key: String = _current_match_key()
 		if _saved_ads_match_key != match_key:
@@ -234,9 +262,25 @@ func record_tap(slot_id: String, context: Dictionary = {}) -> Dictionary:
 				already_saved = true
 		if not already_saved:
 			_saved_match_ads.append({"record": record.duplicate(true), "event": measurement.duplicate(true), "creative_id": creative_id})
-		return {"ok": true, "saved": true, "open": {"opened": false, "reason": "saved_until_match_end"}}
-	var open_result: Dictionary = _open_provider_ad(record, measurement)
-	return {"ok": true, "slot": record.duplicate(true), "event": measurement, "open": open_result}
+		result["saved"] = true
+	return result
+
+func _copy_ad_destination(record: Dictionary) -> Dictionary:
+	var creative: Dictionary = record.get("creative", {})
+	var url: String = str(creative.get("destination_url", "")).strip_edges()
+	if url.is_empty():
+		return {"copied": false, "reason": "missing_destination_url"}
+	if not url.contains("://"):
+		url = "https://" + url
+	if not url.begins_with("https://") and not url.begins_with("http://"):
+		return {"copied": false, "reason": "unsupported_destination_url"}
+	return _copy_ad_url(url)
+
+func _copy_ad_url(url: String) -> Dictionary:
+	if not DisplayServer.has_feature(DisplayServer.FEATURE_CLIPBOARD):
+		return {"copied": false, "reason": "clipboard_unavailable"}
+	DisplayServer.clipboard_set(url)
+	return {"copied": true, "url": url}
 
 func _current_match_key() -> String:
 	var ops: Node = get_node_or_null("/root/OpsState")
@@ -312,6 +356,8 @@ func get_provider_debug_snapshot() -> Dictionary:
 	if _provider_is_dev_test and _provider is DevBiodynamicTestProvider:
 		var dev_provider: DevBiodynamicTestProvider = _provider as DevBiodynamicTestProvider
 		out["image_path"] = dev_provider.image_path
+		out["video_path"] = dev_provider.video_path
+		out["video_destination_url"] = dev_provider.video_destination_url
 		out["destination_url"] = dev_provider.destination_url
 		out["open_url_on_tap"] = dev_provider.open_url_on_tap
 		out["opened_urls"] = dev_provider.opened_urls.duplicate()
@@ -443,9 +489,11 @@ func _install_dev_biodynamic_provider_if_enabled() -> void:
 	if not _dev_biodynamic_ads_enabled():
 		return
 	var image_path: String = str(ProjectSettings.get_setting(SETTINGS_DEV_BIODYNAMIC_IMAGE_PATH, DEV_BIODYNAMIC_DEFAULT_IMAGE_PATH)).strip_edges()
+	var video_path: String = str(ProjectSettings.get_setting(SETTINGS_DEV_BIODYNAMIC_VIDEO_PATH, DEV_BIODYNAMIC_DEFAULT_VIDEO_PATH)).strip_edges()
+	var video_destination_url: String = str(ProjectSettings.get_setting(SETTINGS_DEV_BIODYNAMIC_VIDEO_DESTINATION_URL, DEV_BIODYNAMIC_DEFAULT_DESTINATION_URL)).strip_edges()
 	var destination_url: String = str(ProjectSettings.get_setting(SETTINGS_DEV_BIODYNAMIC_DESTINATION_URL, DEV_BIODYNAMIC_DEFAULT_DESTINATION_URL)).strip_edges()
 	var open_url_on_tap: bool = bool(ProjectSettings.get_setting(SETTINGS_DEV_BIODYNAMIC_OPEN_URL_ON_TAP, true))
-	_provider = DevBiodynamicTestProvider.new(image_path, destination_url, open_url_on_tap)
+	_provider = DevBiodynamicTestProvider.new(image_path, destination_url, open_url_on_tap, video_path, video_destination_url)
 	_provider_is_dev_test = true
 
 func _dev_biodynamic_ads_enabled() -> bool:

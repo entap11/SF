@@ -4,14 +4,15 @@ import { bearerPlayerToken, PlayerAuthError, verifyPlayerToken } from "./playerA
 import type { JsonRecord } from "./repositories/durableCore.js";
 import { fetchDependency } from "./httpDependency.js";
 
-const ACTIONS = new Set(["get_honey_balance", "debit_honey"]);
+const ACTIONS = new Set(["get_honey_balance", "debit_honey", "get_quests", "claim_quest"]);
 
 export async function handlePlatformEconomyPlayerAction(action: string, req: Request, res: ExpressResponse): Promise<boolean> {
   if (!ACTIONS.has(action)) return false;
   try {
     const token = bearerPlayerToken(req.header("authorization"));
     if (!token) throw new PlayerAuthError("player_token_required", 401);
-    const requiredScope = action === "get_honey_balance" ? "economy:read" : "economy:spend";
+    const requiredScope = action === "claim_quest" ? "progression:claim"
+      : action === "get_honey_balance" || action === "get_quests" ? "economy:read" : "economy:spend";
     const player = verifyPlayerToken(token, {
       issuer: config.playerTokenIssuer, audience: config.playerTokenAudience,
       keyId: config.playerTokenKeyId, publicKeyPem: config.playerTokenPublicKeyPem
@@ -22,6 +23,20 @@ export async function handlePlatformEconomyPlayerAction(action: string, req: Req
     const suppliedPlayerId = text(req.body?.player_id);
     if (suppliedPlayerId && suppliedPlayerId !== player.playerId) {
       throw new PlayerAuthError("identity_mismatch", 403);
+    }
+    if (action === "get_quests" || action === "claim_quest") {
+      if (!config.enableQuestDelivery) { fail(res, "quests_disabled", 503); return true; }
+      const claim = action === "claim_quest";
+      const response = await fetchDependency("rank.quests", `${config.rankServiceUrl}/v1/platform/quests/${claim ? "claim" : "me"}`, {
+        method: claim ? "POST" : "GET",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        ...(claim ? { body: JSON.stringify({ quest_id: text(req.body?.quest_id), epoch_id: text(req.body?.epoch_id),
+          cycle_start: text(req.body?.cycle_start), request_id: text(req.body?.request_id) }) } : {})
+      }, config.rankServiceTimeoutMs);
+      const body = await safeJson(response);
+      res.setHeader("Cache-Control", "no-store");
+      if (!response.ok || body.ok !== true) { proxyFailure(res, response.status, body); return true; }
+      res.json(body); return true;
     }
     if (action === "get_honey_balance") {
       const response = await fetchDependency("rank.platform_economy.me",

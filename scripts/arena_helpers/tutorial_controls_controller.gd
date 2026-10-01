@@ -2300,3 +2300,69 @@ func _get_ops_state() -> Node:
 	if tree.root == null:
 		return null
 	return tree.root.get_node_or_null("/root/OpsState")
+
+const CHECKPOINT_FIELDS = [
+	"_active",
+	"_completed_this_match",
+	"_current_step",
+	"_local_owner_id",
+	"_anchor_ids",
+	"_compact_overlay",
+	"_saw_friend_lane_retract",
+	"_sim_paused_for_tutorial",
+	"_recovery_keys_logged",
+	"_readout_waiting_for_input",
+	"_readout_step_id",
+	"_delayed_step_id",
+	"_delayed_step_at_ms",
+	"_feed_friend_arrival_wait_active",
+	"_feed_friend_arrival_baseline",
+	"_feed_friend_arrival_target",
+	"_reverse_feed_phase",
+	"_remake_friend_phase",
+	"_attack_enemy_phase",
+	"_neutral_attack_phase",
+	"_take_neutral_phase",
+	"_swarm_overlap_phase",
+	"_swarm_overlap_source_anchor",
+	"_swarm_prompt_source_anchor",
+	"_last_swarm_source_anchor",
+	"_swarm_launch_count",
+	"_reverse_feed_arrival_wait_active",
+	"_reverse_feed_arrival_baseline",
+	"_reverse_feed_arrival_target",
+	"_attack_drag_start_local",
+	"_contest_cancel_wait_active",
+	"_contest_cancel_baseline",
+	"_contest_cancel_target",
+	"_contest_enemy_opposed",
+	"_enemy_opposed_anchors",
+	"_start_attack_prompt_at_ms",
+	"_start_attack_timeout_ms",
+	"_start_attack_phase",
+	"_overlap_swarm_seen",
+	"_double_tap_swarm_seen",
+	"_swarm_intro_auto_advance_at_ms",
+	"_pending_next_step_id",
+	"_pending_next_step_at_ms",
+]
+
+func capture_checkpoint() -> Dictionary:
+	var saved := preload("res://scripts/persistence/checkpoint_fields.gd").capture(self, CHECKPOINT_FIELDS)
+	saved["saved_uptime_ms"] = Time.get_ticks_msec()
+	saved["overlay_visible"] = _overlay != null and _overlay.visible
+	return saved
+
+func restore_checkpoint(saved: Dictionary) -> void:
+	preload("res://scripts/persistence/checkpoint_fields.gd").restore(self, CHECKPOINT_FIELDS, saved)
+	if _delayed_step_at_ms > 0:
+		_delayed_step_at_ms = Time.get_ticks_msec() + maxi(0, _delayed_step_at_ms - int(saved.get("saved_uptime_ms", 0)))
+	if _start_attack_prompt_at_ms > 0:
+		_start_attack_prompt_at_ms = Time.get_ticks_msec() + maxi(0, _start_attack_prompt_at_ms - int(saved.get("saved_uptime_ms", 0)))
+	if _swarm_intro_auto_advance_at_ms > 0:
+		_swarm_intro_auto_advance_at_ms = Time.get_ticks_msec() + maxi(0, _swarm_intro_auto_advance_at_ms - int(saved.get("saved_uptime_ms", 0)))
+	if _pending_next_step_at_ms > 0:
+		_pending_next_step_at_ms = Time.get_ticks_msec() + maxi(0, _pending_next_step_at_ms - int(saved.get("saved_uptime_ms", 0)))
+	_refresh_overlay_copy()
+	if _overlay != null:
+		_overlay.visible = _active and bool(saved.get("overlay_visible", true))

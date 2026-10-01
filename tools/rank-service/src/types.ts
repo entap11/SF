@@ -56,6 +56,8 @@ export interface RankServiceConfig {
   port: number;
   bindHost: string;
   apiToken: string;
+  questsEnabled: boolean;
+  questStartsAt: string;
   economyMutationsEnabled: boolean;
   economyResetEnabled: boolean;
   verifiedMatchMutationsEnabled: boolean;

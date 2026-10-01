@@ -107,6 +107,8 @@ export const config = {
   hctfLiveSecrecyCertified: parseBoolean(process.env.VS_HCTF_LIVE_SECRECY_CERTIFIED, false),
   enableCtfBotFallback: parseBoolean(process.env.VS_ENABLE_CTF_BOT_FALLBACK, false),
   enableRankMutations: parseBoolean(process.env.VS_ENABLE_RANK_MUTATIONS, false),
+  enableQuestDelivery: parseBoolean(process.env.VS_ENABLE_QUEST_DELIVERY, false),
+  questStartsAt: parseOptionalIso(process.env.VS_QUEST_STARTS_AT, "VS_QUEST_STARTS_AT"),
   enablePlatformEconomyDelivery: parseBoolean(process.env.VS_ENABLE_PLATFORM_ECONOMY_DELIVERY, false),
   economyRolloutCutoverAt: parseOptionalIso(
     process.env.VS_ECONOMY_ROLLOUT_CUTOVER_AT, "VS_ECONOMY_ROLLOUT_CUTOVER_AT"
@@ -198,3 +200,5 @@ if (productionMode && (config.enablePlatformEconomyDelivery || config.enableRank
     throw new Error("economy_rollout_boundary_required");
   }
 }
+
+if (config.enableQuestDelivery && !config.questStartsAt) throw new Error("VS_QUEST_STARTS_AT_required");

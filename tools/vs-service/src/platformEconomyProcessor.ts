@@ -10,6 +10,7 @@ import type { JsonRecord } from "./repositories/durableCore.js";
 import { fetchDependency } from "./httpDependency.js";
 
 const ROUTES: Record<PlatformEconomyOperation, { path: string; scope: string }> = {
+  QUEST_ACTIVITY: { path: "/v1/service/economy/quest-activity", scope: "economy:produce" },
   HONEY_ACTIVITY: { path: "/v1/service/economy/honey-activity", scope: "economy:produce" },
   NECTAR_MATCH: { path: "/v1/service/economy/nectar-match", scope: "economy:produce" },
   CRUCIBLE_RESERVE: { path: "/v1/service/economy/crucible/reserve", scope: "economy:reserve" },
@@ -21,8 +22,12 @@ export async function reconcilePlatformEconomyDeliveries(nowIso = new Date().toI
   if (config.durableStore !== "postgres") return 0;
   if (!config.enablePlatformEconomyDelivery) return 0;
   if (!config.economyEpoch) throw new Error("VS_ECONOMY_EPOCH_required");
-  return getPlatformEconomyDeliveryRepository().reconcileVerifiedResults(config.economyEpoch, nowIso,
-    rolloutBoundary());
+  const repository = getPlatformEconomyDeliveryRepository();
+  let count = await repository.reconcileVerifiedResults(config.economyEpoch, nowIso, rolloutBoundary());
+  if (config.enableQuestDelivery) count += await repository.reconcileQuestResults(config.economyEpoch,
+    { ...rolloutBoundary(), verifiedAtOrAfter: new Date(Math.max(Date.parse(config.questStartsAt),
+      Date.parse(config.economyRolloutCutoverAt || config.questStartsAt))).toISOString() });
+  return count;
 }
 
 export async function processOnePlatformEconomyDelivery(workerId: string, nowIso = new Date().toISOString(),
@@ -33,7 +38,8 @@ export async function processOnePlatformEconomyDelivery(workerId: string, nowIso
     throw new Error("platform_economy_delivery_not_configured");
   }
   const repository = getPlatformEconomyDeliveryRepository();
-  const job = await repository.leaseNext(workerId, nowIso, config.platformEconomyLeaseSec, filter,
+  const job = await repository.leaseNext(workerId, nowIso, config.platformEconomyLeaseSec,
+    { ...filter, includeQuests: config.enableQuestDelivery, questStartsAt: config.questStartsAt || undefined },
     rolloutBoundary());
   if (!job) return false;
   const startedAt = new Date().toISOString();

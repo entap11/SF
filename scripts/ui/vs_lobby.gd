@@ -1414,7 +1414,7 @@ func _vs_launch_clear_keys() -> Array[String]:
 		"async_money_balance_after_entry_cents",
 		"async_money_balance_finish_cents",
 		"public_contest_id", "public_contest_family", "public_contest_definition_hash",
-		"public_contest_attempt", "public_contest_map_ids", "public_contest_submission_deadline_at"
+		"public_contest_attempt", "public_contest_map_ids", "public_contest_submission_deadline_at", "public_contest_ends_at"
 	]
 
 func _remote_profile_for_tree() -> Dictionary:

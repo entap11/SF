@@ -172,6 +172,10 @@ export class AccountDeletionStore {
       await client.query("DELETE FROM platform_honey_activity_history WHERE player_id = $1::uuid", [playerId]);
       await client.query("DELETE FROM platform_nectar_award_history WHERE player_id = $1::uuid", [playerId]);
       await client.query("DELETE FROM platform_nectar_progression WHERE player_id = $1::uuid", [playerId]);
+      await client.query("DELETE FROM platform_quest_match_facts WHERE player_id = $1::uuid", [playerId]);
+      await client.query("DELETE FROM platform_quest_progress WHERE player_id = $1::uuid", [playerId]);
+      await client.query("DELETE FROM platform_quest_activity_facts WHERE player_id = $1::uuid", [playerId]);
+      await client.query("DELETE FROM platform_quest_weeks WHERE player_id = $1::uuid", [playerId]);
       await client.query("UPDATE rank_players SET friends = friends - $1 WHERE friends ? $1", [playerId]);
       await client.query(`DELETE FROM rank_audit_events WHERE application_id = 'swarmfront' AND (player_id = $1 OR related_player_id = $1
         OR strpos(payload::text, $1) > 0)`, [playerId]);

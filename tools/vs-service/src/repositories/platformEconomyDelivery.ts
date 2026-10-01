@@ -3,7 +3,7 @@ import { deepClone, DurableCoreError, sha256Canonical, uuidV7, type JsonRecord }
 
 type Row = Record<string, unknown>;
 
-export type PlatformEconomyOperation = "HONEY_ACTIVITY" | "NECTAR_MATCH" | "CRUCIBLE_RESERVE"
+export type PlatformEconomyOperation = "QUEST_ACTIVITY" | "HONEY_ACTIVITY" | "NECTAR_MATCH" | "CRUCIBLE_RESERVE"
   | "CRUCIBLE_SETTLE" | "CRUCIBLE_REFUND";
 
 export type EconomyRolloutBoundary = {
@@ -150,8 +150,72 @@ export class PostgresPlatformEconomyDeliveryRepository {
     return inserted;
   }
 
+  // Dedicated facts preserve canonical modes without changing existing economy event hashes.
+  async reconcileQuestResults(economyEpoch: string, boundary: EconomyRolloutBoundary): Promise<number> {
+    const rollout = normalizeBoundary(boundary);
+    if (!rollout.verifiedAtOrAfter) throw new DurableCoreError("quest_cutover_required");
+    let inserted = 0;
+    const live = await this.pool.query<Row>(`SELECT r.*, c.mode_id, c.contract_json,
+        ARRAY(SELECT rr.player_id::text FROM vs_match_roster rr WHERE rr.contract_id = c.contract_id
+          AND rr.participant_type = 'HUMAN') AS humans
+      FROM vs_terminal_results r JOIN vs_verifier_signed_receipts s ON s.result_id = r.result_id
+      JOIN vs_match_contracts c ON c.contract_id = r.contract_id
+      WHERE c.authority_tier = 'AUTHORITY_VERIFIED' AND r.verified_at >= $1`, [rollout.verifiedAtOrAfter]);
+    for (const row of live.rows) {
+      const result = json(row.result_json);
+      const practice = json(json(row.contract_json).practice_policy);
+      if (practice.practice === true || practice.private_match === true) continue;
+      const humans = Array.isArray(row.humans) ? row.humans.map(String) : [];
+      const occurredAt = iso(row.verified_at);
+      if (!rolloutAllows(occurredAt, humans, boundary)) continue;
+      const humanSeats: Record<string, number> = { STANDARD_1V1: 2, STANDARD_2V2: 4,
+        STANDARD_3P_FFA: 3, STANDARD_4P_FFA: 4, CTF_1V1: 2 };
+      if (humans.length !== humanSeats[String(row.mode_id)]) continue;
+      // Disconnect/leave forfeits cannot be used to farm completion quests.
+      if (String(row.terminal_reason) !== "OBJECTIVE_COMPLETE") continue;
+      for (const playerId of humans) {
+        inserted += await this.insert({ producerEventId: `${economyEpoch}:${row.result_id}:quest:${playerId}`,
+          operation: "QUEST_ACTIVITY", matchId: String(row.match_id), contractId: String(row.contract_id),
+          resultId: String(row.result_id), playerId, economyEpoch, sourceAuthority: String(result.authority_method),
+          occurredAt, payload: { player_id: playerId, subject_id: String(row.match_id), family: "LIVE",
+            mode_id: String(row.mode_id), completed: true, duration_sec: Math.floor(Number(result.elapsed_sim_ticks) / 10),
+            terminal_reason: String(row.terminal_reason) } });
+      }
+    }
+    const contests = await this.pool.query<Row>(`SELECT r.*, c.family, c.scope, c.map_count, c.attempt_policy
+      FROM vs_public_contest_results r JOIN vs_public_contests c ON c.contest_id = r.contest_id
+      JOIN vs_public_contest_attempts a ON a.attempt_id = r.attempt_id
+      WHERE a.status = 'COMMITTED' AND a.committed_result_id = r.contest_result_id
+        AND r.verification_method IN ('SERVER_SIM_V1', 'SIGNED_REPLAY_V1') AND r.evidence_ref <> ''
+        AND r.qualified_at >= $1`, [rollout.verifiedAtOrAfter]);
+    for (const row of contests.rows) {
+      const playerId = String(row.player_id);
+      const occurredAt = iso(row.qualified_at);
+      if (!rolloutAllows(occurredAt, [playerId], boundary)) continue;
+      const result = json(row.result_json);
+      const stages = Array.isArray(result.stage_evidence) ? result.stage_evidence as JsonRecord[] : [];
+      const plan = json(row.attempt_policy).stage_plan;
+      const last = stages.at(-1);
+      const natural = !!last && ["domination", "capture_all", "conquest", "elimination", "timeout", "time_limit"]
+        .includes(String(last.win_reason).toLowerCase())
+        && (last.won === false || Number(last.stars) === 0 || (Array.isArray(plan) && stages.length === plan.length));
+      const maps = Array.isArray(result.per_map) ? result.per_map as JsonRecord[] : [];
+      const ticks = row.family === "GAUNTLET" ? Number(result.elapsed_ticks)
+        : maps.reduce((sum, map) => sum + Number(map.elapsed_ticks), 0);
+      if (row.family === "GAUNTLET" && !natural) continue;
+      inserted += await this.insert({ producerEventId: `${economyEpoch}:${row.contest_result_id}:quest:${playerId}`,
+        operation: "QUEST_ACTIVITY", matchId: null, contractId: null, resultId: null,
+        playerId, economyEpoch, sourceAuthority: String(row.verification_method), occurredAt,
+        payload: { player_id: playerId, subject_id: String(row.attempt_id), contest_id: String(row.contest_id),
+          family: String(row.family), scope: String(row.scope), map_count: Number(row.map_count),
+          completed_maps: maps.filter((map) => map.completed === true).length,
+          completed: true, natural_finish: natural, duration_sec: Math.floor(ticks / 10) } });
+    }
+    return inserted;
+  }
+
   async leaseNext(workerId: string, nowIso: string, leaseSec: number,
-    filter: { matchId?: string; operation?: PlatformEconomyOperation } = {},
+    filter: { matchId?: string; operation?: PlatformEconomyOperation; includeQuests?: boolean; questStartsAt?: string } = {},
     boundary: EconomyRolloutBoundary = {}): Promise<PlatformEconomyDelivery | null> {
     const rollout = normalizeBoundary(boundary);
     const client = await this.pool.connect();
@@ -165,6 +229,8 @@ export class PostgresPlatformEconomyDeliveryRepository {
       const found = await client.query<Row>(
         `SELECT d.* FROM vs_platform_economy_deliveries d
          WHERE d.status IN ('PENDING', 'RETRY') AND d.available_at <= $1
+           AND ($6::boolean OR d.operation <> 'QUEST_ACTIVITY')
+           AND (d.operation <> 'QUEST_ACTIVITY' OR $7::timestamptz IS NULL OR d.occurred_at >= $7::timestamptz)
            AND ($2::uuid IS NULL OR d.match_id = $2)
            AND ($3::text IS NULL OR d.operation = $3)
            AND ($4::timestamptz IS NULL OR d.occurred_at >= $4::timestamptz)
@@ -180,7 +246,7 @@ export class PostgresPlatformEconomyDeliveryRepository {
                    AND NOT (denied_roster.player_id::text = ANY($5::text[])))))
          ORDER BY d.available_at, d.created_at, d.delivery_id LIMIT 1 FOR UPDATE OF d SKIP LOCKED`,
         [nowIso, filter.matchId ?? null, filter.operation ?? null,
-          rollout.verifiedAtOrAfter, rollout.allowedPlayerIds]
+          rollout.verifiedAtOrAfter, rollout.allowedPlayerIds, filter.includeQuests === true, filter.questStartsAt ?? null]
       );
       if (!found.rows[0]) { await client.query("COMMIT"); return null; }
       const leaseToken = uuidV7();

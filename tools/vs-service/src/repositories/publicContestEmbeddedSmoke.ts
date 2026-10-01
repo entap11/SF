@@ -1,3 +1,4 @@
+import { PostgresPlatformEconomyDeliveryRepository } from "./platformEconomyDelivery.js";
 import type { Pool } from "pg";
 import { readFileSync } from "node:fs";
 import { PGlite } from "@electric-sql/pglite";
@@ -223,6 +224,34 @@ async function main(): Promise<void> {
   expect(Number(counts.rows[0]?.contests) === 3 && Number(counts.rows[0]?.best_rows) === 3
     && Number(counts.rows[0]?.placements) === 3 && Number(counts.rows[0]?.messages) === 3,
   "durable contest evidence counts mismatch", counts.rows[0]);
+  const quests = new PostgresPlatformEconomyDeliveryRepository(pool);
+  const questBoundary = { verifiedAtOrAfter: at(0) };
+  expect(await quests.reconcileQuestResults("quest-local", questBoundary) === Number(counts.rows[0].results),
+    "completed contest attempts were not delivered independently of personal bests");
+  expect(await quests.reconcileQuestResults("quest-local", questBoundary) === 0, "contest quest retry duplicated");
+  const questJob = await quests.leaseNext("quest-test", at(300_000), 60, { operation: "QUEST_ACTIVITY", includeQuests: true });
+  expect(questJob?.payload.family === "TIME_PUZZLE" && questJob.payload.map_count === 3
+    && questJob.payload.completed_maps === 3 && questJob.payload.subject_id != null,
+    "verified contest facts lost completion detail", questJob);
+  const gauntlet = await restarted.publish(periodInputs.find((input) => input.family === "GAUNTLET")!);
+  const gauntletAttempts: string[] = [];
+  for (const [index, reason] of ["conquest", "elimination", "abandoned"].entries()) {
+    const attempt = (await restarted.enter({ contestId: gauntlet.contestId, playerId: playerA,
+      displayName: "Device A", requestId: `quest-gauntlet-${index}`, nowIso: at(400_000 + index * 1000), grantSecret })).attempt;
+    gauntletAttempts.push(attempt.attemptId);
+    await restarted.commitTrustedResult({ contestId: gauntlet.contestId, attemptId: attempt.attemptId, playerId: playerA,
+      submissionId: `quest-gauntlet-result-${index}`, definitionHash: gauntlet.definitionHash,
+      grantHash: attempt.grantHash, verificationMethod: "SERVER_SIM_V1", evidenceRef: `verified-gauntlet-${index}`,
+      metrics: { stage_evidence: [{ stage_number: 1, map_id: "stage-1", elapsed_ticks: 500,
+        won: false, win_reason: reason, final_state_hash: "a".repeat(64), command_log_hash: "b".repeat(64) }] },
+      qualifiedAt: at(500_000 + index * 1000) });
+  }
+  expect(await quests.reconcileQuestResults("quest-local", questBoundary) === 2,
+    "Gauntlet natural losses must count, abandonment must not");
+  const gauntletJobs = await pool.query<{payload: JsonRecord}>(
+    "SELECT payload FROM vs_platform_economy_deliveries WHERE operation='QUEST_ACTIVITY' AND payload->>'family'='GAUNTLET'");
+  expect(gauntletJobs.rows.length === 2 && gauntletJobs.rows.every((row) => row.payload.natural_finish === true
+    && gauntletAttempts.slice(0, 2).includes(String(row.payload.subject_id))), "Gauntlet attempt evidence lost", gauntletJobs.rows);
   console.log(JSON.stringify({ ok: true, smoke: "public_contest_platform_embedded",
     shared_two_device_board: true, restart_persistence: true, server_time_rollover: true,
     best_per_player: true, trusted_result_boundary: true, local_fixture_isolation: true,

@@ -48,6 +48,7 @@ PlayerIdentityRuntime="*res://scripts/state/player_identity_runtime.gd"
 PublicContestState="*res://scripts/state/public_contest_state.gd"
 VsPvpRuntime="*res://scripts/state/vs_pvp_runtime.gd"
 Gamebot="*res://scripts/autoload/game_boot.gd"
+SavedMatch="*res://scripts/state/saved_match_state.gd"
 
 [display]
 
@@ -87,6 +88,8 @@ ads/fake_ads=false
 ads/show_placeholders=false
 ads/dev_biodynamic_test_ads=false
 ads/dev_biodynamic_image_path="res://assets/ads/test_creatives/biodynamic_laser_cleaning_banner.png"
+ads/dev_biodynamic_video_path="res://assets/ads/test_creatives/biodynamic_mobile_loading_10s.ogv"
+ads/dev_biodynamic_video_destination_url="https://www.biodynamicusa.com"
 ads/dev_biodynamic_destination_url="https://www.biodynamicusa.com"
 ads/dev_biodynamic_open_url_on_tap=false
 vs/backend_url="https://swarmfront-cert-vs.onrender.com/v1"
