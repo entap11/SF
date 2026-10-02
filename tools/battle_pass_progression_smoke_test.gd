@@ -4,6 +4,17 @@ class FakeSimRunner:
 	extends Node
 	signal match_ended(winner_id: int, reason: String)
 
+class SmokeSeasonConfig:
+	extends BattlePassConfig
+	var window_start: int = int(Time.get_unix_time_from_system()) - 86400
+	var window_end: int = int(Time.get_unix_time_from_system()) + 86400
+
+	func get_season_start_unix() -> int:
+		return window_start
+
+	func get_season_end_unix() -> int:
+		return window_end
+
 const PASS_STATE_PATH: String = "user://battle_pass_state.json"
 const PROFILE_PATH: String = "user://profile.cfg"
 
@@ -70,6 +81,21 @@ func _init() -> void:
 	_assert_str_eq(str(snapshot.get("season_id", "")), "sf_s1_2026", "Battle Path should use a fixed productized season id")
 	_assert_eq(int(snapshot.get("season_start_unix", 0)), 1782864000, "Battle Path should use the configured season start")
 	_assert_eq(int(snapshot.get("season_end_unix", 0)), 1790812800, "Battle Path should use the configured season end")
+	# Exercise production progression against an isolated season, regardless of the
+	# wall-clock date. The shipped season configuration remains unchanged.
+	var smoke_season := SmokeSeasonConfig.new()
+	battle_pass_state.set("_config", smoke_season)
+	smoke_season.window_end = int(Time.get_unix_time_from_system()) - 1
+	var expired_result: Dictionary = battle_pass_state.call(
+		"intent_record_pvp_completion", "1V1", false, 0, false,
+		{"event_id": "expired_season", "duration_sec": 120.0}
+	) as Dictionary
+	_assert_true(bool(expired_result.get("suppressed", false)) \
+		and str(expired_result.get("reason", "")) == "season_inactive",
+		"expired season should suppress progression")
+	_assert_eq(int((battle_pass_state.call("get_snapshot") as Dictionary).get("battle_pass_xp", -1)),
+		int(snapshot.get("battle_pass_xp", -2)), "expired season should not award Nectar")
+	smoke_season.window_end = int(Time.get_unix_time_from_system()) + 86400
 	var product_ids: Dictionary = snapshot.get("product_ids", {}) as Dictionary
 	_assert_str_eq(str(product_ids.get("premium", "")), "battle_pass_premium", "premium path should map to the store product")
 	_assert_str_eq(str(product_ids.get("elite", "")), "battle_pass_elite", "elite path should map to the store product")
@@ -248,7 +274,7 @@ func _init() -> void:
 	quit(0)
 
 func _assert_ok(result: Dictionary, label: String) -> void:
-	if bool(result.get("ok", false)):
+	if bool(result.get("ok", false)) and not bool(result.get("suppressed", false)):
 		return
 	push_error("BATTLE_PASS_SMOKE: %s failed -> %s" % [label, result])
 	quit(1)
