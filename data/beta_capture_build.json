@@ -1,10 +1,10 @@
 {
   "build": "2026100201",
-  "source_sha256": "cb4f3af6a8dbbb31fcf530e3e0c135da5f2ee283192f40aab633d8a50397746e",
+  "source_sha256": "1a8f2c82f093b17bb03d9003a47039e1a3ca8f69076bbec1975ac466b337457c",
   "files": {
     "data/battle_pass/battle_pass_config.json": "e821ae36127f7bc63f1ad0814f00f9bc371f37c955696b5e4cca19f412d1d8f6",
     "data/bot_evaluation_build.json": "5fdd04ab49d9b3a49e9dd68002e44fb0498eb12b890112ba7cedb06a2257998d",
-    "data/campaign/starter_v1.json": "a2cadd2608ecd54549bd10994f2063c2c855c12dc2c65eafb5fdda2eed0f61c3",
+    "data/campaign/starter_v1.json": "e2f45e5199d10e96bfb82e87d80bdfd1cbb4a4d4a8d0980b66340f1e5e013c02",
     "data/contest/ContestDef.gd": "1211185385d0d2780682f86c48db95b08b78fb93394b7cd74937e6f4d8fac25b",
     "data/contests/MONTHLY_FREE_0_2025-12.tres": "4d15c8f1e4c8022c167355473c4d819c6f8b6e05221c019ad1b982454bfcd5b4",
     "data/contests/MONTHLY_USD_100_2025-12.tres": "d6036a4db823cb58a0278f5bd27f07ef3e227b06aad112ed5206562e25c0ce30",
