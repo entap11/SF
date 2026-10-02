@@ -37,7 +37,8 @@ def verify_preset():
     preset = config[sections[0]]
     options = config[sections[0] + ".options"]
     require(preset.get("platform") == '"Android"', "Wrong export platform.")
-    require(preset.get("custom_features") == '"store_release"', "Store release safeguards are required.")
+    features = {value.strip() for value in preset.get("custom_features", "").strip('"').split(",")}
+    require("store_release" in features, "Store release safeguards are required.")
     require(options.get("package/unique_name") == '"' + PACKAGE + '"', "Wrong Android application ID.")
     require(options.get("gradle_build/export_format") == "1", "Play export must be an AAB.")
     require(options.get("package/signed") == "false", "Godot must leave signing to the secure AAB launcher.")

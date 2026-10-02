@@ -850,6 +850,10 @@ func _apply_map_mm_background_art_layout() -> void:
 func _start_match_flow() -> void:
 	if _saved_resume_seconds >= 0.0:
 		return
+	# Shell creates the arena before applying its requested map. Resume only once
+	# that map is bound; Shell explicitly restarts this flow after map application.
+	if not SavedMatch.pending.is_empty() and not _saved_resume_map_ready:
+		return
 	var resume_next_stage: bool = bool(SavedMatch.pending.get("launch_only", false))
 	if resume_next_stage:
 		SavedMatch.pending = {}
@@ -1031,6 +1035,7 @@ func _tutorial_arrival_count(hive_id: int, owner_id: int) -> int:
 	return int(tutorial_arrivals_by_hive_owner.get("%d:%d" % [hive_id, owner_id], 0))
 
 func restart_match_flow_for_shell_launch() -> void:
+	_saved_resume_map_ready = true
 	_start_match_flow()
 
 func _start_match_flow_deferred() -> void:
@@ -4527,6 +4532,8 @@ func _fade_prematch_countdown() -> void:
 	tween.finished.connect(_finish_prematch)
 
 func _finish_prematch() -> void:
+	if not SavedMatch.pending.is_empty() and not _saved_resume_map_ready:
+		return
 	if _capture_flag_selection_pending_for_local():
 		var timeout_result: Dictionary = OpsState.call("auto_complete_capture_flag_selection", _resolve_local_owner_id()) as Dictionary
 		if bool(timeout_result.get("ok", false)):
@@ -4705,7 +4712,7 @@ func _pool_runtime_telemetry_snapshot() -> Dictionary:
 	return totals
 
 func _start_match_sim(reason: String) -> void:
-	if _match_started:
+	if _match_started or not SavedMatch.pending.is_empty():
 		return
 	_startup_hitch_mark("simulation_activation_requested", {"reason": reason})
 	_match_started = true
@@ -16675,6 +16682,7 @@ func _has_prop(obj: Object, prop_name: String) -> bool:
 
 
 var _saved_resume_seconds: float = -1.0
+var _saved_resume_map_ready: bool = false
 var _saved_resume_clock_ms: int = -1
 var _saved_resume_layer: CanvasLayer
 var _saved_resume_label: Label

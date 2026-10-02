@@ -15,6 +15,8 @@ func check(ok: bool, message: String) -> void:
 		push_error("SAVED_MATCH_FLOW: " + message)
 
 func _run() -> void:
+	SFLog.force_enable()
+	SFLog.allow_tag("SAVED_MATCH_RESTORE_REJECTED")
 	if not OS.get_user_data_dir().contains("SwarmfrontSavedMatchChecks-"):
 		push_error("Use tools/run_saved_match_checks.py to isolate player data.")
 		quit(2)
@@ -83,7 +85,7 @@ func _restore() -> void:
 	var response: Dictionary = saves.request_resume(str(expected.id))
 	check(response.ok, "saved game launch accepted: " + str(response))
 	if not response.ok or not await _wait_running():
-		check(false, "restored game loads")
+		check(false, "restored game loads: " + saves.last_error)
 		return
 	var arena: Node = current_scene.find_child("Arena", true, false)
 	check(ops.get_contract_state_hash() == str(expected.hash), "new process restores exact board hash (tick %d)" % ops.state.tick)

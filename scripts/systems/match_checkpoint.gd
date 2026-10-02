@@ -26,7 +26,11 @@ static func capture(runner: Node, ops: Node) -> Dictionary:
 	}
 
 static func restore(runner: Node, ops: Node, saved: Dictionary) -> bool:
-	if saved.get("authority", {}).is_empty() or ops.state == null:
+	if saved.get("authority", {}).is_empty():
+		SFLog.error("SAVED_MATCH_RESTORE_REJECTED", {"reason": "missing_authority", "keys": saved.keys()})
+		return false
+	if ops.state == null:
+		SFLog.error("SAVED_MATCH_RESTORE_REJECTED", {"reason": "missing_live_state"})
 		return false
 	runner.set_running(false, "saved_match_restore")
 	if not ops.restore_authority_snapshot(saved.authority, false):

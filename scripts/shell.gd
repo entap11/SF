@@ -1403,8 +1403,8 @@ func _apply_map_then_start(map_path: String, tutorial_section: String = "") -> v
 	if TRACE_SHELL_LOGS: print("APPLY_MAP_THEN_START 050_CALLING_ACTION", {"action": "start_game", "map_path": map_path})
 	_start_game()
 	if TRACE_SHELL_LOGS: print("APPLY_MAP_THEN_START 060_ACTION_RETURNED", {"action": "start_game"})
-	if not clean_tutorial_section.is_empty():
-		call_deferred("_restart_arena_match_flow_for_shell_tutorial")
+	if not clean_tutorial_section.is_empty() or not SavedMatch.pending.is_empty():
+		call_deferred("_restart_arena_match_flow_for_shell_launch")
 	call_deferred("_verify_map_applied_and_start", map_path)
 	SFLog.info("APPLY_MAP_THEN_START_DONE", {"map_path": map_path})
 
@@ -2421,7 +2421,7 @@ func _resolve_runtime_arena_node() -> Node:
 		return null
 	return _arena_instance.get_node_or_null("WorldCanvasLayer/WorldViewportContainer/WorldViewport/Arena")
 
-func _restart_arena_match_flow_for_shell_tutorial() -> void:
+func _restart_arena_match_flow_for_shell_launch() -> void:
 	await get_tree().process_frame
 	var arena_node: Node = _resolve_runtime_arena_node()
 	if arena_node != null and arena_node.has_method("restart_match_flow_for_shell_launch"):
