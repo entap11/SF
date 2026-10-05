@@ -20,6 +20,8 @@ func _run() -> void:
 	if str(analytics_health.get("status", "")).is_empty():
 		return _fail("payload missing analytics health")
 	var text: String = JSON.stringify(payload)
+	if str(payload.get("ads", {}).get("scope", "")) != "app_session":
+		return _fail("payload missing ad diagnostics")
 	if text.contains("\"user_id\"") or text.contains("\"player_id\""):
 		return _fail("payload should not expose raw user/player id by default")
 	print("SUPPORT_DIAGNOSTICS_PAYLOAD_SMOKE: PASS")

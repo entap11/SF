@@ -1,11 +1,12 @@
 extends Node2D
 
+const CombatReadability := preload("res://scripts/renderers/combat_readability.gd")
 const BEE_TEXTURE: Texture2D = preload("res://assets/sprites/sf_skin_v1/mvp_unit2.png")
 
 const MAX_VISIBLE_BEES: int = 9
 const NUMBER_LABEL_SIZE: Vector2 = Vector2(93.6, 60.0)
 const NUMBER_FONT_SIZE: int = 38
-const BEE_SIZE_PX: float = 43.2
+const BEE_SIZE_PX: float = 43.2 * CombatReadability.BEE_SIZE_MULTIPLIER
 const BEE_OUTLINE_SCALE_MULT: float = 1.32
 const BEE_OUTLINE_COLOR: Color = Color(0.02, 0.02, 0.03, 0.98)
 const BEE_GLOW_SCALE_MULT: float = 1.72

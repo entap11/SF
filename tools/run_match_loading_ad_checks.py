@@ -46,7 +46,8 @@ renderer/rendering_method="gl_compatibility"
             env['SF_LOADING_TEST_VIDEO'] = str(args.video_path.resolve())
         tests = ['match_loading_ads_smoke_test', 'ad_manager_smoke_test',
                  'ad_surface_measurement_smoke_test', 'ad_clipboard_smoke_test',
-                 'biodynamic_loading_ad_smoke_test']
+                 'biodynamic_loading_ad_smoke_test', 'ad_biodynamic_creative_smoke_test',
+                 'beta_banner_ads_smoke_test']
         if args.visual_dir:
             tests.append('match_loading_preview')
             tests.append('biodynamic_loading_preview')

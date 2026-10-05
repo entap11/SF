@@ -6,7 +6,11 @@ class_name SimTuning
 extends RefCounted
 
 const UNIT_TRAVEL_MS := 4800.0
-const UNIT_SPEED_PX_PER_SEC := 194.04
+# Base movement is 15% above the previous 194.04 px/s.
+const UNIT_SPEED_PX_PER_SEC := 223.146
+const MATCH_SPEED_BASE := "base"
+const MATCH_SPEED_FAST := "fast"
+const FAST_UNIT_SPEED_MULTIPLIER := 1.5
 const LANE_ESTABLISH_MS := 2400.0
 const BASE_SPAWN_MS := 1500.0
 const PER_POWER_MS := 2.0
@@ -22,3 +26,9 @@ const MAX_POWER := 50
 const LANE_FLOW_LOGS := true
 const LANE_TICK_LOGS := false
 const LANE_DUMP_INTERVAL_MS := 1000.0
+
+static func is_valid_match_speed(mode: String) -> bool:
+	return mode == MATCH_SPEED_BASE or mode == MATCH_SPEED_FAST
+
+static func unit_speed_for_mode(mode: String) -> float:
+	return UNIT_SPEED_PX_PER_SEC * (FAST_UNIT_SPEED_MULTIPLIER if mode == MATCH_SPEED_FAST else 1.0)

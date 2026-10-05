@@ -166,7 +166,7 @@ func _spawn_swarm(src_id: int, dst_id: int) -> void:
 func _update_swarms(dt: float, unit_system: UnitSystem) -> void:
 	if swarm_packets.is_empty():
 		return
-	var speed_px := float(SimTuning.UNIT_SPEED_PX_PER_SEC) * SWARM_SPEED_MULT
+	var speed_px := state.unit_speed_px_per_sec() * SWARM_SPEED_MULT
 	for i in range(swarm_packets.size() - 1, -1, -1):
 		var packet: Dictionary = swarm_packets[i]
 		var from_pos_v: Variant = packet.get("from_pos")

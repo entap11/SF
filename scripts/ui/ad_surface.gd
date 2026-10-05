@@ -355,7 +355,11 @@ func _sync_creative_texture() -> bool:
 		_creative_texture_rect.visible = false
 		return false
 	if image_path != _loaded_creative_path or _creative_texture_rect.texture == null:
+		var started_usec: int = Time.get_ticks_usec()
 		var texture: Texture2D = _load_creative_texture(image_path)
+		var manager: Node = _ad_manager()
+		if manager != null and manager.has_method("record_creative_load"):
+			manager.call("record_creative_load", slot_id, Time.get_ticks_usec() - started_usec, texture != null)
 		_creative_texture_rect.texture = texture
 		_loaded_creative_path = image_path if texture != null else ""
 	_creative_texture_rect.visible = _creative_texture_rect.texture != null

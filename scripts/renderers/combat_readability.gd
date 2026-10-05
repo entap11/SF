@@ -3,6 +3,9 @@ extends RefCounted
 
 const SETTING := "swarmfront/arena/combat_readability_enabled"
 
+# Shared sprite-size adjustment for ordinary bees and swarm bees.
+const BEE_SIZE_MULTIPLIER: float = 1.2
+
 # Presentation-only sizing: modest detail increase over the initial readability pass.
 const UNIT_SCALE: float = 0.78 * 1.225
 const HIVE_ART_SCALE: float = 0.86 * 1.15

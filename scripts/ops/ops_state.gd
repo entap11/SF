@@ -10,6 +10,7 @@ const MAP_LOADER = preload("res://scripts/maps/map_loader.gd")
 const MAP_REGISTRY = preload("res://scripts/maps/map_registry.gd")
 const BotTelemetryStoreScript := preload("res://scripts/state/bot_telemetry_store.gd")
 const AuthoritativeBuffSystem := preload("res://scripts/sim/authoritative_buff_system.gd")
+const SimTuning := preload("res://scripts/sim/sim_tuning.gd")
 
 signal map_selected(map_id: String)
 signal state_changed(state: GameState)
@@ -434,6 +435,7 @@ func get_authority_snapshot() -> Dictionary:
 		"bot_match_seed": bot_match_seed,
 		"lane_front_by_lane_id": lane_front_by_lane_id.duplicate(true),
 		"state": {
+			"match_speed_mode": st.match_speed_mode,
 			"buff_match_id": st.buff_match_id,
 			"buff_effects_by_activation_id": st.buff_effects_by_activation_id.duplicate(true),
 			"buff_active_by_owner_category": st.buff_active_by_owner_category.duplicate(true),
@@ -475,10 +477,14 @@ func restore_authority_snapshot(snapshot: Dictionary, notify_listeners: bool = t
 	if typeof(state_any) != TYPE_DICTIONARY:
 		return false
 	var state_snapshot: Dictionary = state_any as Dictionary
+	var restored_speed_mode: String = str(state_snapshot.get("match_speed_mode", SimTuning.MATCH_SPEED_BASE))
+	if not SimTuning.is_valid_match_speed(restored_speed_mode):
+		return false
 	var st: GameState = state
 	if st == null:
 		st = GameState.new()
 		state = st
+	st.match_speed_mode = restored_speed_mode
 	var unit_system: Object = st.unit_system
 	current_map_id = str(snapshot.get("current_map_id", current_map_id))
 	match_phase = int(snapshot.get("match_phase", match_phase))
@@ -656,6 +662,7 @@ func _build_pvp_debug_state_signature() -> String:
 	if st == null:
 		parts.append("state=null")
 		return "|".join(parts)
+	parts.append("match_speed=%s" % st.match_speed_mode)
 	var hive_rows: Array = []
 	var hive_counts: Dictionary = {}
 	for hive_any in st.hives:
@@ -878,6 +885,7 @@ func _build_contract_state_signature() -> String:
 		return "state:null"
 	var parts: Array[String] = []
 	parts.append("map=%s" % current_map_id)
+	parts.append("match_speed=%s" % st.match_speed_mode)
 	parts.append("tick=%d" % int(st.tick))
 	parts.append("sim_us=%d" % int(st.get("_sim_time_us")))
 	parts.append("next_lane_generation=%d" % int(st.next_lane_generation))
@@ -4419,6 +4427,20 @@ func _lane_mode(a: HiveData, b: HiveData) -> String:
 	if ao == bo:
 		return "friendly"
 	return "opposing"
+
+func configure_match_speed(mode: String) -> Dictionary:
+	if _guard_mutation("configure_match_speed"):
+		return {"ok": false, "reason": "render_export_active"}
+	if not SimTuning.is_valid_match_speed(mode):
+		return {"ok": false, "reason": "invalid_speed_mode"}
+	if state == null:
+		return {"ok": false, "reason": "missing_game_state"}
+	if match_phase != MatchPhase.PREMATCH or state.tick != 0 or state._sim_time_us != 0 or match_clock_started:
+		return {"ok": false, "reason": "match_already_started"}
+	if state.match_speed_mode != mode:
+		state.match_speed_mode = mode
+		SFLog.info("MATCH_SPEED_CONFIGURED", {"mode": mode, "unit_speed_px_per_sec": state.unit_speed_px_per_sec()})
+	return {"ok": true, "speed_mode": state.match_speed_mode, "unit_speed_px_per_sec": state.unit_speed_px_per_sec()}
 
 func reset_state_from_map(map_dict: Dictionary) -> GameState:
 	if _guard_mutation("reset_state_from_map"):

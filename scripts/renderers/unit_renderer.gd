@@ -3928,6 +3928,7 @@ func _submit_unit_multimesh_instance(
 	var idx: int = int(batch.get("count", 0))
 	_ensure_unit_batch_capacity(batch, idx + 1)
 	var scale: Vector2 = batch.get("scale", Vector2.ONE)
+	scale *= CombatReadability.BEE_SIZE_MULTIPLIER
 	var adjusted_pos: Vector2 = pos
 	var reveal: float = _unit_emergence_reveal(ud, hive_by_id, pos, dir_local)
 	if reveal < UNIT_EMERGENCE_FULL_EPS:
@@ -4169,6 +4170,7 @@ func _apply_swarm_absorb_visual(node: Node2D, unit_id: int, unit_data: Dictionar
 		return render_pos
 	var readability_alpha: float = _readability_unit_alpha(unit_data)
 	var readability_scale: float = CombatReadability.UNIT_SCALE if CombatReadability.is_enabled() else 1.0
+	readability_scale *= CombatReadability.BEE_SIZE_MULTIPLIER
 	node.scale = Vector2.ONE * readability_scale
 	node.modulate = Color(1.0, 1.0, 1.0, readability_alpha)
 	if not SWARM_ABSORB_VISUAL_ENABLED or unit_data.is_empty() or swarm_nodes_by_id.is_empty():
@@ -4276,7 +4278,7 @@ func _draw() -> void:
 					"path": str(resolved_path)
 				})
 		if tex != null:
-			var size_px := debug_force_big_radius_px * 2.0 * scale * UNIT_RENDER_SCALE
+			var size_px := debug_force_big_radius_px * 2.0 * scale * UNIT_RENDER_SCALE * CombatReadability.BEE_SIZE_MULTIPLIER
 			var size := Vector2(size_px, size_px)
 			var rect := Rect2(pos_v - size * 0.5 + offset, size)
 			draw_texture_rect(tex, rect, false)

@@ -83,6 +83,8 @@ var _arrival_q: Dictionary = {}
 var _sim_time_us: int = 0
 var hive_spawn_block_until_us: Dictionary = {}
 var tick: int = 0
+# Match-level movement rule, configured by OpsState before simulation begins.
+var match_speed_mode: String = SimTuning.MATCH_SPEED_BASE
 var buff_match_id: String = ""
 var buff_effects_by_activation_id: Dictionary = {}
 var buff_active_by_owner_category: Dictionary = {}
@@ -131,6 +133,9 @@ var _lane_flow_profile_max_ticks: int = 2048
 
 func _init() -> void:
 	tower_owner_by_node_id = structure_owner_by_node_id
+
+func unit_speed_px_per_sec() -> float:
+	return SimTuning.unit_speed_for_mode(match_speed_mode)
 
 func set_lane_flow_profile_enabled(enabled: bool, reset: bool = true) -> void:
 	lane_flow_profile_enabled = enabled
@@ -278,6 +283,7 @@ func reset_map_only() -> void:
 	hive_spawn_block_until_us.clear()
 	_lane_spawn_disabled_logged = false
 	tick = 0
+	match_speed_mode = SimTuning.MATCH_SPEED_BASE
 	buff_match_id = ""
 	buff_effects_by_activation_id.clear()
 	buff_active_by_owner_category.clear()
@@ -1441,7 +1447,7 @@ func _tick_lane(lane: LaneData, dt_ms: float, allow_spawns: bool) -> void:
 	_cancel_lane_pressure(lane)
 	_lane_flow_profile_add_stage("cancel_pressure", cancel_start_usec)
 
-	var speed_px_per_ms: float = float(SimTuning.UNIT_SPEED_PX_PER_SEC) / 1000.0
+	var speed_px_per_ms: float = unit_speed_px_per_sec() / 1000.0
 	var stream_start_usec := Time.get_ticks_usec()
 	_advance_lane_stream(lane, lane_len, speed_px_per_ms, dt_ms)
 	_lane_flow_profile_add_stage("issue_movement_updates", stream_start_usec)
@@ -1790,7 +1796,7 @@ func _arrival_q_for(lane_id: int) -> Dictionary:
 func _schedule_arrival(lane: LaneData, side: String, lane_len: float) -> void:
 	if unit_system != null and unit_system.use_lane_system_spawns:
 		return
-	var speed_px_per_ms: float = float(SimTuning.UNIT_SPEED_PX_PER_SEC) / 1000.0
+	var speed_px_per_ms: float = unit_speed_px_per_sec() / 1000.0
 	var travel_ms: float = lane_len / maxf(0.001, speed_px_per_ms)
 	var eta_us := _sim_time_us + int(round(travel_ms * 1000.0))
 	if SimTuning.LANE_FLOW_LOGS:
@@ -1798,7 +1804,7 @@ func _schedule_arrival(lane: LaneData, side: String, lane_len: float) -> void:
 			"lane_id": int(lane.id),
 			"side": side,
 			"lane_len": lane_len,
-			"speed_px_s": float(SimTuning.UNIT_SPEED_PX_PER_SEC),
+			"speed_px_s": unit_speed_px_per_sec(),
 			"travel_ms": travel_ms,
 			"now_us": _sim_time_us,
 			"eta_us": eta_us,

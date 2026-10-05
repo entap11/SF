@@ -99,6 +99,9 @@ func _save(status: String, winner: int, wait_previous: bool) -> void:
 	_context["status"] = status
 	_context["winner_seat"] = maxi(0, winner)
 	_context["sim_ms"] = maxi(0, int(OpsState.match_elapsed_ms))
+	var ads := get_node_or_null("/root/AdManager")
+	if ads != null:
+		_context.metadata["ad_diagnostics"] = ads.call("get_diagnostics_snapshot")
 	var snapshot: Dictionary = _collector.call("beta_capture_snapshot", _context)
 	var path := ROOT.path_join(str(_context.owner_key)).path_join(str(_context.capture_id) + ".json.gz")
 	_writer = Thread.new()

@@ -3,6 +3,8 @@ extends SceneTree
 const AdSurfaceScript := preload("res://scripts/ui/ad_surface.gd")
 
 const CREATIVE_IMAGE_PATH: String = "res://assets/ads/test_creatives/biodynamic_laser_cleaning_banner.png"
+const TOP_IMAGE_PATH: String = "res://assets/ads/test_creatives/biodynamic_top_banner.png"
+const BOTTOM_IMAGE_PATH: String = "res://assets/ads/test_creatives/biodynamic_bottom_banner.png"
 const DESTINATION_URL: String = "https://www.biodynamicusa.com"
 
 func _init() -> void:
@@ -16,8 +18,15 @@ func _run() -> void:
 	if manager == null:
 		_fail("AdManager autoload missing")
 		return
+	var config_node: Node = root.get_node("OpsConfig")
+	var config: Dictionary = config_node.call("get_config_snapshot")
+	config["feature_flags"]["enable_ads"] = true
+	config["ads"]["external_ads_enabled"] = true
+	config_node.call("force_config_for_smoke", config, "remote_fresh")
 	ProjectSettings.set_setting("swarmfront/ads/dev_biodynamic_test_ads", true)
 	ProjectSettings.set_setting("swarmfront/ads/dev_biodynamic_image_path", CREATIVE_IMAGE_PATH)
+	ProjectSettings.set_setting("swarmfront/ads/dev_biodynamic_top_image_path", TOP_IMAGE_PATH)
+	ProjectSettings.set_setting("swarmfront/ads/dev_biodynamic_bottom_image_path", BOTTOM_IMAGE_PATH)
 	ProjectSettings.set_setting("swarmfront/ads/dev_biodynamic_destination_url", DESTINATION_URL)
 	ProjectSettings.set_setting("swarmfront/ads/dev_biodynamic_open_url_on_tap", false)
 	if manager.has_method("clear_measurement_events"):
@@ -33,7 +42,8 @@ func _run() -> void:
 	var cases: Array[Dictionary] = [
 		{"slot": "prematch_handshake", "placement": "handshake", "size": Vector2(468.0, 60.0)},
 		{"slot": "vs_handshake", "placement": "handshake", "size": Vector2(468.0, 60.0)},
-		{"slot": "in_game_hud", "placement": "in_game", "size": Vector2(320.0, 50.0)},
+		{"slot": "in_game_hud", "placement": "in_game", "size": Vector2(320.0, 50.0), "image": TOP_IMAGE_PATH},
+		{"slot": "in_game_footer", "placement": "in_game", "size": Vector2(320.0, 50.0), "image": BOTTOM_IMAGE_PATH},
 		{"slot": "post_match_summary", "placement": "post_match", "size": Vector2(520.0, 72.0)}
 	]
 	var surfaces: Array[Control] = []
@@ -65,6 +75,13 @@ func _run() -> void:
 			_fail("%s should be image-only, but label is visible" % slot_id)
 			return
 		var state: Dictionary = manager.call("get_slot_state", slot_id) as Dictionary
+		var creative: Dictionary = state.get("creative", {}) as Dictionary
+		if str(creative.get("image_path", "")) != str(case.get("image", CREATIVE_IMAGE_PATH)):
+			_fail("%s should select its assigned banner" % slot_id)
+			return
+		if str(creative.get("destination_url", "")) != DESTINATION_URL:
+			_fail("%s should retain the Biodynamic destination" % slot_id)
+			return
 		if int(state.get("impressions", 0)) != 1:
 			_fail("%s should record one viewable impression" % slot_id)
 			return

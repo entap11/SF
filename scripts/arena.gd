@@ -16055,7 +16055,7 @@ func _unit_speed_px(owner_id: int, lane_id: int) -> float:
 	return speed
 
 func _base_unit_speed_px() -> float:
-	return float(SimTuning.UNIT_SPEED_PX_PER_SEC)
+	return state.unit_speed_px_per_sec() if state != null else float(SimTuning.UNIT_SPEED_PX_PER_SEC)
 
 func _lane_slow_pct_for_unit(owner_id: int, lane_id: int) -> float:
 	if lane_id <= 0:

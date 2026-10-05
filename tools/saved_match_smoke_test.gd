@@ -84,6 +84,7 @@ func _test_simulation_restart() -> void:
 		{"id": 3, "x": 0, "y": 6, "owner_id": 1, "power": 20, "kind": "Hive"}],
 		"lane_candidates": [{"a_id": 1, "b_id": 2}, {"a_id": 1, "b_id": 3}, {"a_id": 2, "b_id": 3}]}
 	ops.reset_state_from_map(map)
+	check(ops.configure_match_speed("fast").ok, "fast mode configured before save/resume simulation")
 	ops.match_phase = 1
 	ops.input_locked = false
 	ops.set_team_mode_override("ffa")
@@ -112,6 +113,7 @@ func _test_simulation_restart() -> void:
 	runner = _new_runner()
 	var restored: Dictionary = store.read("alice", "simulation")
 	check(runner.restore_match_checkpoint(restored.sim), "restore into fresh map and systems")
+	check(ops.state.match_speed_mode == "fast", "fast mode survives disk save and fresh-system restore")
 	check(ops.get_contract_state_hash() == hash_before, "exact authoritative state restored")
 	check(ops.match_elapsed_ms == elapsed and not runner.running and ops.match_clock_paused, "clock and simulation frozen for countdown")
 	check(abs(ops.match_deadline_ms - Time.get_ticks_msec() - ops.match_remaining_ms) < 30, "uptime deadline rebased")

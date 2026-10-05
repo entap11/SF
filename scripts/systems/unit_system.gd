@@ -416,9 +416,10 @@ func _spawn_unit(from_hive: HiveData, to_hive: HiveData, lane: LaneData, from_is
 func _update_units(dt: float) -> void:
 	if units.is_empty():
 		return
+	var base_delta_px: float = _base_unit_speed_px_per_sec() * dt
 	for i in range(units.size()):
 		var unit: Dictionary = units[i] as Dictionary
-		var delta_px: float = float(SimTuning.UNIT_SPEED_PX_PER_SEC) * dt * (float(int(unit.get("speed_permille", 1000))) / 1000.0)
+		var delta_px: float = base_delta_px * (float(int(unit.get("speed_permille", 1000))) / 1000.0)
 		unit = _ensure_unit_edges(unit)
 		var dir := _unit_dir(unit)
 		var lane_len := _unit_lane_len(unit)
@@ -1341,7 +1342,7 @@ func _drain_swarm_overflow() -> void:
 	if state == null or state.swarm_overflow_batches.is_empty():
 		return
 	var now_us: int = int(state._sim_time_us)
-	var interval_us: int = maxi(1, int(ceil(SWARM_OVERFLOW_TRAIN_SPACING_PX * 1000000.0 / SimTuning.UNIT_SPEED_PX_PER_SEC)))
+	var interval_us: int = maxi(1, int(ceil(SWARM_OVERFLOW_TRAIN_SPACING_PX * 1000000.0 / _base_unit_speed_px_per_sec())))
 	# Arrival order is stable. A single emission clock per hive prevents two
 	# expired batches from placing bees on top of one another.
 	for batch in state.swarm_overflow_batches:
@@ -1408,7 +1409,7 @@ func _pass_through_avg_travel_time_sec(hive: HiveData) -> float:
 	var targets: Array = _pass_through_targets(hive)
 	if targets.is_empty():
 		return 0.0
-	var speed_px_s: float = maxf(1.0, float(SimTuning.UNIT_SPEED_PX_PER_SEC))
+	var speed_px_s: float = maxf(1.0, _base_unit_speed_px_per_sec())
 	var travel_sum_s: float = 0.0
 	var valid_count: int = 0
 	for target_any in targets:
@@ -2369,8 +2370,11 @@ func spawn_render_unit(lane_id: int, a_id: int, b_id: int, owner_id: int, from_s
 	})
 	_next_uid += 1
 
+func _base_unit_speed_px_per_sec() -> float:
+	return state.unit_speed_px_per_sec() if state != null else float(SimTuning.UNIT_SPEED_PX_PER_SEC)
+
 func tick_render_units(dt: float) -> void:
-	var delta_px := float(SimTuning.UNIT_SPEED_PX_PER_SEC) * dt
+	var delta_px := _base_unit_speed_px_per_sec() * dt
 	for i in range(render_units.size() - 1, -1, -1):
 		var u: Dictionary = render_units[i] as Dictionary
 		var dir := int(u.get("dir", 1))

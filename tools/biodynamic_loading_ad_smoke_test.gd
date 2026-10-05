@@ -74,7 +74,7 @@ func _run() -> void:
 		_expect(state.get("reason", "") == "completed", "video must finish normally, not time out")
 		_expect(int(state.get("impressions", 0)) == 1, "video must record one viewable impression")
 	var banner: Dictionary = manager.call("request_ad", "in_game_hud", "in_game")
-	_expect(banner.get("creative", {}).get("image_path", "").ends_with("biodynamic_laser_cleaning_banner.png"), "in-game slot must continue to use the static banner")
+	_expect(banner.get("creative", {}).get("image_path", "").ends_with("biodynamic_top_banner.png"), "in-game top slot must use its static banner")
 	_expect(not banner.get("creative", {}).has("video_path"), "in-game slots must never receive the loading video")
 	if not preview:
 		profile.zero_ads = true

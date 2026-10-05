@@ -10,7 +10,11 @@ const FAKE_ADS_ENV: String = "SF_FAKE_ADS"
 const DEV_BIODYNAMIC_ADS_ENV: String = "SF_BIODYNAMIC_TEST_ADS"
 const SETTINGS_FAKE_ADS: String = "swarmfront/ads/fake_ads"
 const SETTINGS_DEV_BIODYNAMIC_ADS: String = "swarmfront/ads/dev_biodynamic_test_ads"
+const SETTINGS_BETA_BIODYNAMIC_BANNERS: String = "swarmfront/ads/beta_biodynamic_banners"
+const MAX_MEASUREMENT_EVENTS: int = 256
 const SETTINGS_DEV_BIODYNAMIC_IMAGE_PATH: String = "swarmfront/ads/dev_biodynamic_image_path"
+const SETTINGS_DEV_BIODYNAMIC_TOP_IMAGE_PATH: String = "swarmfront/ads/dev_biodynamic_top_image_path"
+const SETTINGS_DEV_BIODYNAMIC_BOTTOM_IMAGE_PATH: String = "swarmfront/ads/dev_biodynamic_bottom_image_path"
 const SETTINGS_DEV_BIODYNAMIC_VIDEO_PATH: String = "swarmfront/ads/dev_biodynamic_video_path"
 const SETTINGS_DEV_BIODYNAMIC_VIDEO_DESTINATION_URL: String = "swarmfront/ads/dev_biodynamic_video_destination_url"
 const SETTINGS_DEV_BIODYNAMIC_DESTINATION_URL: String = "swarmfront/ads/dev_biodynamic_destination_url"
@@ -20,6 +24,8 @@ const CONTENT_MODE_INTERNAL_TICKER: String = "internal_ticker"
 const CONTENT_MODE_HIDDEN: String = "hidden"
 const MEASUREMENT_SCHEMA_VERSION: int = 1
 const DEV_BIODYNAMIC_DEFAULT_IMAGE_PATH: String = "res://assets/ads/test_creatives/biodynamic_laser_cleaning_banner.png"
+const DEV_BIODYNAMIC_DEFAULT_TOP_IMAGE_PATH: String = "res://assets/ads/test_creatives/biodynamic_top_banner.png"
+const DEV_BIODYNAMIC_DEFAULT_BOTTOM_IMAGE_PATH: String = "res://assets/ads/test_creatives/biodynamic_bottom_banner.png"
 const DEV_BIODYNAMIC_DEFAULT_VIDEO_PATH: String = "res://assets/ads/test_creatives/biodynamic_mobile_loading_10s.ogv"
 const DEV_BIODYNAMIC_DEFAULT_DESTINATION_URL: String = "https://www.biodynamicusa.com"
 
@@ -31,11 +37,13 @@ var _event_sequence: int = 0
 var _provider_is_dev_test: bool = false
 var _saved_match_ads: Array[Dictionary] = []
 var _saved_ads_match_key := ""
+var _diagnostic_slots: Dictionary = {}
 
 class DevBiodynamicTestProvider:
 	extends RefCounted
 
 	var image_path: String = ""
+	var slot_image_paths: Dictionary = {}
 	var video_path: String = ""
 	var video_destination_url: String = ""
 	var destination_url: String = ""
@@ -63,12 +71,14 @@ class DevBiodynamicTestProvider:
 					"title": "Biodynamic Restoration",
 					"campaign_id": "biodynamic_local_dev",
 					"provider": "dev_biodynamic_test_provider",
+					"is_test": true,
 					"video_path": video_path,
 					"destination_url": video_destination_url,
 					"placement": placement,
 				},
 			}
-		if image_path.is_empty() or not FileAccess.file_exists(image_path):
+		var selected_image_path: String = str(slot_image_paths.get(slot_id, image_path))
+		if selected_image_path.is_empty() or not (ResourceLoader.exists(selected_image_path) or FileAccess.file_exists(selected_image_path)):
 			return {"ok": true, "filled": false, "reason": "creative_missing", "policy": policy}
 		return {
 			"ok": true,
@@ -78,7 +88,8 @@ class DevBiodynamicTestProvider:
 				"id": "dev_biodynamic_%s" % slot_id,
 				"campaign_id": "biodynamic_local_dev",
 				"provider": "dev_biodynamic_test_provider",
-				"image_path": image_path,
+				"is_test": true,
+				"image_path": selected_image_path,
 				"destination_url": destination_url,
 				"placement": placement
 			}
@@ -86,6 +97,8 @@ class DevBiodynamicTestProvider:
 
 	func record_ad_event(event: Dictionary) -> void:
 		recorded_events.append(event.duplicate(true))
+		if recorded_events.size() > MAX_MEASUREMENT_EVENTS:
+			recorded_events.pop_front()
 
 	func open_ad(slot_record: Dictionary, _event: Dictionary) -> Dictionary:
 		var creative: Dictionary = slot_record.get("creative", {}) as Dictionary
@@ -129,7 +142,8 @@ func get_policy(slot_id: String, placement: String) -> Dictionary:
 	var placement_allowed: bool = _is_approved_placement(clean_placement)
 	var zero_ads: bool = _has_zero_ads_entitlement()
 	var family_safe_only: bool = _requires_family_safe_ads()
-	var external_ads_allowed: bool = placement_allowed and not zero_ads and _external_ads_enabled()
+	var beta_banner: bool = _provider_is_dev_test and _beta_biodynamic_banners_enabled() and clean_placement == PLACEMENT_IN_GAME and clean_slot in ["in_game_hud", "in_game_footer"]
+	var external_ads_allowed: bool = placement_allowed and not zero_ads and (_external_ads_enabled() or beta_banner)
 	var house_ads_allowed: bool = placement_allowed and _house_ads_enabled()
 	return {
 		"allowed": external_ads_allowed,
@@ -356,6 +370,7 @@ func get_provider_debug_snapshot() -> Dictionary:
 	if _provider_is_dev_test and _provider is DevBiodynamicTestProvider:
 		var dev_provider: DevBiodynamicTestProvider = _provider as DevBiodynamicTestProvider
 		out["image_path"] = dev_provider.image_path
+		out["slot_image_paths"] = dev_provider.slot_image_paths.duplicate()
 		out["video_path"] = dev_provider.video_path
 		out["video_destination_url"] = dev_provider.video_destination_url
 		out["destination_url"] = dev_provider.destination_url
@@ -363,6 +378,25 @@ func get_provider_debug_snapshot() -> Dictionary:
 		out["opened_urls"] = dev_provider.opened_urls.duplicate()
 		out["recorded_event_count"] = dev_provider.recorded_events.size()
 	return out
+
+func get_diagnostics_snapshot() -> Dictionary:
+	# Session totals and event-time costs only; no frame loop or player identifiers.
+	return {
+		"scope": "app_session",
+		"beta_banners_enabled": _beta_biodynamic_banners_enabled(),
+		"test_provider_installed": _provider_is_dev_test,
+		"retained_measurement_events": _measurement_events.size(),
+		"measurement_event_limit": MAX_MEASUREMENT_EVENTS,
+		"slots": _diagnostic_slots.duplicate(true),
+	}
+
+func record_creative_load(slot_id: String, elapsed_usec: int, succeeded: bool) -> void:
+	var stats: Dictionary = _diagnostic_slots.get(slot_id, {})
+	stats["texture_loads"] = int(stats.get("texture_loads", 0)) + 1
+	stats["texture_load_failures"] = int(stats.get("texture_load_failures", 0)) + (0 if succeeded else 1)
+	stats["last_texture_load_ms"] = float(elapsed_usec) / 1000.0
+	stats["max_texture_load_ms"] = maxf(float(stats.get("max_texture_load_ms", 0.0)), float(elapsed_usec) / 1000.0)
+	_diagnostic_slots[slot_id] = stats
 
 func get_house_ticker_items() -> Array[String]:
 	var ops_config: Node = get_node_or_null("/root/OpsConfig")
@@ -394,6 +428,8 @@ func _apply_surface_fill(surface: Control, filled: bool) -> void:
 func _record_measurement_event(event_type: String, record: Dictionary, context: Dictionary = {}) -> Dictionary:
 	var event: Dictionary = _build_measurement_event(event_type, record, context)
 	_measurement_events.append(event)
+	if _measurement_events.size() > MAX_MEASUREMENT_EVENTS:
+		_measurement_events.pop_front()
 	_forward_measurement_event(event)
 	return event
 
@@ -415,7 +451,7 @@ func _build_measurement_event(event_type: String, record: Dictionary, context: D
 		"policy": policy.duplicate(true),
 		"creative": creative.duplicate(true),
 		"context": context.duplicate(true),
-		"client_billable_candidate": event_type == "impression" or event_type == "tap",
+		"client_billable_candidate": not bool(creative.get("is_test", false)) and (event_type == "impression" or event_type == "tap"),
 		"billing_authority": "provider_or_server"
 	}
 	return event
@@ -494,9 +530,15 @@ func _install_dev_biodynamic_provider_if_enabled() -> void:
 	var destination_url: String = str(ProjectSettings.get_setting(SETTINGS_DEV_BIODYNAMIC_DESTINATION_URL, DEV_BIODYNAMIC_DEFAULT_DESTINATION_URL)).strip_edges()
 	var open_url_on_tap: bool = bool(ProjectSettings.get_setting(SETTINGS_DEV_BIODYNAMIC_OPEN_URL_ON_TAP, true))
 	_provider = DevBiodynamicTestProvider.new(image_path, destination_url, open_url_on_tap, video_path, video_destination_url)
+	_provider.slot_image_paths = {
+		"in_game_hud": str(ProjectSettings.get_setting(SETTINGS_DEV_BIODYNAMIC_TOP_IMAGE_PATH, DEV_BIODYNAMIC_DEFAULT_TOP_IMAGE_PATH)).strip_edges(),
+		"in_game_footer": str(ProjectSettings.get_setting(SETTINGS_DEV_BIODYNAMIC_BOTTOM_IMAGE_PATH, DEV_BIODYNAMIC_DEFAULT_BOTTOM_IMAGE_PATH)).strip_edges(),
+	}
 	_provider_is_dev_test = true
 
 func _dev_biodynamic_ads_enabled() -> bool:
+	if _beta_biodynamic_banners_enabled():
+		return true
 	if OS.has_feature("store_release") or not OS.is_debug_build():
 		return false
 	var env_value: String = OS.get_environment(DEV_BIODYNAMIC_ADS_ENV).strip_edges().to_lower()
@@ -507,6 +549,16 @@ func _dev_biodynamic_ads_enabled() -> bool:
 	if ProjectSettings.has_setting(SETTINGS_DEV_BIODYNAMIC_ADS):
 		return bool(ProjectSettings.get_setting(SETTINGS_DEV_BIODYNAMIC_ADS))
 	return false
+
+func _beta_biodynamic_banners_enabled() -> bool:
+	var disabled_by_env: bool = OS.get_environment(DEV_BIODYNAMIC_ADS_ENV).strip_edges().to_lower() in ["0", "false", "no", "off"]
+	return beta_banners_enabled_for_runtime(
+		OS.has_feature("beta_capture"), OS.has_feature("store_release"), OS.is_debug_build(),
+		bool(ProjectSettings.get_setting(SETTINGS_BETA_BIODYNAMIC_BANNERS, false)), disabled_by_env
+	)
+
+static func beta_banners_enabled_for_runtime(beta_build: bool, store_release: bool, debug_build: bool, configured: bool, disabled_by_env: bool) -> bool:
+	return configured and not disabled_by_env and (beta_build or (debug_build and not store_release))
 
 func _has_zero_ads_entitlement() -> bool:
 	var battle_pass_state: Node = get_node_or_null("/root/BattlePassState")
@@ -537,6 +589,13 @@ func _requires_family_safe_ads() -> bool:
 	return bool(privacy.get("is_minor", false))
 
 func _emit_ad_event(event_type: String, record: Dictionary) -> void:
+	var slot_id: String = str(record.get("slot_id", ""))
+	var stats: Dictionary = _diagnostic_slots.get(slot_id, {})
+	stats[event_type] = int(stats.get(event_type, 0)) + 1
+	stats["last_event"] = event_type
+	stats["last_reason"] = str(record.get("reason", ""))
+	stats["creative_id"] = str(record.get("creative", {}).get("id", ""))
+	_diagnostic_slots[slot_id] = stats
 	var event: Dictionary = record.duplicate(true)
 	event["type"] = event_type
 	ad_event.emit(event)

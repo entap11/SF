@@ -88,6 +88,7 @@ func build_diagnostics_payload() -> Dictionary:
 		"ops_config": ops_snapshot,
 		"analytics": analytics_snapshot,
 		"analytics_health": analytics_health,
+		"ads": get_node("/root/AdManager").call("get_diagnostics_snapshot") if get_node_or_null("/root/AdManager") != null else {},
 		"beta_capture": get_node("/root/BetaMatchCapture").call("queue_status") if get_node_or_null("/root/BetaMatchCapture") != null else {},
 		"vs": handshake_snapshot
 	}
