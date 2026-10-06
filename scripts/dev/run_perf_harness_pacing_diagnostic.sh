@@ -3,7 +3,11 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 GODOT_BIN="${GODOT_BIN:-godot}"
-ARTIFACT_DIR="${PERF_PACING_DIAGNOSTIC_DIR:-${ROOT_DIR}/artifacts/perf_harness_pacing_diagnostic}"
+DEFAULT_ARTIFACT_DIR="${ROOT_DIR}/artifacts/perf_harness_pacing_diagnostic"
+if [[ -f "${ROOT_DIR}/.sf-build-storage.json" ]]; then
+  DEFAULT_ARTIFACT_DIR="$(python3 "${ROOT_DIR}/scripts/dev/build_storage.py" path --required project/artifacts/perf_harness_pacing_diagnostic)"
+fi
+ARTIFACT_DIR="${PERF_PACING_DIAGNOSTIC_DIR:-${DEFAULT_ARTIFACT_DIR}}"
 HARNESS="res://scripts/tests/perf_benchmark_suite.gd"
 SUITE="phase1_static_fixtures"
 MODE="static_windowed_deterministic"
@@ -79,8 +83,7 @@ capture_variant() {
   local label="$1"
   local collection_level="$2"
   shift 2
-  local report_rel="artifacts/perf_harness_pacing_diagnostic/${label}.json"
-  local report_path="${ROOT_DIR}/${report_rel}"
+  local report_path="${ARTIFACT_DIR}/${label}.json"
   local log_path="${ARTIFACT_DIR}/${label}.log"
   local stderr_log_path="${ARTIFACT_DIR}/${label}.stderr.log"
   local summary_path="${ARTIFACT_DIR}/${label}.summary.json"
@@ -131,7 +134,7 @@ capture_variant() {
   if [[ "${require_window_foreground}" == "true" ]]; then
     godot_args+=(--require-window-foreground)
   fi
-  godot_args+=(--output="res://${report_rel}")
+  godot_args+=(--output="${report_path}")
   if [[ "${launch_via_launchservices}" == "true" ]]; then
     if ! godot_app="$(resolve_godot_app)"; then
       echo "PERF_PACING_DIAGNOSTIC_FAIL label=${label} reason=godot_app_unresolved"

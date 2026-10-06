@@ -20,6 +20,7 @@ debug_reports/
 artifacts/
 
 # Local tools
+.sf-build-storage.json
 tools/analytics/.env
 tools/analytics/node_modules/
 tools/rank-service/.env
@@ -37,11 +38,11 @@ tools/match-authority/dist/
 tools/vs-service/var/
 
 # Native mobile plugin build products
-native/android/secure-credentials/.gradle/
-native/android/secure-credentials/build/
-native/android/secure-credentials/plugin/build/
-native/ios/secure-credentials/bin/
-addons/swarmfront_secure_credentials/bin/
+native/android/secure-credentials/.gradle
+native/android/secure-credentials/build
+native/android/secure-credentials/plugin/build
+native/ios/secure-credentials/bin
+addons/swarmfront_secure_credentials/bin
 
 # Local Godot import noise
 assets/sprites/sf_skin_v1/barracks.PNG.import
@@ -49,6 +50,6 @@ assets/sprites/sf_skin_v1/barracks.png.import
 
 # Generated mobile build products
 android/
-ios/plugins/swarmfront_secure_credentials/bin/
+ios/plugins/swarmfront_secure_credentials/bin
 ios/plugins/swarmfront_secure_credentials/*.o
 ios/plugins/swarmfront_secure_credentials/.sconsign*

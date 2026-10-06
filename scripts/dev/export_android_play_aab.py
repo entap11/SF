@@ -13,6 +13,9 @@ import subprocess
 import sys
 import tempfile
 import zipfile
+from datetime import datetime
+
+from build_storage import output_path, storage_root
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -115,7 +118,7 @@ def verify_game_payload(bundle):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--check-signing", action="store_true", help="Verify configuration and Keychain without building.")
-    parser.add_argument("--output", type=Path, help="New .aab path outside the source worktree.")
+    parser.add_argument("--output", type=Path, help="New .aab path; defaults to a dated T7 artifact when configured.")
     args = parser.parse_args()
     verify_preset()
     java_home = Path(os.environ.get("JAVA_HOME", "/usr/local/opt/openjdk@17/libexec/openjdk.jdk/Contents/Home"))
@@ -126,8 +129,8 @@ def main():
         print("Certificate SHA-256: " + CERT_SHA256)
         return
 
-    require(args.output is not None, "Specify --output with an external .aab path.")
-    output = args.output.expanduser().resolve()
+    output = output_path(args.output, "project/artifacts/android/releases/" +
+                         datetime.now().strftime("%Y%m%d-%H%M%S") + "/swarmfront.aab")
     require(output.suffix.lower() == ".aab" and not output.is_relative_to(ROOT),
             "The AAB output must be outside the source worktree.")
     require(not output.exists(), "Refusing to overwrite an existing release artifact.")
@@ -150,6 +153,7 @@ def main():
             and not subprocess.check_output(["git", "status", "--porcelain"], cwd=ROOT),
             "Source changed during preflight; refusing to build.")
     env = signing_environment(java_home)
+    storage_root()  # Recheck after the potentially long release gate, before writing.
     output.parent.mkdir(parents=True, exist_ok=True)
     # Godot's Gradle signer places its password in process arguments. Export a
     # temporary unsigned bundle, then sign with jarsigner's environment options.
